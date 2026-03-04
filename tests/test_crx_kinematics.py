@@ -250,7 +250,7 @@ _PARAMS = _load_params()
 # Tests: one pytest item per JSON solution
 # -----------------------------
 @pytest.mark.parametrize("p", _PARAMS)
-def test_fk_against_target(kinematics_lib, crx_robot, p: Dict[str, Any]):
+def test_forward_kinematics(kinematics_lib, crx_robot, p: Dict[str, Any]):
     status, fk_pose = _call_fk(kinematics_lib, crx_robot, p["joints_deg"])
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']} config={p['config']}"
 
@@ -292,7 +292,7 @@ def test_fk_against_target(kinematics_lib, crx_robot, p: Dict[str, Any]):
 
 
 @pytest.mark.parametrize("p", _PARAMS)
-def test_ik_contains_expected_solution(kinematics_lib, crx_robot, p: Dict[str, Any]):
+def test_inverse_kinematics(kinematics_lib, crx_robot, p: Dict[str, Any]):
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
 
     approx = p["expected_best_joints"]
@@ -347,7 +347,7 @@ def _sample_joints_in_limits(rng: np.random.Generator, limits):
 
 
 @pytest.mark.parametrize("seed", range(N_FUZZ_SEEDS), ids=lambda s: f"seed_{s:04d}")
-def test_fuzz_fk_ik_roundtrip_seeded(kinematics_lib, crx_robot, seed: int):
+def test_fuzz_forward_kinematics_inverse_kinematics_roundtrip(kinematics_lib, crx_robot, seed: int):
     limits = _joint_limits_from_robot(crx_robot)
     rng = np.random.default_rng(seed)
 
