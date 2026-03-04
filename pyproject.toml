@@ -17,5 +17,8 @@ dependencies = [
 log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(levelname)s %(message)s"
-addopts = "-q"
+# addopts = "-q"
+# If Tracebacks are too long, use --tb=line to shorten 
+addopts = "-q --tb=line -ra"
+
 testpaths = ["tests"]

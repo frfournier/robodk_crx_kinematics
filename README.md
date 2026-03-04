@@ -330,18 +330,6 @@ Test behavior is configured in `pyproject.toml` under `[tool.pytest.ini_options]
 - **Logging**: INFO level to console
 - **Output**: Quiet mode (`-q` flag)
 
-### Example Test Run Output
-
-```
-INFO Starting kinematics tests
-test_crx_kinematics.py::test_forward_kinematics PASSED
-test_crx_kinematics.py::test_inverse_kinematics[test_case_0] PASSED
-test_crx_kinematics.py::test_inverse_kinematics[test_case_1] PASSED
-test_crx_kinematics.py::test_inverse_kinematics[test_case_2] PASSED
-
-====== 3 passed in 0.42s ======
-```
-
 ## Complete Workflow
 
 Here's the complete sequence to set up, build, and test:
