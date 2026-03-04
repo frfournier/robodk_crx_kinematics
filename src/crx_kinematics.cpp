@@ -48,9 +48,11 @@
 **         world_T_tcp = world_T_base * base_T_robot * FK(DH, q) * robot_T_flange * flange_T_tcp
 **       and inverted accordingly for IK.
 ** - DH parameters are read from robot_T (as configured in the .robot model)
-**   and must match the convention assumed by the solver (pay attention to
-**   any RoboDK-specific coupling/remapping such as CRX J2/J3 coupling, and
-**   any “analytic IK convention” conversions used in the derivation).
+**   and must match the convention assumed by the solver.
+** - FANUC-specific coupling used in this file:
+**     * geometric J3 axis variable is (J2 + J3), not J3 alone
+**     * dual posture relation follows Eq. (23) from the paper
+**   (see comments near CoupledThetaRad / DualSolutionRad).
 **
 ** Numerical behavior & validation
 ** -------------------------------
@@ -67,13 +69,6 @@
 ** - This implementation is provided “AS IS”, without warranty of any kind.
 ** - FANUC® and RoboDK® are trademarks of their respective owners; this project
 **   is not affiliated with or endorsed by FANUC or RoboDK.
-**
-****************************************************************************/
-/****************************************************************************
-**
-** Fanuc CRX (CRX-10iA family) — Custom Inverse Kinematics for RoboDK
-**
-** (Header comment omitted here for brevity; keep your existing banner if desired)
 **
 ****************************************************************************/
 
@@ -223,6 +218,8 @@ static inline auto DHM_FromRad(real_T alpha, real_T a, real_T theta, real_T d) -
     return T;
 }
 
+// FK path consumes RoboDK's user-configurable tool transform from robot_T, so the
+// built-in J6->tool adapter is identity here.
 static inline auto FixedJ6ToToolIsometryFk() -> PoseIsoRT { return PoseIsoRT::Identity(); }
 
 static inline auto FixedJ6ToToolIsometryAnalytic() -> PoseIsoRT {
@@ -369,6 +366,9 @@ static inline void StoreSolution(real_T *joints_all, int id, const Vec6 &user_ra
 
 static inline void BuildJointPoseInputRad(const real_T *dh, double model_rad,
                                           real_T rx_tx_rz_tz[CRX_DH_ARG_ELEMS]) {
+    // Snap alpha/theta offsets to exact right-angle family before composing FK.
+    // This mirrors the CRX DHm assumptions in Robotics 2024, Sec. 2.5/2.6 and
+    // avoids tiny import noise from robot files drifting branch selection.
     rx_tx_rz_tz[0]                  = static_cast<real_T>(SnapToRightAngleFamily(dh[0]));
     rx_tx_rz_tz[1]                  = dh[1];
     rx_tx_rz_tz[CRX_DH_THETA_INDEX]  = static_cast<real_T>(SnapToRightAngleFamily(dh[CRX_DH_THETA_INDEX]));
@@ -411,6 +411,8 @@ static auto SolveFKCore(const real_T *joints_user_deg,
     real_T *last_pose = pose_base;
     real_T next_pose_local[kPoseElems];
 
+    // FANUC CRX convention: DH joint-3 variable is coupled as (J2 + J3), not J3.
+    // This is the same convention used by the paper's IK formulas (Sec. 2.6, Eq. 19).
     const double sensed_j2_rad = joints_rad[CRX_J2_INDEX] * senses[CRX_J2_INDEX];
 
     for (int i = 0; i < nDOFs; ++i) {
@@ -462,6 +464,14 @@ static auto IsFkRoundtripValid(const Vec6 &user_rad,
 
 // ──────────────────────────────────────────────────────────────────────────────
 // IK — analytic CRX
+//
+// Paper map (robotics13060091.xhtml, Sec. 2.6):
+// - Step 1 / Eq. (13): target pose to O6/O5                  -> SolveIK + ctx.O5
+// - Step 2 / Eq. (14): O4(q) circle parametrization           -> EvaluateCircle(_cs)
+// - Step 3 / Eq. (15): O3_UP/O3_DW from triangle constraints  -> FindThirdTriangleCorner
+// - Step 4/5: UP(q), DW(q) and zero search                    -> dot_up/dot_down + bisection
+// - Step 6 / Eq. (16..22): recover J1..J6                     -> DetermineJointValues
+// - Step 7 / Eq. (23): dual posture transform                 -> DualSolutionRad
 // ──────────────────────────────────────────────────────────────────────────────
 
 struct CrxParams {
@@ -486,6 +496,9 @@ static auto ReadCrxParams(const robot_T *r, CrxParams &p) -> bool {
 }
 
 static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &p, double &pre_shift_z) -> bool {
+    // RoboDK stores the production FK model convention. The geometric IK in Sec. 2.6
+    // assumes a normalized internal convention; this adapter validates expected CRX
+    // DH signatures and remaps only if they match exactly.
     pre_shift_z = 0.0;
     const double tol = CRX_DH_CONVENTION_TOL;
 
@@ -521,8 +534,12 @@ static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &p, double &pre_shif
         p.d[4] <= -F64_EPS           && // Pass-1 Fix #2
         p.d[5]  > 0.0;
 
+    // Fail closed when a model differs from the CRX assumptions:
+    // returning -1 asks RoboDK to use its generic numerical IK.
     if (!(alpha_ok && theta_ok && a_ok && d_ok)) return false;
 
+    // The next remaps align RoboDK FK convention with the paper's internal frame setup.
+    // pre_shift_z is undone on T06 in SolveIK to keep external behavior unchanged.
     pre_shift_z    = p.d[0];
     p.d[0]         = 0.0;
     p.alpha_rad[2] = M_PI;
@@ -534,6 +551,8 @@ static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &p, double &pre_shif
 }
 
 static inline auto CoupledThetaRad(const Vec6 &j, const CrxParams &p) -> std::array<double, CRX_DOF_COUNT> {
+    // Sec. 2.6 uses the CRX-specific coupled third axis variable (J2 + J3).
+    // Keeping this in one helper prevents accidental uncoupled edits elsewhere.
     return { j[0] + p.theta0_rad[0],
              j[1] + p.theta0_rad[1],
              j[1] + j[2] + p.theta0_rad[2],
@@ -571,7 +590,8 @@ static inline auto ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane) -> boo
 
     const Vec3 x = O4 * (1.0 / std::sqrt(n2));
 
-    // Prefer y close to projected +Z; fall back to robust orthogonal.
+    // Prefer y close to projected +Z so q progression around the O4 circle stays
+    // smooth most of the time; fall back near collinearity to avoid NaNs.
     Vec3 y = Vec3::UnitZ() - x.z() * x;
     double y2 = y.squaredNorm();
     if (!std::isfinite(y2) || y2 <= kPlaneEps2) {
@@ -624,6 +644,8 @@ static auto DetermineJointValues(const Vec3 &O3,
                                  const PoseIsoRT &T06_target,
                                  const CrxParams &p,
                                  Vec6 &joints_rad) -> bool {
+    // This back-substitution corresponds to the paper's Step 6 (Eq. 16..22):
+    // once a valid O3/O4 pair is known, solve J1..J6 from chained frame reductions.
     const Vec3 O6 = T06_target.translation().cast<double>();
 
     const double J1 = std::atan2(O4.y(), O4.x());
@@ -636,6 +658,7 @@ static auto DetermineJointValues(const Vec3 &O3,
     const double J3  = std::atan2(O_1_4.z() - O_1_3.z(), O_1_4.x() - O_1_3.x());
 
     const PoseIsoRT T_L2_L1 = JointTransformRad(p, 1, J2).inverse();
+    // Joint 3 uses the coupled variable (J2 + J3) in the DH chain.
     const PoseIsoRT T_L3_L2 = JointTransformRad(p, 2, J2 + J3).inverse();
     const PoseIsoRT T_L3_L0 = T_L3_L2 * T_L2_L1 * PoseIsoRT(R_L1_L0);
 
@@ -687,6 +710,8 @@ static auto EvaluateCircle_cs(double cq, double sq,
                               const CrxParams &p,
                               CircleEvaluation &eval,
                               Mat3 &R_plane_out) -> bool {
+    // Step 2/3/4 core: for one q sample, compute O4(q), both O3 branches, then the
+    // two normalized dot products UP(q)/DW(q) whose zeros define valid solutions.
     eval.valid = false;
 
     const Vec3 O4_local(p.r5 * cq, p.r5 * sq, p.r6);
@@ -703,6 +728,7 @@ static auto EvaluateCircle_cs(double cq, double sq,
 
     const double d04 = std::sqrt(d04_sq);
     double x = 0.0, y = 0.0;
+    // The paper's triangle uses signed CRX lengths; -r4 preserves that convention.
     if (!FindThirdTriangleCorner(d04, p.a2, -p.r4, x, y)) return false;
 
     eval.O3_up   = R_plane_out * Vec3(x,  y, 0.0);
@@ -746,6 +772,8 @@ static inline auto HasBracket(double fa, double fb) -> bool {
 template <typename EvalFn>
 static auto RefineZeroBisection(double qa, double qb, double fa, double fb,
                                 EvalFn eval_fn, double &root_out) -> bool {
+    // Deliberately simple and deterministic (no Newton step): Step 5 signals can
+    // flatten near singular boundaries, where bracketing is more reliable.
     if (!(std::isfinite(fa) && std::isfinite(fb))) return false;
     if (std::abs(fa) <= CRX_ROOT_Z_TOL) { root_out = WrapRad2Pi(qa); return true; }
     if (std::abs(fb) <= CRX_ROOT_Z_TOL) { root_out = WrapRad2Pi(qb); return true; }
@@ -783,6 +811,8 @@ static void DedupSolutions(const std::vector<Vec6> &in, std::vector<Vec6> &out) 
 }
 
 static void DualSolutionRad(const Vec6 &s, Vec6 &d) {
+    // Eq. (23) dual map (paper Sec. 2.6, Step 7), expressed in radians:
+    // [J1-PI, -J2, PI-J3, J4-PI, J5, J6].
     d = s;
     d[0] = s[0] - M_PI;
     d[1] = -s[1];
@@ -819,6 +849,8 @@ static auto ForEachSignedPiVariant(const Vec6 &q, EmitFn emit) -> bool {
         if (std::abs(std::abs(q[i]) - M_PI) <= kPiFlipTol)
             flip_ids.push_back(i);
 
+    // +PI and -PI represent the same physical angle but can map to different
+    // controller branches/joint-limit edges. Emit both to keep branch choice stable.
     const auto variants = static_cast<std::uint32_t>(1u << flip_ids.size());
     for (std::uint32_t mask = 0; mask < variants; ++mask) {
         Vec6 v = q;
@@ -857,6 +889,7 @@ static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, std::vec
     ctx.target_t = T06_target.translation().cast<double>();
     ctx.O5       = ctx.target_R * Vec3(0.0, 0.0, p.r6) + ctx.target_t;
 
+    // Step 3 inequality (Eq. 15): triangle feasibility window for d04.
     const double L1 = std::abs(p.a2), L2 = std::abs(p.r4);
     const double reach_eps = 1e-6 * std::max(1.0, L1 + L2);
     const double max_d04 = L1 + L2 + reach_eps;
@@ -888,6 +921,7 @@ static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, std::vec
         }
     };
 
+    // q sampling for Step 2/4. 1440 samples = 0.25 deg granularity.
     const double q_step = TWO_PI / static_cast<double>(CRX_IK_Q_SAMPLES);
     const double c_step = std::cos(q_step);
     const double s_step = std::sin(q_step);
@@ -904,6 +938,7 @@ static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, std::vec
     for (int i = 1; i <= CRX_IK_Q_SAMPLES; ++i) {
         const double cur_q = q_step * static_cast<double>(i);
 
+        // Trig recurrence avoids repeated sin/cos calls in the hot loop.
         const double cq_new = cq * c_step - sq * s_step;
         const double sq_new = sq * c_step + cq * s_step;
         cq = cq_new;
@@ -960,6 +995,7 @@ auto SolveIK(const real_T pose[16],
             int max_solutions,
             const real_T *joints_approx,
             const robot_T *ptr_robot) -> int {
+    // External API expects RoboDK world/base/tool conventions at boundaries.
     if (iRobot_nDOFs(ptr_robot) != CRX_DOF_COUNT) return -1;
     if (max_solutions <= 0) return 0;
 
@@ -971,6 +1007,7 @@ auto SolveIK(const real_T pose[16],
     const PoseIsoRT T_pose = PoseArrayToIsometry(pose);
     const Eigen::Quaterniond q_pose_target(T_pose.linear().cast<double>());
 
+    // Remove RoboDK base/tool adapters to work in the CRX DH base frame.
     const PoseIsoRT T06_target_raw = T_base.inverse() * T_pose * T_tool.inverse();
 
     double pre_shift_z = 0.0;
@@ -980,6 +1017,7 @@ auto SolveIK(const real_T pose[16],
     if (std::abs(pre_shift_z) > F64_EPS) {
         PoseIsoRT T_shift = PoseIsoRT::Identity();
         T_shift.translation() << 0.0, 0.0, -pre_shift_z;
+        // Undo the convention adapter translation so SolveCrxIk sees paper-style frames.
         T06_target = T_shift * T06_target_raw;
     }
 
@@ -990,7 +1028,8 @@ auto SolveIK(const real_T pose[16],
     Vec6 lo_rad, hi_rad;
     ReadJointLimitsRad(ptr_robot, lo_rad, hi_rad);
 
-    // If no solutions: try approximate roundtrip if provided
+    // If geometric sweep found nothing, we still allow a validated "hold current branch"
+    // answer from joints_approx. This keeps motion planners stable near singular borders.
     if (solver_solutions.empty()) {
         if (joints_approx != nullptr) {
             Vec6 approx_rad = Vec6::Zero();
