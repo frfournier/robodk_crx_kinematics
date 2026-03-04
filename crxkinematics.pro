@@ -27,7 +27,7 @@ SOURCES += \
     $$PWD/src/crx_kinematics.cpp
 
 HEADERS += \
-    $$PWD/include/samplekinematics.h
+    $$PWD/include/crx_kinematics.h
     $$PWD/include/angle_conversions_inline.h
 
 # -----------------------------------
