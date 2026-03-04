@@ -324,11 +324,9 @@ static inline void NormalizeVecKeepSignedPi(Vec6 &q) {
   q = q.unaryExpr([](double x) { return NormalizeRadKeepSignedPi(x); });
 }
 static inline void NormalizeUserSolutionDomains(Vec6 &q) {
-  for (int i = 0; i < kDofCount; ++i) {
-    if (i == kJoint3Index)
-      continue;
-    q[i] = NormalizeRadKeepSignedPi(q[i]);
-  }
+  const double joint3_raw = q[kJoint3Index];
+  q = q.unaryExpr([](double x) { return NormalizeRadKeepSignedPi(x); });
+  q[kJoint3Index] = joint3_raw;
 }
 
 static inline auto
@@ -368,10 +366,8 @@ static inline void ReadJointLimitsRad(const robot_T *r, Vec6 &lo_rad,
   const double k = angle_conv::DegToRad(1.0);
   const real_T *lo = iRobot_JointLimLower(r);
   const real_T *hi = iRobot_JointLimUpper(r);
-  for (int i = 0; i < kDofCount; ++i) {
-    lo_rad[i] = static_cast<double>(lo[i]) * k;
-    hi_rad[i] = static_cast<double>(hi[i]) * k;
-  }
+  lo_rad = Eigen::Map<const Vec6r>(lo).template cast<double>() * k;
+  hi_rad = Eigen::Map<const Vec6r>(hi).template cast<double>() * k;
 }
 
 static inline auto NormalizeJointSense(real_T s) -> double {
@@ -383,18 +379,21 @@ static inline auto ReadNormalizedJointSenses(const robot_T *r)
     -> std::array<double, kDofCount> {
   const real_T *raw = iRobot_JointSenses(r);
   std::array<double, kDofCount> out{};
-  for (int i = 0; i < kDofCount; ++i)
-    out[i] = NormalizeJointSense(raw[i]);
+  Eigen::Map<Vec6>(out.data()) =
+      Eigen::Map<const Vec6r>(raw).unaryExpr([](real_T s) {
+        return NormalizeJointSense(s);
+      });
   return out;
 }
 
 static inline auto ClampToLimits(Vec6 &q, const Vec6 &lo, const Vec6 &hi,
                                  double tol_rad) -> bool {
-  for (int i = 0; i < kDofCount; ++i) {
-    if (q[i] < lo[i] - tol_rad || q[i] > hi[i] + tol_rad)
-      return false;
-    q[i] = std::min(hi[i], std::max(lo[i], q[i]));
-  }
+  const auto out_of_bounds = ((q.array() < (lo.array() - tol_rad)) ||
+                              (q.array() > (hi.array() + tol_rad)))
+                                 .any();
+  if (out_of_bounds)
+    return false;
+  q = q.cwiseMax(lo).cwiseMin(hi);
   return true;
 }
 
@@ -403,19 +402,16 @@ static inline auto ClampToLimits(Vec6 &q, const Vec6 &lo, const Vec6 &hi,
 // ──────────────────────────────────────────────────────────────────────────────
 
 static inline auto WrappedDist2Rad(const Vec6 &a, const Vec6 &b) -> double {
-  double acc = 0.0;
-  for (int i = 0; i < kDofCount; ++i) {
-    const double d = WrapRadPi(a[i] - b[i]);
-    acc += d * d;
-  }
-  return acc;
+  return (a - b)
+      .unaryExpr([](double x) { return WrapRadPi(x); })
+      .squaredNorm();
 }
 static inline auto WrappedMaxAbsDiffRad(const Vec6 &a, const Vec6 &b)
     -> double {
-  double mx = 0.0;
-  for (int i = 0; i < kDofCount; ++i)
-    mx = std::max(mx, std::abs(WrapRadPi(a[i] - b[i])));
-  return mx;
+  return (a - b)
+      .unaryExpr([](double x) { return WrapRadPi(x); })
+      .cwiseAbs()
+      .maxCoeff();
 }
 static inline auto MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) -> double {
   return (a - b).cwiseAbs().maxCoeff();
