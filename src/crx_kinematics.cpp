@@ -1,42 +1,80 @@
 /****************************************************************************
-** Minimal FK/IK implementation (logging/debug/formatting stripped)
 **
-** Revision history
-** ─────────────────────────────────────────────────────────────────────────
-** Pass 1 – Correctness & robustness fixes:
-**  1. [CORRECTNESS]    SolverToRobotJoints: replaced 3-branch heuristic with
-**                      the exact deterministic remapping q3_robot = q3 - 2*q2.
-**  2. [CORRECTNESS]    ConvertRoboDkDhToAnalyticIkConvention: d[4] check
-**                      changed from `< 0` to `<= -F64_EPS`.
-**  3. [ROBUSTNESS]     EvaluateCircle: R_plane is now a local output parameter;
-**                      bisection lambdas own their own state and can no longer
-**                      corrupt the main-loop R_plane.
-**  4. [ROBUSTNESS]     ConstructPlane: added final y re-normalisation and a
-**                      debug-build orthonormality assertion.
-**  5. [ROBUSTNESS]     DetermineJointValues: now calls IsPoseConsistent before
-**                      returning true; callers can no longer accept bad joints.
-**  6. [MINOR]          WrapDeg: replaced deg→rad→deg round-trip with a direct
-**                      degree-domain fmod.
-**  7. [MAINTAINABILITY] static_assert guards on every robot_T layout offset.
-**  8. [CLARITY]        CRX_SOLUTION_STRIDE documented; FixedJ6ToToolIsometry
-**                      kept as an explicit named hook-point.
+** Fanuc CRX (CRX-10iA family) — Custom Inverse Kinematics for RoboDK
 **
-** Pass 2 – Degree / radian boundary cleanup:
-**  A. Single conversion point in FK: joints_user_deg[] converted to rad once
-**     at entry to SolveFKCore; all arithmetic (limit check, coupling, DH build)
-**     done in radians throughout.  BuildJointPoseInput now takes rad, not deg.
-**  B. robot_T joint limits are stored in degrees; they are converted to rad
-**     once per SolveFKCore / SolveIK call, not once per joint per frame.
-**  C. IK candidate pipeline: robot_rad → sense-sign applied in rad → limit
-**     check in rad → final output conversion to deg only when writing back to
-**     the caller-facing arrays.  The intermediate user_deg Vec6 that was
-**     carried in Candidate is removed; Candidate now stores rad only.
-**  D. StoreSolution converts rad→deg at write time; all internal bookkeeping
-**     uses rad.
-**  E. WrapDeg is now only called at the public output boundary (writing to
-**     joints[] / joints_all[]).  It is no longer used mid-pipeline.
-**  F. DegArrayToRadVec / RadVecToDegArray helpers are used strictly at the
-**     public interface boundary; no other call sites exist.
+** Overview
+** --------
+** This module provides a deterministic inverse-kinematics (IK) solver for the
+** FANUC CRX collaborative robot family (6R serial arm with a *non-spherical
+** wrist*). The solver is intended to be compiled as a RoboDK custom kinematics
+** library, following the Plug-In-Interface "robotextensions/samplekinematics"
+** contract (SolveFK/SolveIK entry points and RoboDK’s robot_T parameter layout).
+**
+** Algorithmic basis
+** -----------------
+** The IK method follows the fully geometric approach described by:
+**
+**   M. Abbes, G. Poisson, “Geometric Approach for Inverse Kinematics of the
+**   FANUC CRX Collaborative Robot”, Robotics 13(6):91, 2024.
+**   DOI: https://doi.org/10.3390/robotics13060091
+**
+** Key idea: reduce the 6-DoF IK to a 1-D root-finding problem over a scalar
+** function derived from geometric constraints of the CRX architecture. The
+** solver enumerates all valid postures (typically 8 / 12 / 16 solutions, when
+** they exist) and remains robust near singularities by validating candidate
+** solutions against FK consistency checks.
+**
+** Reference implementation & provenance
+** -------------------------------------
+** This RoboDK-oriented implementation is inspired by the open-source CRX FK/IK
+** package by Daniel Cranston (MIT):
+**
+**   https://github.com/danielcranston/crx_kinematics
+**
+** Integration target (RoboDK custom kinematics sample):
+**
+**   https://github.com/RoboDK/Plug-In-Interface/tree/master/robotextensions/samplekinematics
+**
+** Conventions & units (RoboDK integration notes)
+** ----------------------------------------------
+** - Poses are expressed as 4x4 homogeneous transforms (row-major in the RoboDK
+**   C API), position in millimeters.
+** - Joints are revolute; angles are interpreted/returned per RoboDK’s expected
+**   units for custom kinematics (typically degrees at the interface boundary;
+**   internal computation may use radians — keep conversions explicit).
+** - Base/Tool adaptation:
+**     * RoboDK provides a *robot base adaptor* and a *tool flange adaptor*
+**       through robot_T. These must be applied consistently:
+**         world_T_tcp = world_T_base * base_T_robot * FK(DH, q) * robot_T_flange * flange_T_tcp
+**       and inverted accordingly for IK.
+** - DH parameters are read from robot_T (as configured in the .robot model)
+**   and must match the convention assumed by the solver (pay attention to
+**   any RoboDK-specific coupling/remapping such as CRX J2/J3 coupling, and
+**   any “analytic IK convention” conversions used in the derivation).
+**
+** Numerical behavior & validation
+** -------------------------------
+** - The solver enumerates candidate solutions by scanning/solving the 1-D
+**   constraint and then back-substituting remaining joints.
+** - Each candidate is validated by forward-kinematics reconstruction:
+**     pose_error(position, orientation) <= tolerance
+**   to reject spurious roots and to handle near-singular cases safely.
+** - Solutions can be deduplicated by an angular threshold to remove numerical
+**   duplicates created by root-finding tolerances.
+**
+** Safety / legal
+** --------------
+** - This implementation is provided “AS IS”, without warranty of any kind.
+** - FANUC® and RoboDK® are trademarks of their respective owners; this project
+**   is not affiliated with or endorsed by FANUC or RoboDK.
+**
+****************************************************************************/
+/****************************************************************************
+**
+** Fanuc CRX (CRX-10iA family) — Custom Inverse Kinematics for RoboDK
+**
+** (Header comment omitted here for brevity; keep your existing banner if desired)
+**
 ****************************************************************************/
 
 #define _USE_MATH_DEFINES
@@ -47,6 +85,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <vector>
+#include <numeric>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -54,142 +94,115 @@
 #include "crx_kinematics.h"
 #include "angle_conversions_inline.h"
 
-#define TWO_PI   (2.0 * M_PI)
-#define HALF_PI  (M_PI / 2.0)
-#define F64_EPS  1e-12
+namespace {
 
-#define POSE_ROWS  4
-#define POSE_COLS  4
-#define POSE_ELEMS 16
+// ──────────────────────────────────────────────────────────────────────────────
+// Constants (prefer constexpr over macros)
+// ──────────────────────────────────────────────────────────────────────────────
 
-#define CRX_DOF_COUNT 6
+static constexpr double TWO_PI  = 2.0 * M_PI;
+static constexpr double HALF_PI = 0.5 * M_PI;
+static constexpr double F64_EPS = 1e-12;
 
-#define CRX_ROBOT_STRIDE              20
-#define CRX_ROBOT_BASE_XYZWPR_ROW     9
-#define CRX_ROBOT_TOOL_XYZWPR_ROW     28
-#define CRX_ROBOT_JOINT_LIM_LOWER_ROW 30
-#define CRX_ROBOT_JOINT_LIM_UPPER_ROW 31
-#define CRX_ROBOT_JOINT_SENSES_ROW    3
-#define CRX_ROBOT_JOINT_SENSES_COL    4
-#define CRX_ROBOT_DH_BASE_ROW         10
-#define CRX_ROBOT_DOF_ROW             1
-#define CRX_ROBOT_DOF_COL             1
+static constexpr int kPoseRows  = 4;
+static constexpr int kPoseCols  = 4;
+static constexpr int kPoseElems = 16;
 
-#define CRX_DH_ARG_ELEMS  4
+static constexpr int CRX_DOF_COUNT = 6;
+
+static constexpr int CRX_ROBOT_STRIDE              = 20;
+static constexpr int CRX_ROBOT_BASE_XYZWPR_ROW     = 9;
+static constexpr int CRX_ROBOT_TOOL_XYZWPR_ROW     = 28;
+static constexpr int CRX_ROBOT_JOINT_LIM_LOWER_ROW = 30;
+static constexpr int CRX_ROBOT_JOINT_LIM_UPPER_ROW = 31;
+static constexpr int CRX_ROBOT_JOINT_SENSES_ROW    = 3;
+static constexpr int CRX_ROBOT_JOINT_SENSES_COL    = 4;
+static constexpr int CRX_ROBOT_DH_BASE_ROW         = 10;
+static constexpr int CRX_ROBOT_DOF_ROW             = 1;
+static constexpr int CRX_ROBOT_DOF_COL             = 1;
+
+static constexpr int CRX_DH_ARG_ELEMS  = 4;
 // Each solution slot: CRX_DOF_COUNT joint values + CRX_DOF_COUNT reserved words = 12.
-#define CRX_SOLUTION_STRIDE 12
+static constexpr int CRX_SOLUTION_STRIDE = 12;
 static_assert(CRX_SOLUTION_STRIDE == 2 * CRX_DOF_COUNT,
               "CRX_SOLUTION_STRIDE must be 2 * CRX_DOF_COUNT");
 
-#define CRX_J2_INDEX                1
-#define CRX_J3_INDEX                2
-#define CRX_DH_PRISMATIC_FLAG_INDEX 4
-#define CRX_DH_THETA_INDEX          2
-#define CRX_DH_D_INDEX              3
+static constexpr int CRX_J2_INDEX                = 1;
+static constexpr int CRX_J3_INDEX                = 2;
+static constexpr int CRX_DH_PRISMATIC_FLAG_INDEX = 4;
+static constexpr int CRX_DH_THETA_INDEX          = 2;
+static constexpr int CRX_DH_D_INDEX              = 3;
 
-#define CRX_IK_Q_SAMPLES    1440
-#define CRX_REFINE_MAX_ITER 100
-#define CRX_REFINE_XTOL     1e-12
-#define CRX_ROOT_Z_TOL      1e-14
+static constexpr int    CRX_IK_Q_SAMPLES    = 1440;
+static constexpr int    CRX_REFINE_MAX_ITER = 100;
+static constexpr double CRX_REFINE_XTOL     = 1e-12;
+static constexpr double CRX_ROOT_Z_TOL      = 1e-14;
 
-#define CRX_SOLUTION_ATOL_DEG 1e-3
-#define CRX_SOLUTION_ATOL_RAD angle_conv::DegToRad(CRX_SOLUTION_ATOL_DEG)
-#define CRX_SOLUTION_ATOL_MM  1e-4
-#define CRX_SOLUTION_ATOL_MM2 (CRX_SOLUTION_ATOL_MM * CRX_SOLUTION_ATOL_MM)
-#define CRX_LIMIT_TOL_DEG 1e-2
-#define CRX_LIMIT_TOL_RAD angle_conv::DegToRad(CRX_LIMIT_TOL_DEG)
+static constexpr double CRX_SOLUTION_ATOL_DEG = 1e-3;
+static constexpr double CRX_SOLUTION_ATOL_RAD = angle_conv::DegToRad(CRX_SOLUTION_ATOL_DEG);
+static constexpr double CRX_SOLUTION_ATOL_MM  = 1e-4;
+static constexpr double CRX_SOLUTION_ATOL_MM2 = CRX_SOLUTION_ATOL_MM * CRX_SOLUTION_ATOL_MM;
 
-#define CRX_RIGHT_ANGLE_SNAP_TOL 1e-5
-#define CRX_DH_CONVENTION_TOL   1e-5
-#define CRX_TRIANGLE_NEG_TOL    1e-9
+static constexpr double CRX_LIMIT_TOL_DEG = 1e-2;
+static constexpr double CRX_LIMIT_TOL_RAD = angle_conv::DegToRad(CRX_LIMIT_TOL_DEG);
 
-// robot_T is intentionally opaque in the public API (typedef void robot_T),
-// so layout checks against sizeof(robot_T) are not possible in this unit.
-
-namespace {
-
-// ═══════════════════════════════════════════════════════════════════════════
-// robot_T flat-array accessors
-// ═══════════════════════════════════════════════════════════════════════════
-
-const real_T* iRobot_At(const robot_T *r, int row, int col = 0) {
-    return reinterpret_cast<const real_T*>(r) + row * CRX_ROBOT_STRIDE + col;
-}
-const real_T* iRobot_BaseXYZWPR(const robot_T *r)             { return iRobot_At(r, CRX_ROBOT_BASE_XYZWPR_ROW); }
-const real_T* iRobot_ToolXYZWPR(const robot_T *r)             { return iRobot_At(r, CRX_ROBOT_TOOL_XYZWPR_ROW); }
-const real_T* iRobot_JointLimLower(const robot_T *r)          { return iRobot_At(r, CRX_ROBOT_JOINT_LIM_LOWER_ROW); }
-const real_T* iRobot_JointLimUpper(const robot_T *r)          { return iRobot_At(r, CRX_ROBOT_JOINT_LIM_UPPER_ROW); }
-const real_T* iRobot_JointSenses(const robot_T *r)            { return iRobot_At(r, CRX_ROBOT_JOINT_SENSES_ROW, CRX_ROBOT_JOINT_SENSES_COL); }
-const real_T* iRobot_DHM_JointId(const robot_T *r, int joint) { return iRobot_At(r, CRX_ROBOT_DH_BASE_ROW + joint); }
-
-int iRobot_nDOFs(const robot_T *r) {
-    return static_cast<int>(*iRobot_At(r, CRX_ROBOT_DOF_ROW, CRX_ROBOT_DOF_COL));
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Eigen type aliases
-// ═══════════════════════════════════════════════════════════════════════════
-
-using PoseMatRT      = Eigen::Matrix<real_T, POSE_ROWS, POSE_COLS, Eigen::ColMajor>;
-using PoseIsoRT      = Eigen::Transform<real_T, 3, Eigen::Isometry>;
-using PoseMapConstRT = Eigen::Map<const PoseMatRT>;
-using PoseMapRT      = Eigen::Map<PoseMatRT>;
-using Vec6 = Eigen::Matrix<double, CRX_DOF_COUNT, 1>;
-using Mat3 = Eigen::Matrix3d;
-using Vec3 = Eigen::Vector3d;
-
-template <typename T, std::size_t N>
-struct FixedBuf {
-    std::array<T, N> data{};
-    std::size_t size = 0;
-
-    bool push_back(const T &v) {
-        if (size >= N) return false;
-        data[size++] = v;
-        return true;
-    }
-    void clear() { size = 0; }
-    bool empty() const { return size == 0; }
-
-    T *begin() { return data.data(); }
-    T *end() { return data.data() + size; }
-    const T *begin() const { return data.data(); }
-    const T *end() const { return data.data() + size; }
-
-    T &operator[](std::size_t i) { return data[i]; }
-    const T &operator[](std::size_t i) const { return data[i]; }
-};
+static constexpr double CRX_RIGHT_ANGLE_SNAP_TOL = 1e-5;
+static constexpr double CRX_DH_CONVENTION_TOL    = 1e-5;
+static constexpr double CRX_TRIANGLE_NEG_TOL     = 1e-9;
 
 static constexpr std::size_t kMaxSolutions = 32;
 
-struct Candidate {
-    Vec6 user_rad = Vec6::Zero();
-    double dist2 = 0.0;
-};
+// ──────────────────────────────────────────────────────────────────────────────
+// robot_T flat-array accessors
+// ──────────────────────────────────────────────────────────────────────────────
 
-using SolBuf = FixedBuf<Vec6, kMaxSolutions>;
-using CandBuf = FixedBuf<Candidate, kMaxSolutions>;
+static inline const real_T* iRobot_At(const robot_T *r, int row, int col = 0) {
+    return reinterpret_cast<const real_T*>(r) + row * CRX_ROBOT_STRIDE + col;
+}
+static inline const real_T* iRobot_BaseXYZWPR(const robot_T *r)             { return iRobot_At(r, CRX_ROBOT_BASE_XYZWPR_ROW); }
+static inline const real_T* iRobot_ToolXYZWPR(const robot_T *r)             { return iRobot_At(r, CRX_ROBOT_TOOL_XYZWPR_ROW); }
+static inline const real_T* iRobot_JointLimLower(const robot_T *r)          { return iRobot_At(r, CRX_ROBOT_JOINT_LIM_LOWER_ROW); }
+static inline const real_T* iRobot_JointLimUpper(const robot_T *r)          { return iRobot_At(r, CRX_ROBOT_JOINT_LIM_UPPER_ROW); }
+static inline const real_T* iRobot_JointSenses(const robot_T *r)            { return iRobot_At(r, CRX_ROBOT_JOINT_SENSES_ROW, CRX_ROBOT_JOINT_SENSES_COL); }
+static inline const real_T* iRobot_DHM_JointId(const robot_T *r, int joint) { return iRobot_At(r, CRX_ROBOT_DH_BASE_ROW + joint); }
 
-// ═══════════════════════════════════════════════════════════════════════════
+static inline int iRobot_nDOFs(const robot_T *r) {
+    return static_cast<int>(*iRobot_At(r, CRX_ROBOT_DOF_ROW, CRX_ROBOT_DOF_COL));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Eigen type aliases
+// ──────────────────────────────────────────────────────────────────────────────
+
+using PoseMatRT      = Eigen::Matrix<real_T, kPoseRows, kPoseCols, Eigen::ColMajor>;
+using PoseIsoRT      = Eigen::Transform<real_T, 3, Eigen::Isometry>;
+using PoseMapConstRT = Eigen::Map<const PoseMatRT>;
+using PoseMapRT      = Eigen::Map<PoseMatRT>;
+
+using Vec6  = Eigen::Matrix<double, CRX_DOF_COUNT, 1>;
+using Vec6r = Eigen::Matrix<real_T, CRX_DOF_COUNT, 1>;
+using Mat3  = Eigen::Matrix3d;
+using Vec3  = Eigen::Vector3d;
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Pose helpers
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 
-static inline PoseIsoRT PoseArrayToIsometry(const real_T pose[POSE_ELEMS]) {
+static inline PoseIsoRT PoseArrayToIsometry(const real_T pose[kPoseElems]) {
     PoseIsoRT out; out.matrix() = PoseMapConstRT(pose); return out;
 }
-static inline void IsometryToPoseArray(const PoseIsoRT &iso, real_T pose[POSE_ELEMS]) {
-    PoseMapRT pose_map(pose);
-    pose_map = iso.matrix();
+static inline void IsometryToPoseArray(const PoseIsoRT &iso, real_T pose[kPoseElems]) {
+    PoseMapRT(pose) = iso.matrix();
 }
 
 // FANUC/RoboDK WPR: Rz(R)*Ry(P)*Rx(W), translation mm, angles rad.
 static inline PoseIsoRT XYZWPR_ToIsometry(const real_T xyzwpr[6]) {
+    using AA = Eigen::AngleAxis<real_T>;
     PoseIsoRT T = PoseIsoRT::Identity();
     T.linear() =
-        (Eigen::AngleAxis<real_T>(xyzwpr[5], Eigen::Matrix<real_T,3,1>::UnitZ()) *
-         Eigen::AngleAxis<real_T>(xyzwpr[4], Eigen::Matrix<real_T,3,1>::UnitY()) *
-         Eigen::AngleAxis<real_T>(xyzwpr[3], Eigen::Matrix<real_T,3,1>::UnitX()))
-            .toRotationMatrix();
+        (AA(xyzwpr[5], Eigen::Matrix<real_T,3,1>::UnitZ()) *
+         AA(xyzwpr[4], Eigen::Matrix<real_T,3,1>::UnitY()) *
+         AA(xyzwpr[3], Eigen::Matrix<real_T,3,1>::UnitX())).toRotationMatrix();
     T.translation() << xyzwpr[0], xyzwpr[1], xyzwpr[2];
     return T;
 }
@@ -217,19 +230,16 @@ static inline PoseIsoRT FixedJ6ToToolIsometryAnalytic() {
     return T;
 }
 
-static inline void XYZWPR_2_Pose(const real_T xyzwpr[CRX_DOF_COUNT], real_T pose[POSE_ELEMS]) {
+static inline void XYZWPR_2_Pose(const real_T xyzwpr[CRX_DOF_COUNT], real_T pose[kPoseElems]) {
     IsometryToPoseArray(XYZWPR_ToIsometry(xyzwpr), pose);
 }
-static inline void Pose_Mult(const real_T A[POSE_ELEMS], const real_T B[POSE_ELEMS], real_T out[POSE_ELEMS]) {
-    PoseMatRT tmp;
-    tmp.noalias() = PoseMapConstRT(A) * PoseMapConstRT(B);
-    PoseMapRT out_map(out);
-    out_map = tmp;
+static inline void Pose_Mult(const real_T A[kPoseElems], const real_T B[kPoseElems], real_T out[kPoseElems]) {
+    PoseMapRT(out).noalias() = PoseMapConstRT(A) * PoseMapConstRT(B);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Angle utilities — all radians, no degree arithmetic
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
+// Angle utilities — all radians
+// ──────────────────────────────────────────────────────────────────────────────
 
 static inline double WrapRad2Pi(double a) {
     double w = std::fmod(a, TWO_PI);
@@ -240,18 +250,15 @@ static inline double WrapRadPi(double a) {
     if (w < 0.0) w += TWO_PI;
     return w - M_PI;
 }
-static inline void WrapVecRad(Vec6 &q) {
-    for (int i = 0; i < CRX_DOF_COUNT; ++i) q[i] = WrapRadPi(q[i]);
-}
 
 // Normalize to [-pi, pi] while preserving endpoint sign (+pi stays +pi, -pi stays -pi).
 static inline double NormalizeRadKeepSignedPi(double a) {
-    while (a > M_PI) a -= TWO_PI;
+    while (a >  M_PI) a -= TWO_PI;
     while (a < -M_PI) a += TWO_PI;
     return a;
 }
 static inline void NormalizeVecKeepSignedPi(Vec6 &q) {
-    for (int i = 0; i < CRX_DOF_COUNT; ++i) q[i] = NormalizeRadKeepSignedPi(q[i]);
+    q = q.unaryExpr([](double x){ return NormalizeRadKeepSignedPi(x); });
 }
 static inline void NormalizeUserSolutionDomains(Vec6 &q) {
     for (int i = 0; i < CRX_DOF_COUNT; ++i) {
@@ -268,27 +275,21 @@ static inline double SnapToRightAngleFamily(double a, double tol = CRX_RIGHT_ANG
 }
 static inline double AngleDiffAbs(double a, double b) { return std::abs(WrapRadPi(a - b)); }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Public-boundary unit conversions
-// These are the ONLY call sites for deg<->rad conversion in the entire module.
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
+// Public-boundary unit conversions (ONLY deg<->rad callsites)
+// ──────────────────────────────────────────────────────────────────────────────
 
-// Entry: convert caller-supplied degree array to rad Vec6. Called once per entry.
 static inline void DegArrayToRadVec(const real_T *j_deg, Vec6 &out_rad) {
     out_rad = Eigen::Map<const Vec6>(j_deg) * angle_conv::DegToRad(1.0);
 }
-// Exit: write rad Vec6 to caller-facing degree array. Called once per exit.
 static inline void RadVecToDegArray(const Vec6 &v, real_T *out) {
-    const double k = angle_conv::RadToDeg(1.0);
-    for (int i = 0; i < CRX_DOF_COUNT; ++i)
-        out[i] = static_cast<real_T>(v[i] * k);
+    Eigen::Map<Vec6r>(out) = (v * angle_conv::RadToDeg(1.0)).template cast<real_T>();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 // Joint limits and senses
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 
-// robot_T stores limits in degrees. Convert once per call (Change B).
 static inline void ReadJointLimitsRad(const robot_T *r, Vec6 &lo_rad, Vec6 &hi_rad) {
     const double k = angle_conv::DegToRad(1.0);
     const real_T *lo = iRobot_JointLimLower(r);
@@ -310,9 +311,17 @@ static inline std::array<double, CRX_DOF_COUNT> ReadNormalizedJointSenses(const 
     return out;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+static inline bool ClampToLimits(Vec6& q, const Vec6& lo, const Vec6& hi, double tol_rad) {
+    for (int i = 0; i < CRX_DOF_COUNT; ++i) {
+        if (q[i] < lo[i] - tol_rad || q[i] > hi[i] + tol_rad) return false;
+        q[i] = std::min(hi[i], std::max(lo[i], q[i]));
+    }
+    return true;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Vec6 distance helpers (rad domain)
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 
 static inline double WrappedDist2Rad(const Vec6 &a, const Vec6 &b) {
     double acc = 0.0;
@@ -329,46 +338,38 @@ static inline double WrappedMaxAbsDiffRad(const Vec6 &a, const Vec6 &b) {
     return mx;
 }
 static inline double MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) {
-    double mx = 0.0;
-    for (int i = 0; i < CRX_DOF_COUNT; ++i)
-        mx = std::max(mx, std::abs(a[i] - b[i]));
-    return mx;
+    return (a - b).cwiseAbs().maxCoeff();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Solution storage — rad→deg conversion at write time only (Change D)
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
+// Solution storage — rad→deg conversion at write time only
+// ──────────────────────────────────────────────────────────────────────────────
 
 static inline void StoreSolution(real_T *joints_all, int id, const Vec6 &user_rad) {
     real_T *dst = joints_all + CRX_SOLUTION_STRIDE * id;
     std::fill(dst, dst + CRX_SOLUTION_STRIDE, static_cast<real_T>(0.0));
-    RadVecToDegArray(user_rad, dst); // single rad→deg at output boundary
+    RadVecToDegArray(user_rad, dst);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 // FK core
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Change A: input joints_user_deg[] converted to rad once at entry.
-//   All subsequent work — limit check, CRX coupling, DH frame build — is
-//   done in radians.  The old per-joint DegToRad call inside BuildJointPoseInput
-//   is gone; the function now takes model_rad directly.
+// ──────────────────────────────────────────────────────────────────────────────
 
 static inline void BuildJointPoseInputRad(const real_T *dh, double model_rad,
                                           real_T rx_tx_rz_tz[CRX_DH_ARG_ELEMS]) {
-    rx_tx_rz_tz[0]               = static_cast<real_T>(SnapToRightAngleFamily(dh[0]));
-    rx_tx_rz_tz[1]               = dh[1];
+    rx_tx_rz_tz[0]                 = static_cast<real_T>(SnapToRightAngleFamily(dh[0]));
+    rx_tx_rz_tz[1]                 = dh[1];
     rx_tx_rz_tz[CRX_DH_THETA_INDEX] = static_cast<real_T>(SnapToRightAngleFamily(dh[CRX_DH_THETA_INDEX]));
     rx_tx_rz_tz[CRX_DH_D_INDEX]     = dh[CRX_DH_D_INDEX];
 
     if (dh[CRX_DH_PRISMATIC_FLAG_INDEX] == 0.0)
-        rx_tx_rz_tz[CRX_DH_THETA_INDEX] += static_cast<real_T>(model_rad); // rad — no conversion
+        rx_tx_rz_tz[CRX_DH_THETA_INDEX] += static_cast<real_T>(model_rad);
     else
-        rx_tx_rz_tz[CRX_DH_D_INDEX]     += static_cast<real_T>(model_rad); // prismatic: linear
+        rx_tx_rz_tz[CRX_DH_D_INDEX]     += static_cast<real_T>(model_rad);
 }
 
 static int SolveFKCore(const real_T *joints_user_deg,
-                       real_T pose_out[POSE_ELEMS],
+                       real_T pose_out[kPoseElems],
                        real_T *joint_poses_out,
                        int max_poses,
                        bool check_limits,
@@ -377,57 +378,53 @@ static int SolveFKCore(const real_T *joints_user_deg,
     if (nDOFs != CRX_DOF_COUNT) return -1;
     if (joint_poses_out != nullptr && max_poses < nDOFs + 1) return -1;
 
-    // ── Change A: single deg→rad at entry ────────────────────────────────
     Vec6 joints_rad;
     DegArrayToRadVec(joints_user_deg, joints_rad);
 
     const auto senses = ReadNormalizedJointSenses(ptr_robot);
 
-    // ── Change B: limits converted once in rad ────────────────────────────
     Vec6 lo_rad, hi_rad;
     if (check_limits) ReadJointLimitsRad(ptr_robot, lo_rad, hi_rad);
 
-    real_T pose_base_local[POSE_ELEMS];
+    // Keep legacy array path for CAD joint_poses_out (identical behavior)
+    real_T pose_base_local[kPoseElems];
     real_T *pose_base = (joint_poses_out != nullptr)
-                      ? (joint_poses_out + POSE_ELEMS * 0)
+                      ? (joint_poses_out + kPoseElems * 0)
                       : pose_base_local;
 
-    real_T pose_tool[POSE_ELEMS], pose_j6_tool[POSE_ELEMS];
+    real_T pose_tool[kPoseElems], pose_j6_tool[kPoseElems];
     XYZWPR_2_Pose(iRobot_BaseXYZWPR(ptr_robot), pose_base);
     XYZWPR_2_Pose(iRobot_ToolXYZWPR(ptr_robot), pose_tool);
     IsometryToPoseArray(FixedJ6ToToolIsometryFk(), pose_j6_tool);
 
     real_T *last_pose = pose_base;
-    real_T next_pose_local[POSE_ELEMS];
+    real_T next_pose_local[kPoseElems];
 
-    // Coupling reference — in rad (Change A).
     const double sensed_j2_rad = joints_rad[CRX_J2_INDEX] * senses[CRX_J2_INDEX];
 
     for (int i = 0; i < nDOFs; ++i) {
-        const double sensed_rad = joints_rad[i] * senses[i]; // rad, no conversion
+        const double sensed_rad = joints_rad[i] * senses[i];
 
-        // Limit check in rad (Change B).
         if (check_limits && (sensed_rad < lo_rad[i] || sensed_rad > hi_rad[i])) return -2;
 
-        // CRX coupling in rad: model_theta3 = -q2 + q3 (Change A).
         double model_rad = sensed_rad;
         if (i == CRX_J3_INDEX) model_rad = -sensed_j2_rad + sensed_rad;
 
         real_T rx_tx_rz_tz[CRX_DH_ARG_ELEMS];
         BuildJointPoseInputRad(iRobot_DHM_JointId(ptr_robot, i), model_rad, rx_tx_rz_tz);
 
-        real_T T_i[POSE_ELEMS];
+        real_T T_i[kPoseElems];
         IsometryToPoseArray(DHM_FromRad(rx_tx_rz_tz[0], rx_tx_rz_tz[1],
                                         rx_tx_rz_tz[2], rx_tx_rz_tz[3]), T_i);
 
         real_T *next_pose = (joint_poses_out != nullptr)
-                          ? (joint_poses_out + POSE_ELEMS * (i + 1))
+                          ? (joint_poses_out + kPoseElems * (i + 1))
                           : next_pose_local;
         Pose_Mult(last_pose, T_i, next_pose);
         last_pose = next_pose;
     }
 
-    real_T pose_flange[POSE_ELEMS];
+    real_T pose_flange[kPoseElems];
     Pose_Mult(last_pose,   pose_j6_tool, pose_flange);
     Pose_Mult(pose_flange, pose_tool,    pose_out);
     return 1;
@@ -438,7 +435,7 @@ static bool IsFkRoundtripValid(const Vec6 &user_rad,
                                const Eigen::Quaterniond &target_quat,
                                const robot_T *ptr_robot) {
     real_T user_deg[CRX_DOF_COUNT];
-    real_T fk_pose[POSE_ELEMS];
+    real_T fk_pose[kPoseElems];
     RadVecToDegArray(user_rad, user_deg);
     if (SolveFKCore(user_deg, fk_pose, nullptr, 0, false, ptr_robot) != 1) return false;
 
@@ -451,9 +448,9 @@ static bool IsFkRoundtripValid(const Vec6 &user_rad,
     return std::isfinite(ang_err) && ang_err <= CRX_SOLUTION_ATOL_RAD;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 // IK — analytic CRX
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 
 struct CrxParams {
     std::array<double, CRX_DOF_COUNT> alpha_rad{};
@@ -504,13 +501,12 @@ static bool ConvertRoboDkDhToAnalyticIkConvention(CrxParams &p, double &pre_shif
         std::abs(p.a[4]) <= F64_EPS &&
         std::abs(p.a[5]) <= F64_EPS;
 
-    // Pass-1 Fix #2: <= -F64_EPS instead of < 0.0
     const bool d_ok =
-        p.d[0]  > 0.0           &&
-        std::abs(p.d[1]) <= F64_EPS &&
-        std::abs(p.d[2]) <= F64_EPS &&
-        p.d[3]  > 0.0           &&
-        p.d[4] <= -F64_EPS      &&
+        p.d[0]  > 0.0                &&
+        std::abs(p.d[1]) <= F64_EPS  &&
+        std::abs(p.d[2]) <= F64_EPS  &&
+        p.d[3]  > 0.0                &&
+        p.d[4] <= -F64_EPS           && // Pass-1 Fix #2
         p.d[5]  > 0.0;
 
     if (!(alpha_ok && theta_ok && a_ok && d_ok)) return false;
@@ -563,16 +559,16 @@ static inline bool ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane) {
 
     const Vec3 x = O4 * (1.0 / std::sqrt(n2));
 
-    // y_raw = Z - (Z·x) x, with Z·x = x.z()
-    Vec3 y = Vec3(0.0, 0.0, 1.0) - x.z() * x;
+    // Prefer y close to projected +Z; fall back to robust orthogonal.
+    Vec3 y = Vec3::UnitZ() - x.z() * x;
     double y2 = y.squaredNorm();
     if (!std::isfinite(y2) || y2 <= kPlaneEps2) {
-        const Vec3 a = (std::abs(x.z()) < 0.9) ? Vec3(0.0, 0.0, 1.0) : Vec3(0.0, 1.0, 0.0);
-        y = a - a.dot(x) * x;
+        y = x.unitOrthogonal();
         y2 = y.squaredNorm();
         if (!std::isfinite(y2) || y2 <= kPlaneEps2) return false;
+    } else {
+        y *= (1.0 / std::sqrt(y2));
     }
-    y *= (1.0 / std::sqrt(y2));
 
     Vec3 z = x.cross(y);
     const double z2 = z.squaredNorm();
@@ -674,7 +670,6 @@ struct CircleEvaluation {
     bool   valid    = false;
 };
 
-// Pass-1 Fix #3: R_plane_out is an independent output per call.
 static bool EvaluateCircle_cs(double cq, double sq,
                               const CircleEvalContext &ctx,
                               const CrxParams &p,
@@ -760,14 +755,18 @@ static bool RefineZeroBisection(double qa, double qb, double fa, double fb,
     return true;
 }
 
-static void DedupSolutions(const SolBuf &in, SolBuf &out) {
+static void DedupSolutions(const std::vector<Vec6> &in, std::vector<Vec6> &out) {
     out.clear();
+    out.reserve(std::min<std::size_t>(kMaxSolutions, in.size()));
     for (Vec6 s : in) {
         NormalizeVecKeepSignedPi(s);
-        bool keep = true;
-        for (const Vec6 &u : out)
-            if (WrappedMaxAbsDiffRad(s, u) <= CRX_SOLUTION_ATOL_RAD) { keep = false; break; }
-        if (keep && !out.push_back(s)) break;
+        const bool dup = std::any_of(out.begin(), out.end(), [&](const Vec6& u){
+            return WrappedMaxAbsDiffRad(s, u) <= CRX_SOLUTION_ATOL_RAD;
+        });
+        if (!dup) {
+            if (out.size() >= kMaxSolutions) break;
+            out.push_back(s);
+        }
     }
 }
 
@@ -782,33 +781,36 @@ static void DualSolutionRad(const Vec6 &s, Vec6 &d) {
     NormalizeUserSolutionDomains(d);
 }
 
-static void AddDualSolutions(const SolBuf &in, SolBuf &out) {
+static void AddDualSolutions(const std::vector<Vec6> &in, std::vector<Vec6> &out) {
     out.clear();
-    for (const Vec6 &s : in)
-        if (!out.push_back(s)) return;
-
+    out.reserve(std::min<std::size_t>(kMaxSolutions, in.size() * 2u));
+    for (const Vec6 &s : in) {
+        if (out.size() >= kMaxSolutions) return;
+        out.push_back(s);
+    }
     Vec6 d = Vec6::Zero();
     for (const Vec6 &s : in) {
+        if (out.size() >= kMaxSolutions) return;
         DualSolutionRad(s, d);
         NormalizeVecKeepSignedPi(d);
-        if (!out.push_back(d)) return;
+        out.push_back(d);
     }
 }
 
 template <typename EmitFn>
 static bool ForEachSignedPiVariant(const Vec6 &q, EmitFn emit) {
     constexpr double kPiFlipTol = 1e-8;
-    std::array<int, CRX_DOF_COUNT> flip_ids{};
-    int flip_count = 0;
 
+    std::vector<int> flip_ids;
+    flip_ids.reserve(CRX_DOF_COUNT);
     for (int i = 0; i < CRX_DOF_COUNT; ++i)
         if (std::abs(std::abs(q[i]) - M_PI) <= kPiFlipTol)
-            flip_ids[flip_count++] = i;
+            flip_ids.push_back(i);
 
-    const std::uint32_t variants = static_cast<std::uint32_t>(1u << flip_count);
+    const std::uint32_t variants = static_cast<std::uint32_t>(1u << flip_ids.size());
     for (std::uint32_t mask = 0; mask < variants; ++mask) {
         Vec6 v = q;
-        for (int bit = 0; bit < flip_count; ++bit) {
+        for (std::size_t bit = 0; bit < flip_ids.size(); ++bit) {
             if ((mask & (1u << bit)) == 0u) continue;
             const int j = flip_ids[bit];
             v[j] = (q[j] >= 0.0) ? -M_PI : M_PI;
@@ -822,45 +824,21 @@ template <typename EmitFn>
 static bool ForEachCandidateVariant(const Vec6 &q, EmitFn emit) {
     if (!ForEachSignedPiVariant(q, [&](const Vec6 &base) { return emit(base); })) return false;
 
-    return ForEachSignedPiVariant(q, [&](const Vec6 &base) {
-        Vec6 dual = Vec6::Zero();
-        DualSolutionRad(base, dual);
-        return ForEachSignedPiVariant(dual, [&](const Vec6 &dvar) { return emit(dvar); });
-    });
+    Vec6 dual = Vec6::Zero();
+    DualSolutionRad(q, dual);
+    return ForEachSignedPiVariant(dual, [&](const Vec6 &dvar) { return emit(dvar); });
 }
 
-static void SortCandidatesByDist2(CandBuf &cands) {
-    for (std::size_t i = 1; i < cands.size; ++i) {
-        Candidate key = cands[i];
-        std::size_t j = i;
-        while (j > 0 && cands[j - 1].dist2 > key.dist2) {
-            cands[j] = cands[j - 1];
-            --j;
-        }
-        cands[j] = key;
-    }
-}
-
-static bool InsertCandidateBounded(CandBuf &cands, const Candidate &cand, bool has_approx) {
-    if (cands.size < kMaxSolutions) return cands.push_back(cand);
-    if (!has_approx) return true; // preserve first-k behavior when no reference is provided
-
-    std::size_t worst_id = 0;
-    double worst_dist2 = cands[0].dist2;
-    for (std::size_t i = 1; i < cands.size; ++i) {
-        if (cands[i].dist2 <= worst_dist2) continue;
-        worst_dist2 = cands[i].dist2;
-        worst_id = i;
-    }
-    if (cand.dist2 >= worst_dist2) return true;
-    cands[worst_id] = cand;
-    return true;
-}
+struct Candidate {
+    Vec6   user_rad = Vec6::Zero();
+    double dist2    = 0.0;
+};
 
 // ─────────────────────────── Closed-form CRX IK ─────────────────────────────
 
-static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, SolBuf &solutions_out) {
+static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, std::vector<Vec6> &solutions_out) {
     solutions_out.clear();
+    solutions_out.reserve(kMaxSolutions);
 
     CircleEvalContext ctx;
     ctx.target_R = T06_target.linear().cast<double>();
@@ -875,9 +853,9 @@ static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, SolBuf &
     ctx.has_min_bound = min_d04 > 0.0;
     ctx.min_d04_sq    = ctx.has_min_bound ? min_d04 * min_d04 : 0.0;
 
-    SolBuf sols;
+    std::vector<Vec6> sols;
+    sols.reserve(kMaxSolutions);
 
-    // Pass-1 Fix #3: each lambda owns its own eval + R_plane.
     const auto eval_up = [&](double q_eval) -> double {
         CircleEvaluation tmp; Mat3 rp;
         return EvaluateCircle(WrapRad2Pi(q_eval), ctx, p, tmp, rp)
@@ -891,29 +869,35 @@ static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, SolBuf &
 
     Vec6 q = Vec6::Zero();
     const auto try_store = [&](const Vec3 &O3_cand, const CircleEvaluation &re) {
+        if (sols.size() >= kMaxSolutions) return;
         if (DetermineJointValues(O3_cand, re.O4, ctx.O5, T06_target, p, q)) {
             NormalizeVecKeepSignedPi(q);
-            static_cast<void>(sols.push_back(q));
+            sols.push_back(q);
         }
     };
 
     const double q_step = TWO_PI / static_cast<double>(CRX_IK_Q_SAMPLES);
     const double c_step = std::cos(q_step);
     const double s_step = std::sin(q_step);
+
     CircleEvaluation prev_eval, cur_eval, root_eval;
     Mat3 prev_rp, cur_rp, root_rp;
+
     double prev_q = 0.0;
     double cq = 1.0;
     double sq = 0.0;
-    bool   prev_ok = EvaluateCircle_cs(cq, sq, ctx, p, prev_eval, prev_rp);
+
+    bool prev_ok = EvaluateCircle_cs(cq, sq, ctx, p, prev_eval, prev_rp);
 
     for (int i = 1; i <= CRX_IK_Q_SAMPLES; ++i) {
         const double cur_q = q_step * static_cast<double>(i);
+
         const double cq_new = cq * c_step - sq * s_step;
         const double sq_new = sq * c_step + cq * s_step;
         cq = cq_new;
         sq = sq_new;
-        const bool   cur_ok = EvaluateCircle_cs(cq, sq, ctx, p, cur_eval, cur_rp);
+
+        const bool cur_ok = EvaluateCircle_cs(cq, sq, ctx, p, cur_eval, cur_rp);
 
         if (prev_ok && cur_ok) {
             if (HasBracket(prev_eval.dot_up, cur_eval.dot_up)) {
@@ -934,22 +918,22 @@ static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, SolBuf &
         prev_q    = cur_q;
         prev_eval = cur_eval;
         prev_ok   = cur_ok;
+
+        if (sols.size() >= kMaxSolutions) break;
     }
 
-    SolBuf dual_sols;
+    std::vector<Vec6> dual_sols;
     AddDualSolutions(sols, dual_sols);
     DedupSolutions(dual_sols, solutions_out);
 }
 
 } // namespace
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 // Public entry points
-// All deg↔rad conversions are confined to these three functions.
-// ═══════════════════════════════════════════════════════════════════════════
+// ──────────────────────────────────────────────────────────────────────────────
 
 int SolveFK(const real_T *joints, real_T pose[16], const robot_T *ptr_robot) {
-    // joints[] is in degrees — SolveFKCore converts at its entry.
     return SolveFKCore(joints, pose, nullptr, 0, true, ptr_robot);
 }
 
@@ -970,12 +954,11 @@ int SolveIK(const real_T pose[16],
     CrxParams params;
     if (!ReadCrxParams(ptr_robot, params)) return -1;
 
-    // Build T06_target entirely in pose/isometry space — no degree conversion here.
     const PoseIsoRT T_base = XYZWPR_ToIsometry(iRobot_BaseXYZWPR(ptr_robot));
     const PoseIsoRT T_tool = XYZWPR_ToIsometry(iRobot_ToolXYZWPR(ptr_robot));
     const PoseIsoRT T_pose = PoseArrayToIsometry(pose);
     const Eigen::Quaterniond q_pose_target(T_pose.linear().cast<double>());
-    // Keep the fixed J6->tool adaptor inside ForwardFromSolverJoints/FK; strip only base + active tool.
+
     const PoseIsoRT T06_target_raw = T_base.inverse() * T_pose * T_tool.inverse();
 
     double pre_shift_z = 0.0;
@@ -987,23 +970,21 @@ int SolveIK(const real_T pose[16],
         T_shift.translation() << 0.0, 0.0, -pre_shift_z;
         T06_target = T_shift * T06_target_raw;
     }
-    SolBuf solver_solutions;
+
+    std::vector<Vec6> solver_solutions;
     SolveCrxIk(T06_target, params, solver_solutions);
+
+    // Limits converted once in rad
+    Vec6 lo_rad, hi_rad;
+    ReadJointLimitsRad(ptr_robot, lo_rad, hi_rad);
+
+    // If no solutions: try approximate roundtrip if provided
     if (solver_solutions.empty()) {
         if (joints_approx != nullptr) {
             Vec6 approx_rad = Vec6::Zero();
             DegArrayToRadVec(joints_approx, approx_rad);
-            bool in_limits = true;
-            Vec6 lo_rad, hi_rad;
-            ReadJointLimitsRad(ptr_robot, lo_rad, hi_rad);
-            for (int i = 0; i < CRX_DOF_COUNT; ++i) {
-                if (approx_rad[i] < lo_rad[i] - CRX_LIMIT_TOL_RAD ||
-                    approx_rad[i] > hi_rad[i] + CRX_LIMIT_TOL_RAD) {
-                    in_limits = false; break;
-                }
-                approx_rad[i] = std::min(hi_rad[i], std::max(lo_rad[i], approx_rad[i]));
-            }
-            if (in_limits && IsFkRoundtripValid(approx_rad, T_pose, q_pose_target, ptr_robot)) {
+            if (ClampToLimits(approx_rad, lo_rad, hi_rad, CRX_LIMIT_TOL_RAD) &&
+                IsFkRoundtripValid(approx_rad, T_pose, q_pose_target, ptr_robot)) {
                 RadVecToDegArray(approx_rad, joints);
                 if (joints_all != nullptr) StoreSolution(joints_all, 0, approx_rad);
                 return 1;
@@ -1012,82 +993,76 @@ int SolveIK(const real_T pose[16],
         return 0;
     }
 
-    // ── Change B: limits converted once in rad ────────────────────────────
-    Vec6 lo_rad, hi_rad;
-    ReadJointLimitsRad(ptr_robot, lo_rad, hi_rad);
-
-    // ── Change F: joints_approx converted once at entry ───────────────────
+    // Approx converted once at entry
     Vec6 approx_rad = Vec6::Zero();
     const bool has_approx = (joints_approx != nullptr);
     if (has_approx) { DegArrayToRadVec(joints_approx, approx_rad); NormalizeVecKeepSignedPi(approx_rad); }
 
-    CandBuf cands;
+    std::vector<Candidate> cands;
+    cands.reserve(kMaxSolutions);
+
+    auto is_dup_direct = [&](const Vec6& u) {
+        return std::any_of(cands.begin(), cands.end(), [&](const Candidate& c){
+            return MaxAbsDiffRadDirect(u, c.user_rad) <= CRX_SOLUTION_ATOL_RAD;
+        });
+    };
 
     for (Vec6 sol : solver_solutions) {
         NormalizeUserSolutionDomains(sol);
-        const bool complete = ForEachCandidateVariant(sol, [&](Vec6 user_rad) {
-            // ── Change B: limit check in rad ──────────────────────────────
-            bool in_limits = true;
-            for (int i = 0; i < CRX_DOF_COUNT; ++i) {
-                if (user_rad[i] < lo_rad[i] - CRX_LIMIT_TOL_RAD ||
-                    user_rad[i] > hi_rad[i] + CRX_LIMIT_TOL_RAD) {
-                    in_limits = false; break;
-                }
-                user_rad[i] = std::min(hi_rad[i], std::max(lo_rad[i], user_rad[i]));
-            }
-            if (!in_limits) return true;
 
-            // Roundtrip must reproduce the original requested TCP pose.
+        const bool complete = ForEachCandidateVariant(sol, [&](Vec6 user_rad) {
+            if (!ClampToLimits(user_rad, lo_rad, hi_rad, CRX_LIMIT_TOL_RAD)) return true;
+
             if (!IsFkRoundtripValid(user_rad, T_pose, q_pose_target, ptr_robot)) return true;
 
             // Keep signed-pi variants distinct for deterministic branch matching.
-            bool dup = false;
-            for (const Candidate &c : cands)
-                if (MaxAbsDiffRadDirect(user_rad, c.user_rad) <= CRX_SOLUTION_ATOL_RAD) {
-                    dup = true; break;
-                }
-            if (dup) return true;
+            if (is_dup_direct(user_rad)) return true;
 
             const double dist2 = has_approx ? WrappedDist2Rad(user_rad, approx_rad)
-                                            : static_cast<double>(cands.size);
-            return InsertCandidateBounded(cands, Candidate{user_rad, dist2}, has_approx);
+                                            : static_cast<double>(cands.size());
+
+            if (cands.size() < kMaxSolutions) {
+                cands.push_back(Candidate{user_rad, dist2});
+            } else if (has_approx) {
+                // keep best-k when approx provided
+                auto worst_it = std::max_element(cands.begin(), cands.end(),
+                    [](const Candidate& a, const Candidate& b){ return a.dist2 < b.dist2; });
+                if (worst_it != cands.end() && dist2 < worst_it->dist2) *worst_it = Candidate{user_rad, dist2};
+            } // else: preserve first-k behavior
+            return true;
         });
+
         if (!complete) break;
     }
 
+    // Optionally insert approx candidate if valid and not duplicate
     if (has_approx) {
         Vec6 approx_cand = approx_rad;
-        bool in_limits = true;
-        for (int i = 0; i < CRX_DOF_COUNT; ++i) {
-            if (approx_cand[i] < lo_rad[i] - CRX_LIMIT_TOL_RAD ||
-                approx_cand[i] > hi_rad[i] + CRX_LIMIT_TOL_RAD) {
-                in_limits = false; break;
-            }
-            approx_cand[i] = std::min(hi_rad[i], std::max(lo_rad[i], approx_cand[i]));
-        }
-        if (in_limits && IsFkRoundtripValid(approx_cand, T_pose, q_pose_target, ptr_robot)) {
-            bool dup = false;
-            for (const Candidate &c : cands)
-                if (MaxAbsDiffRadDirect(approx_cand, c.user_rad) <= CRX_SOLUTION_ATOL_RAD) {
-                    dup = true; break;
-                }
-            if (!dup) {
-                static_cast<void>(InsertCandidateBounded(cands, Candidate{approx_cand, 0.0}, true));
+        if (ClampToLimits(approx_cand, lo_rad, hi_rad, CRX_LIMIT_TOL_RAD) &&
+            IsFkRoundtripValid(approx_cand, T_pose, q_pose_target, ptr_robot) &&
+            !is_dup_direct(approx_cand)) {
+
+            if (cands.size() < kMaxSolutions) {
+                cands.push_back(Candidate{approx_cand, 0.0});
+            } else {
+                auto worst_it = std::max_element(cands.begin(), cands.end(),
+                    [](const Candidate& a, const Candidate& b){ return a.dist2 < b.dist2; });
+                if (worst_it != cands.end() && 0.0 < worst_it->dist2) *worst_it = Candidate{approx_cand, 0.0};
             }
         }
     }
 
     if (cands.empty()) return 0;
 
-    SortCandidatesByDist2(cands);
+    std::sort(cands.begin(), cands.end(),
+              [](const Candidate& a, const Candidate& b){ return a.dist2 < b.dist2; });
 
-    const int n = std::min<int>(max_solutions, static_cast<int>(cands.size));
+    const int n = std::min<int>(max_solutions, static_cast<int>(cands.size()));
 
-    // ── Change D/E: single rad→deg conversion at the output boundary ──────
     RadVecToDegArray(cands[0].user_rad, joints);
     if (joints_all != nullptr)
         for (int s = 0; s < n; ++s)
-            StoreSolution(joints_all, s, cands[s].user_rad); // StoreSolution does its own rad→deg
+            StoreSolution(joints_all, s, cands[s].user_rad);
 
     return n;
 }
