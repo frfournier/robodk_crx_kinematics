@@ -9,6 +9,7 @@ import pytest
 from robodk import robomath as rm
 
 import logging
+
 log = logging.getLogger(__name__)
 # -----------------------------
 # Tolerances
@@ -191,16 +192,18 @@ def _nearest_joint_match_wrapped(
 # -----------------------------
 # JSON loading -> flat params
 # -----------------------------
-_FIXTURE_PATH = (
-    Path(__file__).resolve().parent / "fixtures" / "CRX10iA-solutions.json"
-)
+_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "CRX10iA-solutions.json"
 
 
 def _load_params() -> List[Any]:
     blob = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
 
     params: List[Any] = []
-    log.info("Loading test cases from %s: %d cases", _FIXTURE_PATH, len(blob.get("test_cases", [])))
+    log.info(
+        "Loading test cases from %s: %d cases",
+        _FIXTURE_PATH,
+        len(blob.get("test_cases", [])),
+    )
     for case in blob.get("test_cases", []):
         case_id = int(case["id"])
         case_name = str(case.get("name", ""))
@@ -250,8 +253,8 @@ _PARAMS = _load_params()
 # Tests: one pytest item per JSON solution
 # -----------------------------
 @pytest.mark.parametrize("p", _PARAMS)
-def test_forward_kinematics(kinematics_lib, crx_robot, p: Dict[str, Any]):
-    status, fk_pose = _call_fk(kinematics_lib, crx_robot, p["joints_deg"])
+def test_forward_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
+    status, fk_pose = _call_fk(kinematics_lib, crx_10ia, p["joints_deg"])
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']} config={p['config']}"
 
     assert status == 1, "\n".join(
@@ -263,7 +266,7 @@ def test_forward_kinematics(kinematics_lib, crx_robot, p: Dict[str, Any]):
     )
 
     pos_err, ang_err = _pose_err_pos_mm_ang_deg(p["target_pose16"], fk_pose)
-    
+
     log.info(
         "FK %s pos_err_mm=%s ang_err_deg=%s (tol %s / %s)",
         hdr,
@@ -292,13 +295,13 @@ def test_forward_kinematics(kinematics_lib, crx_robot, p: Dict[str, Any]):
 
 
 @pytest.mark.parametrize("p", _PARAMS)
-def test_inverse_kinematics(kinematics_lib, crx_robot, p: Dict[str, Any]):
+def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
 
     approx = p["expected_best_joints"]
     n, best, all_solutions = _call_ik(
         kinematics_lib,
-        crx_robot,
+        crx_10ia,
         p["target_pose16"],
         approx=approx,
         max_solutions=32,
@@ -347,8 +350,10 @@ def _sample_joints_in_limits(rng: np.random.Generator, limits):
 
 
 @pytest.mark.parametrize("seed", range(N_FUZZ_SEEDS), ids=lambda s: f"seed_{s:04d}")
-def test_fuzz_forward_kinematics_inverse_kinematics_roundtrip(kinematics_lib, crx_robot, seed: int):
-    limits = _joint_limits_from_robot(crx_robot)
+def test_fuzz_forward_kinematics_inverse_kinematics_roundtrip(
+    kinematics_lib, crx_10ia, seed: int
+):
+    limits = _joint_limits_from_robot(crx_10ia)
     rng = np.random.default_rng(seed)
 
     fk_status = -1
@@ -356,7 +361,7 @@ def test_fuzz_forward_kinematics_inverse_kinematics_roundtrip(kinematics_lib, cr
     joints_deg: List[float] = []
     for _ in range(64):
         joints_deg = _sample_joints_in_limits(rng, limits)
-        fk_status, fk_pose = _call_fk(kinematics_lib, crx_robot, joints_deg)
+        fk_status, fk_pose = _call_fk(kinematics_lib, crx_10ia, joints_deg)
         if fk_status == 1:
             break
     if fk_status != 1:
@@ -374,7 +379,7 @@ def test_fuzz_forward_kinematics_inverse_kinematics_roundtrip(kinematics_lib, cr
 
     n, _, all_solutions = _call_ik(
         kinematics_lib,
-        crx_robot,
+        crx_10ia,
         fk_pose,
         approx=joints_deg,
         max_solutions=64,

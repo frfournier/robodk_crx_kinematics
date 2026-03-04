@@ -74,25 +74,38 @@ def kinematics_lib():
     return lib
 
 
-CRX_ROBOT_BASE_XYZWPR_ROW     = 9
-CRX_ROBOT_TOOL_XYZWPR_ROW     = 28
-CRX_ROBOT_JOINT_LIM_LOWER_ROW = 30
-CRX_ROBOT_JOINT_LIM_UPPER_ROW = 31
-CRX_ROBOT_JOINT_SENSES_ROW    = 3
-CRX_ROBOT_JOINT_SENSES_COL    = 4
+kRobotBaseXyzwprRow = 9
+kRobotToolXyzwprRow = 28
+kRobotJointLowerLimitRow = 30
+kRobotJointUpperLimitRow = 31
+kRobotJointSensesRow = 3
+kRobotJointSensesCol = 4
+kRobotDhBaseRow = 10
+
 
 @pytest.fixture
-def crx_robot() -> RobotT:
+def crx_10ia() -> RobotT:
     robot = RobotT()
 
     # nDOFs at row=1, col=1
     robot.data[1][1] = float(DOFS)
 
-    _set_row(robot, CRX_ROBOT_BASE_XYZWPR_ROW, [0.0, 0.0, -245.0, 0.0, 0.0, 0.0])
-    _set_row(robot, CRX_ROBOT_TOOL_XYZWPR_ROW, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    _set_row(robot, CRX_ROBOT_JOINT_SENSES_ROW, [1.0, 1.0, -1.0, -1.0, -1.0, -1.0], col=CRX_ROBOT_JOINT_SENSES_COL)
-    _set_row(robot, CRX_ROBOT_JOINT_LIM_LOWER_ROW, [-190.0, -179.99, -195., -190., -179.99, -225.0])
-    _set_row(robot, CRX_ROBOT_JOINT_LIM_UPPER_ROW, [190.0, 179.99, 375.0, 190.0, 179.99, 225.0])
+    _set_row(robot, kRobotBaseXyzwprRow, [0.0, 0.0, -245.0, 0.0, 0.0, 0.0])
+    _set_row(robot, kRobotToolXyzwprRow, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    _set_row(
+        robot,
+        kRobotJointSensesRow,
+        [1.0, 1.0, -1.0, -1.0, -1.0, -1.0],
+        col=kRobotJointSensesCol,
+    )
+    _set_row(
+        robot,
+        kRobotJointLowerLimitRow,
+        [-190.0, -179.99, -195.0, -190.0, -179.99, -225.0],
+    )
+    _set_row(
+        robot, kRobotJointUpperLimitRow, [190.0, 179.99, 375.0, 190.0, 179.99, 225.0]
+    )
 
     # alpha a theta d prismatic
     HALF_PI = math.pi / 2
@@ -105,6 +118,6 @@ def crx_robot() -> RobotT:
         [-HALF_PI, 0.0, 0.0, 160.0, 0.0],
     ]
     for idx, row in enumerate(dh_rows):
-        _set_row(robot, 10 + idx, row)
+        _set_row(robot, kRobotDhBaseRow + idx, row)
 
     return robot
