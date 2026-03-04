@@ -1,3 +1,7 @@
+# Do not check vendored dependencies
+third_party/
+
+# Standard C++
 # Prerequisites
 *.d
 
