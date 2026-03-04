@@ -135,6 +135,7 @@ static constexpr int kIkQSamples = 1440;
 static constexpr int kRefineMaxIterations = 100;
 static constexpr double kRefineXTolerance = 1e-12;
 static constexpr double kRootZeroTolerance = 1e-14;
+static constexpr double kCosineClampTolerance = static_cast<double>(1.0e-9);
 
 static constexpr double kSolutionAngleToleranceDeg = 1e-3;
 static constexpr double kSolutionAngleToleranceRad =
@@ -284,6 +285,16 @@ static inline auto NormalizeRadKeepSignedPi(double a) -> double {
 }
 static inline auto WrapRadPi(double a) -> double {
   return NormalizeRadKeepSignedPi(a);
+}
+
+static inline auto ClampCosineNearUnit(double value) -> double {
+  if (!std::isfinite(value))
+    return value;
+  if (value > 1.0)
+    return (value <= 1.0 + kCosineClampTolerance) ? 1.0 : value;
+  if (value < -1.0)
+    return (value >= -1.0 - kCosineClampTolerance) ? -1.0 : value;
+  return value;
 }
 static inline void NormalizeVecKeepSignedPi(Vec6 &q) {
   q = q.unaryExpr([](double x) { return NormalizeRadKeepSignedPi(x); });
@@ -867,14 +878,18 @@ static auto EvaluateCircle_cs(double cos_q, double sin_q,
       down_vector_norm_sq <= kEpsilon * kEpsilon)
     return false;
 
-  evaluation.up_dot_product = o3_to_o4_up_vector.dot(o4_to_o5_vector) *
-                              (1.0 / std::sqrt(up_vector_norm_sq)) *
-                              inv_o4_to_o5_norm;
-  evaluation.down_dot_product = o3_to_o4_down_vector.dot(o4_to_o5_vector) *
-                                (1.0 / std::sqrt(down_vector_norm_sq)) *
-                                inv_o4_to_o5_norm;
+  evaluation.up_dot_product = ClampCosineNearUnit(
+      o3_to_o4_up_vector.dot(o4_to_o5_vector) *
+      (1.0 / std::sqrt(up_vector_norm_sq)) * inv_o4_to_o5_norm);
+  evaluation.down_dot_product = ClampCosineNearUnit(
+      o3_to_o4_down_vector.dot(o4_to_o5_vector) *
+      (1.0 / std::sqrt(down_vector_norm_sq)) * inv_o4_to_o5_norm);
   evaluation.is_valid = std::isfinite(evaluation.up_dot_product) &&
-                        std::isfinite(evaluation.down_dot_product);
+                        std::isfinite(evaluation.down_dot_product) &&
+                        std::abs(evaluation.up_dot_product) <=
+                            1.0 + kCosineClampTolerance &&
+                        std::abs(evaluation.down_dot_product) <=
+                            1.0 + kCosineClampTolerance;
   return evaluation.is_valid;
 }
 
