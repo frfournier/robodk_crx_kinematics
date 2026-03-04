@@ -565,7 +565,7 @@ static auto IsFkRoundtripValid(const Vec6 &candidate_user_joints_rad,
 // - Step 3 / Eq. (15): O3_UP/O3_DW from triangle constraints  ->
 // FindThirdTriangleCorner
 // - Step 4/5: UP(q), DW(q) and zero search                    ->
-// up_dot_product/down_dot_product + bisection
+// up_dot_product/down_dot_product + Illinois regula falsi
 // - Step 6 / Eq. (16..22): recover J1..J6                     ->
 // DetermineJointValues
 // - Step 7 / Eq. (23): dual posture transform                 ->
@@ -952,13 +952,16 @@ static inline auto HasBracket(double f_left, double f_right) -> bool {
 }
 
 template <typename EvalFn>
-static auto RefineZeroBisection(double q_left, double q_right, double f_left,
-                                double f_right, EvalFn eval_fn,
-                                double &root_out_q) -> bool {
-  // Deliberately simple and deterministic (no Newton step): Step 5 signals can
-  // flatten near singular boundaries, where bracketing is more reliable.
+static auto RefineZeroIllinois(double q_left, double q_right, double f_left,
+                               double f_right, EvalFn eval_fn,
+                               double &root_out_q) -> bool {
+  // Keep the bracket invariant but reduce evaluations vs pure bisection.
   if (!(std::isfinite(f_left) && std::isfinite(f_right)))
     return false;
+  if (q_right < q_left) {
+    std::swap(q_left, q_right);
+    std::swap(f_left, f_right);
+  }
   if (std::abs(f_left) <= kRootZeroTolerance) {
     root_out_q = WrapRad2Pi(q_left);
     return true;
@@ -972,25 +975,71 @@ static auto RefineZeroBisection(double q_left, double q_right, double f_left,
 
   double left_q = q_left;
   double right_q = q_right;
+  // Weighted endpoint values used by Illinois' secant formula.
+  double left_weight_f = f_left;
+  double right_weight_f = f_right;
+  // True endpoint function values (never damped), used for sign checks.
+  double left_true_f = f_left;
+  double right_true_f = f_right;
+  double best_q =
+      (std::abs(f_left) <= std::abs(f_right)) ? q_left : q_right;
+  double best_abs_f = std::min(std::abs(f_left), std::abs(f_right));
+  // -1: right endpoint moved, +1: left endpoint moved.
+  int last_update_side = 0;
+  int consecutive_same_side_updates = 0;
   for (int iter = 0; iter < kRefineMaxIterations; ++iter) {
-    const double mid_q = 0.5 * (left_q + right_q);
-    const double f_mid = eval_fn(mid_q);
-    if (!std::isfinite(f_mid))
+    double next_q = 0.5 * (left_q + right_q);
+    // Hybrid safeguard: if the same side keeps updating, force a midpoint step
+    // to guarantee interval shrink in flat/singular regions.
+    const bool force_midpoint = consecutive_same_side_updates >= 2;
+    if (!force_midpoint) {
+      const double denom = right_weight_f - left_weight_f;
+      if (std::isfinite(denom) && std::abs(denom) > kEpsilon) {
+        const double secant_q =
+            (left_q * right_weight_f - right_q * left_weight_f) / denom;
+        if (std::isfinite(secant_q) && secant_q > left_q && secant_q < right_q)
+          next_q = secant_q;
+      }
+    }
+
+    const double next_f = eval_fn(next_q);
+    if (!std::isfinite(next_f))
       return false;
-    if (std::abs(f_mid) <= kRootZeroTolerance ||
+    if (std::abs(next_f) < best_abs_f) {
+      best_abs_f = std::abs(next_f);
+      best_q = next_q;
+    }
+    if (std::abs(next_f) <= kRootZeroTolerance ||
         (right_q - left_q) < kRefineXTolerance) {
-      root_out_q = WrapRad2Pi(mid_q);
+      root_out_q = WrapRad2Pi(next_q);
       return true;
     }
-    if (f_left * f_mid <= 0.0) {
-      right_q = mid_q;
-      f_right = f_mid;
+
+    if (left_true_f * next_f < 0.0) {
+      right_q = next_q;
+      right_true_f = next_f;
+      right_weight_f = next_f;
+      if (last_update_side == -1)
+        left_weight_f *= 0.5; // Illinois damping on repeated side updates.
+      consecutive_same_side_updates =
+          (last_update_side == -1) ? (consecutive_same_side_updates + 1) : 1;
+      last_update_side = -1;
+    } else if (right_true_f * next_f < 0.0) {
+      left_q = next_q;
+      left_true_f = next_f;
+      left_weight_f = next_f;
+      if (last_update_side == 1)
+        right_weight_f *= 0.5; // Illinois damping on repeated side updates.
+      consecutive_same_side_updates =
+          (last_update_side == 1) ? (consecutive_same_side_updates + 1) : 1;
+      last_update_side = 1;
     } else {
-      left_q = mid_q;
-      f_left = f_mid;
+      // Includes exact zero and rare same-sign tie from floating-point noise.
+      root_out_q = WrapRad2Pi(next_q);
+      return true;
     }
   }
-  root_out_q = WrapRad2Pi(0.5 * (left_q + right_q));
+  root_out_q = WrapRad2Pi(best_q);
   return true;
 }
 
@@ -1203,7 +1252,7 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
       if (HasBracket(previous_eval.up_dot_product,
                      current_eval.up_dot_product)) {
         double root_q = 0.0;
-        if (RefineZeroBisection(
+        if (RefineZeroIllinois(
                 previous_q, current_q, previous_eval.up_dot_product,
                 current_eval.up_dot_product, evaluate_up_dot, root_q) &&
             EvaluateCircle(root_q, circle_context, params, root_eval,
@@ -1214,7 +1263,7 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
       if (HasBracket(previous_eval.down_dot_product,
                      current_eval.down_dot_product)) {
         double root_q = 0.0;
-        if (RefineZeroBisection(
+        if (RefineZeroIllinois(
                 previous_q, current_q, previous_eval.down_dot_product,
                 current_eval.down_dot_product, evaluate_down_dot, root_q) &&
             EvaluateCircle(root_q, circle_context, params, root_eval,
