@@ -33,6 +33,7 @@ def _library_path(repo_root: Path = None) -> Path:
 @pytest.fixture(scope="session")
 def kinematics_lib():
     lib = _library_path()
+    print(f"Loading crx_kinematics library from:\n  {lib}")
 
     if not lib.exists():
         pytest.skip(
