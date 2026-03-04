@@ -74,6 +74,13 @@ def kinematics_lib():
     return lib
 
 
+CRX_ROBOT_BASE_XYZWPR_ROW     = 9
+CRX_ROBOT_TOOL_XYZWPR_ROW     = 28
+CRX_ROBOT_JOINT_LIM_LOWER_ROW = 30
+CRX_ROBOT_JOINT_LIM_UPPER_ROW = 31
+CRX_ROBOT_JOINT_SENSES_ROW    = 3
+CRX_ROBOT_JOINT_SENSES_COL    = 4
+
 @pytest.fixture
 def crx_robot() -> RobotT:
     robot = RobotT()
@@ -81,11 +88,11 @@ def crx_robot() -> RobotT:
     # nDOFs at row=1, col=1
     robot.data[1][1] = float(DOFS)
 
-    _set_row(robot, 9, [0.0, 0.0, -245.0, 0.0, 0.0, 0.0])
-    _set_row(robot, 28, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    _set_row(robot, 3, [1.0, 1.0, -1.0, -1.0, -1.0, -1.0], col=4)
-    _set_row(robot, 30, [-180.0, -180.0, -360.0, -190.0, -180.0, -190.0])
-    _set_row(robot, 31, [180.0, 180.0, 430.0, 190.0, 180.0, 190.0])
+    _set_row(robot, CRX_ROBOT_BASE_XYZWPR_ROW, [0.0, 0.0, -245.0, 0.0, 0.0, 0.0])
+    _set_row(robot, CRX_ROBOT_TOOL_XYZWPR_ROW, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    _set_row(robot, CRX_ROBOT_JOINT_SENSES_ROW, [1.0, 1.0, -1.0, -1.0, -1.0, -1.0], col=CRX_ROBOT_JOINT_SENSES_COL)
+    _set_row(robot, CRX_ROBOT_JOINT_LIM_LOWER_ROW, [-190.0, -179.99, -195., -190., -179.99, -225.0])
+    _set_row(robot, CRX_ROBOT_JOINT_LIM_UPPER_ROW, [190.0, 179.99, 375.0, 190.0, 179.99, 225.0])
 
     # alpha a theta d prismatic
     HALF_PI = math.pi / 2
