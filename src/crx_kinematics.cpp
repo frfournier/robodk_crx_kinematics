@@ -237,12 +237,16 @@ static inline void XYZWPR_2_Pose(const real_T xyzwpr[CRX_DOF_COUNT], real_T pose
     IsometryToPoseArray(XYZWPR_ToIsometry(xyzwpr), pose);
 }
 
-// FIX: avoid `PoseMapRT(out).noalias() = ...` (most-vexing parse)
-static inline void Pose_Mult(const real_T A[kPoseElems], const real_T B[kPoseElems], real_T out[kPoseElems]) {
+static inline void Pose_Mult(
+    const real_T A[kPoseElems],
+    const real_T B[kPoseElems],
+    real_T out[kPoseElems]) noexcept
+{
+    // tmp is load-bearing: out may alias A or B (e.g. FK loop)
+    const PoseMatRT tmp = PoseMapConstRT(A) * PoseMapConstRT(B);
     PoseMapRT out_map(out);
-    out_map.noalias() = PoseMapConstRT(A) * PoseMapConstRT(B);
+    out_map = tmp;
 }
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Angle utilities — all radians
 // ──────────────────────────────────────────────────────────────────────────────
