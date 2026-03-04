@@ -17,11 +17,11 @@ from typing import Any
 import pandas as pd
 
 
-def xlsx_to_grouped_json(xlsx_path: str | Path, json_path: str | Path) -> None:
-    xlsx_path = Path(__file__).parent / xlsx_path
+def test_cases_to_json(csv_path: str | Path, json_path: str | Path) -> None:
+    csv_path = Path(__file__).parent / csv_path
     json_path = Path(__file__).parent / Path(json_path)
 
-    df = pd.read_excel(xlsx_path, sheet_name="Sheet1").dropna(how="all")
+    df = pd.read_csv(csv_path).dropna(how="all")
 
     # Basic normalization
     df["TEST CASE"] = df["TEST CASE"].astype(int)
@@ -77,7 +77,7 @@ def xlsx_to_grouped_json(xlsx_path: str | Path, json_path: str | Path) -> None:
 
 if __name__ == "__main__":
     # Example usage:
-    xlsx_to_grouped_json(
-        "CRX10iA-solutions.xlsx",
+    test_cases_to_json(
+        "CRX10iA-solutions.csv",
         "CRX10iA-solutions.json",
     )
