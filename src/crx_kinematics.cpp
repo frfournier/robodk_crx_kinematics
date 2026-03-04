@@ -189,10 +189,15 @@ using Vec3  = Eigen::Vector3d;
 // ──────────────────────────────────────────────────────────────────────────────
 
 static inline PoseIsoRT PoseArrayToIsometry(const real_T pose[kPoseElems]) {
-    PoseIsoRT out; out.matrix() = PoseMapConstRT(pose); return out;
+    PoseIsoRT out;
+    out.matrix() = PoseMapConstRT(pose);
+    return out;
 }
+
+// FIX: avoid `PoseMapRT(pose) = ...` (most-vexing parse / parameter redeclare)
 static inline void IsometryToPoseArray(const PoseIsoRT &iso, real_T pose[kPoseElems]) {
-    PoseMapRT(pose) = iso.matrix();
+    PoseMapRT pose_map(pose);
+    pose_map = iso.matrix();
 }
 
 // FANUC/RoboDK WPR: Rz(R)*Ry(P)*Rx(W), translation mm, angles rad.
@@ -218,10 +223,8 @@ static inline PoseIsoRT DHM_FromRad(real_T alpha, real_T a, real_T theta, real_T
     return T;
 }
 
-// RoboDK FK chain adaptor (DH/J6 -> RoboDK flange/tool0).
 static inline PoseIsoRT FixedJ6ToToolIsometryFk() { return PoseIsoRT::Identity(); }
 
-// Analytic solver adaptor (matches Cranston/Abbes internal tool frame convention).
 static inline PoseIsoRT FixedJ6ToToolIsometryAnalytic() {
     PoseIsoRT T = PoseIsoRT::Identity();
     T.linear() << 1.0,  0.0,  0.0,
@@ -233,8 +236,11 @@ static inline PoseIsoRT FixedJ6ToToolIsometryAnalytic() {
 static inline void XYZWPR_2_Pose(const real_T xyzwpr[CRX_DOF_COUNT], real_T pose[kPoseElems]) {
     IsometryToPoseArray(XYZWPR_ToIsometry(xyzwpr), pose);
 }
+
+// FIX: avoid `PoseMapRT(out).noalias() = ...` (most-vexing parse)
 static inline void Pose_Mult(const real_T A[kPoseElems], const real_T B[kPoseElems], real_T out[kPoseElems]) {
-    PoseMapRT(out).noalias() = PoseMapConstRT(A) * PoseMapConstRT(B);
+    PoseMapRT out_map(out);
+    out_map.noalias() = PoseMapConstRT(A) * PoseMapConstRT(B);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -251,7 +257,6 @@ static inline double WrapRadPi(double a) {
     return w - M_PI;
 }
 
-// Normalize to [-pi, pi] while preserving endpoint sign (+pi stays +pi, -pi stays -pi).
 static inline double NormalizeRadKeepSignedPi(double a) {
     while (a >  M_PI) a -= TWO_PI;
     while (a < -M_PI) a += TWO_PI;
@@ -262,7 +267,7 @@ static inline void NormalizeVecKeepSignedPi(Vec6 &q) {
 }
 static inline void NormalizeUserSolutionDomains(Vec6 &q) {
     for (int i = 0; i < CRX_DOF_COUNT; ++i) {
-        if (i == CRX_J3_INDEX) continue; // J3 domain can legitimately exceed +/-pi in this model.
+        if (i == CRX_J3_INDEX) continue;
         q[i] = NormalizeRadKeepSignedPi(q[i]);
     }
 }
@@ -282,8 +287,11 @@ static inline double AngleDiffAbs(double a, double b) { return std::abs(WrapRadP
 static inline void DegArrayToRadVec(const real_T *j_deg, Vec6 &out_rad) {
     out_rad = Eigen::Map<const Vec6>(j_deg) * angle_conv::DegToRad(1.0);
 }
+
+// FIX: avoid `Eigen::Map<Vec6r>(out) = expr;` (most-vexing parse)
 static inline void RadVecToDegArray(const Vec6 &v, real_T *out) {
-    Eigen::Map<Vec6r>(out) = (v * angle_conv::RadToDeg(1.0)).template cast<real_T>();
+    Eigen::Map<Vec6r> out_map(out);
+    out_map = (v * angle_conv::RadToDeg(1.0)).template cast<real_T>();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -357,10 +365,10 @@ static inline void StoreSolution(real_T *joints_all, int id, const Vec6 &user_ra
 
 static inline void BuildJointPoseInputRad(const real_T *dh, double model_rad,
                                           real_T rx_tx_rz_tz[CRX_DH_ARG_ELEMS]) {
-    rx_tx_rz_tz[0]                 = static_cast<real_T>(SnapToRightAngleFamily(dh[0]));
-    rx_tx_rz_tz[1]                 = dh[1];
-    rx_tx_rz_tz[CRX_DH_THETA_INDEX] = static_cast<real_T>(SnapToRightAngleFamily(dh[CRX_DH_THETA_INDEX]));
-    rx_tx_rz_tz[CRX_DH_D_INDEX]     = dh[CRX_DH_D_INDEX];
+    rx_tx_rz_tz[0]                  = static_cast<real_T>(SnapToRightAngleFamily(dh[0]));
+    rx_tx_rz_tz[1]                  = dh[1];
+    rx_tx_rz_tz[CRX_DH_THETA_INDEX]  = static_cast<real_T>(SnapToRightAngleFamily(dh[CRX_DH_THETA_INDEX]));
+    rx_tx_rz_tz[CRX_DH_D_INDEX]      = dh[CRX_DH_D_INDEX];
 
     if (dh[CRX_DH_PRISMATIC_FLAG_INDEX] == 0.0)
         rx_tx_rz_tz[CRX_DH_THETA_INDEX] += static_cast<real_T>(model_rad);
@@ -386,7 +394,6 @@ static int SolveFKCore(const real_T *joints_user_deg,
     Vec6 lo_rad, hi_rad;
     if (check_limits) ReadJointLimitsRad(ptr_robot, lo_rad, hi_rad);
 
-    // Keep legacy array path for CAD joint_poses_out (identical behavior)
     real_T pose_base_local[kPoseElems];
     real_T *pose_base = (joint_poses_out != nullptr)
                       ? (joint_poses_out + kPoseElems * 0)
@@ -447,6 +454,7 @@ static bool IsFkRoundtripValid(const Vec6 &user_rad,
     const double ang_err = q_fk.angularDistance(target_quat);
     return std::isfinite(ang_err) && ang_err <= CRX_SOLUTION_ATOL_RAD;
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────────
 // IK — analytic CRX
