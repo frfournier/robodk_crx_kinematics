@@ -156,17 +156,17 @@ static constexpr std::size_t kMaxSolutions = 32;
 // robot_T flat-array accessors
 // ──────────────────────────────────────────────────────────────────────────────
 
-static inline const real_T* iRobot_At(const robot_T *r, int row, int col = 0) {
+static inline auto iRobot_At(const robot_T *r, int row, int col = 0) -> const real_T* {
     return reinterpret_cast<const real_T*>(r) + row * CRX_ROBOT_STRIDE + col;
 }
-static inline const real_T* iRobot_BaseXYZWPR(const robot_T *r)             { return iRobot_At(r, CRX_ROBOT_BASE_XYZWPR_ROW); }
-static inline const real_T* iRobot_ToolXYZWPR(const robot_T *r)             { return iRobot_At(r, CRX_ROBOT_TOOL_XYZWPR_ROW); }
-static inline const real_T* iRobot_JointLimLower(const robot_T *r)          { return iRobot_At(r, CRX_ROBOT_JOINT_LIM_LOWER_ROW); }
-static inline const real_T* iRobot_JointLimUpper(const robot_T *r)          { return iRobot_At(r, CRX_ROBOT_JOINT_LIM_UPPER_ROW); }
-static inline const real_T* iRobot_JointSenses(const robot_T *r)            { return iRobot_At(r, CRX_ROBOT_JOINT_SENSES_ROW, CRX_ROBOT_JOINT_SENSES_COL); }
-static inline const real_T* iRobot_DHM_JointId(const robot_T *r, int joint) { return iRobot_At(r, CRX_ROBOT_DH_BASE_ROW + joint); }
+static inline auto iRobot_BaseXYZWPR(const robot_T *r) -> const real_T*             { return iRobot_At(r, CRX_ROBOT_BASE_XYZWPR_ROW); }
+static inline auto iRobot_ToolXYZWPR(const robot_T *r) -> const real_T*             { return iRobot_At(r, CRX_ROBOT_TOOL_XYZWPR_ROW); }
+static inline auto iRobot_JointLimLower(const robot_T *r) -> const real_T*          { return iRobot_At(r, CRX_ROBOT_JOINT_LIM_LOWER_ROW); }
+static inline auto iRobot_JointLimUpper(const robot_T *r) -> const real_T*          { return iRobot_At(r, CRX_ROBOT_JOINT_LIM_UPPER_ROW); }
+static inline auto iRobot_JointSenses(const robot_T *r) -> const real_T*            { return iRobot_At(r, CRX_ROBOT_JOINT_SENSES_ROW, CRX_ROBOT_JOINT_SENSES_COL); }
+static inline auto iRobot_DHM_JointId(const robot_T *r, int joint) -> const real_T* { return iRobot_At(r, CRX_ROBOT_DH_BASE_ROW + joint); }
 
-static inline int iRobot_nDOFs(const robot_T *r) {
+static inline auto iRobot_nDOFs(const robot_T *r) -> int {
     return static_cast<int>(*iRobot_At(r, CRX_ROBOT_DOF_ROW, CRX_ROBOT_DOF_COL));
 }
 
@@ -188,7 +188,7 @@ using Vec3  = Eigen::Vector3d;
 // Pose helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-static inline PoseIsoRT PoseArrayToIsometry(const real_T pose[kPoseElems]) {
+static inline auto PoseArrayToIsometry(const real_T pose[kPoseElems]) -> PoseIsoRT {
     PoseIsoRT out;
     out.matrix() = PoseMapConstRT(pose);
     return out;
@@ -201,7 +201,7 @@ static inline void IsometryToPoseArray(const PoseIsoRT &iso, real_T pose[kPoseEl
 }
 
 // FANUC/RoboDK WPR: Rz(R)*Ry(P)*Rx(W), translation mm, angles rad.
-static inline PoseIsoRT XYZWPR_ToIsometry(const real_T xyzwpr[6]) {
+static inline auto XYZWPR_ToIsometry(const real_T xyzwpr[6]) -> PoseIsoRT {
     using AA = Eigen::AngleAxis<real_T>;
     PoseIsoRT T = PoseIsoRT::Identity();
     T.linear() =
@@ -212,7 +212,7 @@ static inline PoseIsoRT XYZWPR_ToIsometry(const real_T xyzwpr[6]) {
     return T;
 }
 
-static inline PoseIsoRT DHM_FromRad(real_T alpha, real_T a, real_T theta, real_T d) {
+static inline auto DHM_FromRad(real_T alpha, real_T a, real_T theta, real_T d) -> PoseIsoRT {
     const real_T ca = std::cos(alpha), sa = std::sin(alpha);
     const real_T ct = std::cos(theta), st = std::sin(theta);
     PoseIsoRT T = PoseIsoRT::Identity();
@@ -223,9 +223,9 @@ static inline PoseIsoRT DHM_FromRad(real_T alpha, real_T a, real_T theta, real_T
     return T;
 }
 
-static inline PoseIsoRT FixedJ6ToToolIsometryFk() { return PoseIsoRT::Identity(); }
+static inline auto FixedJ6ToToolIsometryFk() -> PoseIsoRT { return PoseIsoRT::Identity(); }
 
-static inline PoseIsoRT FixedJ6ToToolIsometryAnalytic() {
+static inline auto FixedJ6ToToolIsometryAnalytic() -> PoseIsoRT {
     PoseIsoRT T = PoseIsoRT::Identity();
     T.linear() << 1.0,  0.0,  0.0,
                   0.0, -1.0,  0.0,
@@ -247,17 +247,17 @@ static inline void Pose_Mult(const real_T A[kPoseElems], const real_T B[kPoseEle
 // Angle utilities — all radians
 // ──────────────────────────────────────────────────────────────────────────────
 
-static inline double WrapRad2Pi(double a) {
+static inline auto WrapRad2Pi(double a) -> double {
     double w = std::fmod(a, TWO_PI);
     return (w < 0.0) ? w + TWO_PI : w;
 }
-static inline double WrapRadPi(double a) {
+static inline auto WrapRadPi(double a) -> double {
     double w = std::fmod(a + M_PI, TWO_PI);
     if (w < 0.0) w += TWO_PI;
     return w - M_PI;
 }
 
-static inline double NormalizeRadKeepSignedPi(double a) {
+static inline auto NormalizeRadKeepSignedPi(double a) -> double {
     while (a >  M_PI) a -= TWO_PI;
     while (a < -M_PI) a += TWO_PI;
     return a;
@@ -272,13 +272,13 @@ static inline void NormalizeUserSolutionDomains(Vec6 &q) {
     }
 }
 
-static inline double SnapToRightAngleFamily(double a, double tol = CRX_RIGHT_ANGLE_SNAP_TOL) {
+static inline auto SnapToRightAngleFamily(double a, double tol = CRX_RIGHT_ANGLE_SNAP_TOL) -> double {
     static const std::array<double, 5> refs = {-M_PI, -HALF_PI, 0.0, HALF_PI, M_PI};
     for (double r : refs)
         if (std::abs(WrapRadPi(a - r)) <= tol) return r;
     return a;
 }
-static inline double AngleDiffAbs(double a, double b) { return std::abs(WrapRadPi(a - b)); }
+static inline auto AngleDiffAbs(double a, double b) -> double { return std::abs(WrapRadPi(a - b)); }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Public-boundary unit conversions (ONLY deg<->rad callsites)
@@ -308,18 +308,18 @@ static inline void ReadJointLimitsRad(const robot_T *r, Vec6 &lo_rad, Vec6 &hi_r
     }
 }
 
-static inline double NormalizeJointSense(real_T s) {
+static inline auto NormalizeJointSense(real_T s) -> double {
     if (!std::isfinite(s) || std::abs(s) <= F64_EPS) return 1.0;
     return (s >= 0.0) ? 1.0 : -1.0;
 }
-static inline std::array<double, CRX_DOF_COUNT> ReadNormalizedJointSenses(const robot_T *r) {
+static inline auto ReadNormalizedJointSenses(const robot_T *r) -> std::array<double, CRX_DOF_COUNT> {
     const real_T *raw = iRobot_JointSenses(r);
     std::array<double, CRX_DOF_COUNT> out{};
     for (int i = 0; i < CRX_DOF_COUNT; ++i) out[i] = NormalizeJointSense(raw[i]);
     return out;
 }
 
-static inline bool ClampToLimits(Vec6& q, const Vec6& lo, const Vec6& hi, double tol_rad) {
+static inline auto ClampToLimits(Vec6& q, const Vec6& lo, const Vec6& hi, double tol_rad) -> bool {
     for (int i = 0; i < CRX_DOF_COUNT; ++i) {
         if (q[i] < lo[i] - tol_rad || q[i] > hi[i] + tol_rad) return false;
         q[i] = std::min(hi[i], std::max(lo[i], q[i]));
@@ -331,7 +331,7 @@ static inline bool ClampToLimits(Vec6& q, const Vec6& lo, const Vec6& hi, double
 // Vec6 distance helpers (rad domain)
 // ──────────────────────────────────────────────────────────────────────────────
 
-static inline double WrappedDist2Rad(const Vec6 &a, const Vec6 &b) {
+static inline auto WrappedDist2Rad(const Vec6 &a, const Vec6 &b) -> double {
     double acc = 0.0;
     for (int i = 0; i < CRX_DOF_COUNT; ++i) {
         const double d = WrapRadPi(a[i] - b[i]);
@@ -339,13 +339,13 @@ static inline double WrappedDist2Rad(const Vec6 &a, const Vec6 &b) {
     }
     return acc;
 }
-static inline double WrappedMaxAbsDiffRad(const Vec6 &a, const Vec6 &b) {
+static inline auto WrappedMaxAbsDiffRad(const Vec6 &a, const Vec6 &b) -> double {
     double mx = 0.0;
     for (int i = 0; i < CRX_DOF_COUNT; ++i)
         mx = std::max(mx, std::abs(WrapRadPi(a[i] - b[i])));
     return mx;
 }
-static inline double MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) {
+static inline auto MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) -> double {
     return (a - b).cwiseAbs().maxCoeff();
 }
 
@@ -376,12 +376,12 @@ static inline void BuildJointPoseInputRad(const real_T *dh, double model_rad,
         rx_tx_rz_tz[CRX_DH_D_INDEX]     += static_cast<real_T>(model_rad);
 }
 
-static int SolveFKCore(const real_T *joints_user_deg,
+static auto SolveFKCore(const real_T *joints_user_deg,
                        real_T pose_out[kPoseElems],
                        real_T *joint_poses_out,
                        int max_poses,
                        bool check_limits,
-                       const robot_T *ptr_robot) {
+                       const robot_T *ptr_robot) -> int {
     const int nDOFs = iRobot_nDOFs(ptr_robot);
     if (nDOFs != CRX_DOF_COUNT) return -1;
     if (joint_poses_out != nullptr && max_poses < nDOFs + 1) return -1;
@@ -437,10 +437,10 @@ static int SolveFKCore(const real_T *joints_user_deg,
     return 1;
 }
 
-static bool IsFkRoundtripValid(const Vec6 &user_rad,
+static auto IsFkRoundtripValid(const Vec6 &user_rad,
                                const PoseIsoRT &target_pose,
                                const Eigen::Quaterniond &target_quat,
-                               const robot_T *ptr_robot) {
+                               const robot_T *ptr_robot) -> bool {
     real_T user_deg[CRX_DOF_COUNT];
     real_T fk_pose[kPoseElems];
     RadVecToDegArray(user_rad, user_deg);
@@ -468,7 +468,7 @@ struct CrxParams {
     double a2 = 0.0, r4 = 0.0, r5 = 0.0, r6 = 0.0;
 };
 
-static bool ReadCrxParams(const robot_T *r, CrxParams &p) {
+static auto ReadCrxParams(const robot_T *r, CrxParams &p) -> bool {
     for (int i = 0; i < CRX_DOF_COUNT; ++i) {
         const real_T *dh = iRobot_DHM_JointId(r, i);
         if (dh[4] != 0.0) return false; // prismatic not supported
@@ -481,7 +481,7 @@ static bool ReadCrxParams(const robot_T *r, CrxParams &p) {
     return true;
 }
 
-static bool ConvertRoboDkDhToAnalyticIkConvention(CrxParams &p, double &pre_shift_z) {
+static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &p, double &pre_shift_z) -> bool {
     pre_shift_z = 0.0;
     const double tol = CRX_DH_CONVENTION_TOL;
 
@@ -529,7 +529,7 @@ static bool ConvertRoboDkDhToAnalyticIkConvention(CrxParams &p, double &pre_shif
     return true;
 }
 
-static inline std::array<double, CRX_DOF_COUNT> CoupledThetaRad(const Vec6 &j, const CrxParams &p) {
+static inline auto CoupledThetaRad(const Vec6 &j, const CrxParams &p) -> std::array<double, CRX_DOF_COUNT> {
     return { j[0] + p.theta0_rad[0],
              j[1] + p.theta0_rad[1],
              j[1] + j[2] + p.theta0_rad[2],
@@ -538,7 +538,7 @@ static inline std::array<double, CRX_DOF_COUNT> CoupledThetaRad(const Vec6 &j, c
              j[5] + p.theta0_rad[5] };
 }
 
-static inline PoseIsoRT ForwardFromSolverJoints(const Vec6 &j, const CrxParams &p) {
+static inline auto ForwardFromSolverJoints(const Vec6 &j, const CrxParams &p) -> PoseIsoRT {
     const auto theta = CoupledThetaRad(j, p);
     PoseIsoRT T = PoseIsoRT::Identity();
     for (int i = 0; i < CRX_DOF_COUNT; ++i)
@@ -549,7 +549,7 @@ static inline PoseIsoRT ForwardFromSolverJoints(const Vec6 &j, const CrxParams &
     return T * FixedJ6ToToolIsometryAnalytic();
 }
 
-static inline bool IsPoseConsistent(const Vec6 &j, const PoseIsoRT &T_target, const CrxParams &p) {
+static inline auto IsPoseConsistent(const Vec6 &j, const PoseIsoRT &T_target, const CrxParams &p) -> bool {
     const PoseIsoRT T_fk = ForwardFromSolverJoints(j, p);
     const Vec3 dp = T_fk.translation().cast<double>() - T_target.translation().cast<double>();
     if (!std::isfinite(dp.squaredNorm()) || dp.squaredNorm() > CRX_SOLUTION_ATOL_MM2) return false;
@@ -559,7 +559,7 @@ static inline bool IsPoseConsistent(const Vec6 &j, const PoseIsoRT &T_target, co
 }
 
 // Specialized hot-path basis build for ConstructPlane(O4, UnitZ()).
-static inline bool ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane) {
+static inline auto ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane) -> bool {
     constexpr double kPlaneEps2 = 1e-18;
 
     const double n2 = O4.squaredNorm();
@@ -597,8 +597,8 @@ static inline bool ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane) {
     return true;
 }
 
-static inline bool FindThirdTriangleCorner(double AB, double AC, double BC,
-                                           double &x, double &y_abs) {
+static inline auto FindThirdTriangleCorner(double AB, double AC, double BC,
+                                           double &x, double &y_abs) -> bool {
     if (AB <= F64_EPS) return false;
     x = (AC*AC - BC*BC + AB*AB) / (2.0 * AB);
     const double y2 = AC*AC - x*x;
@@ -607,19 +607,19 @@ static inline bool FindThirdTriangleCorner(double AB, double AC, double BC,
     return true;
 }
 
-static inline PoseIsoRT JointTransformRad(const CrxParams &p, int id, double q_rad) {
+static inline auto JointTransformRad(const CrxParams &p, int id, double q_rad) -> PoseIsoRT {
     return DHM_FromRad(static_cast<real_T>(p.alpha_rad[id]),
                        static_cast<real_T>(p.a[id]),
                        static_cast<real_T>(p.theta0_rad[id] + q_rad),
                        static_cast<real_T>(p.d[id]));
 }
 
-static bool DetermineJointValues(const Vec3 &O3,
+static auto DetermineJointValues(const Vec3 &O3,
                                  const Vec3 &O4,
                                  const Vec3 &O5,
                                  const PoseIsoRT &T06_target,
                                  const CrxParams &p,
-                                 Vec6 &joints_rad) {
+                                 Vec6 &joints_rad) -> bool {
     const Vec3 O6 = T06_target.translation().cast<double>();
 
     const double J1 = std::atan2(O4.y(), O4.x());
@@ -678,11 +678,11 @@ struct CircleEvaluation {
     bool   valid    = false;
 };
 
-static bool EvaluateCircle_cs(double cq, double sq,
+static auto EvaluateCircle_cs(double cq, double sq,
                               const CircleEvalContext &ctx,
                               const CrxParams &p,
                               CircleEvaluation &eval,
-                              Mat3 &R_plane_out) {
+                              Mat3 &R_plane_out) -> bool {
     eval.valid = false;
 
     const Vec3 O4_local(p.r5 * cq, p.r5 * sq, p.r6);
@@ -723,25 +723,25 @@ static bool EvaluateCircle_cs(double cq, double sq,
     return eval.valid;
 }
 
-static bool EvaluateCircle(double q,
+static auto EvaluateCircle(double q,
                            const CircleEvalContext &ctx,
                            const CrxParams &p,
                            CircleEvaluation &eval,
-                           Mat3 &R_plane_out) {
+                           Mat3 &R_plane_out) -> bool {
     const double cq = std::cos(q);
     const double sq = std::sin(q);
     return EvaluateCircle_cs(cq, sq, ctx, p, eval, R_plane_out);
 }
 
-static inline bool HasBracket(double fa, double fb) {
+static inline auto HasBracket(double fa, double fb) -> bool {
     if (!(std::isfinite(fa) && std::isfinite(fb))) return false;
     if (std::abs(fa) <= CRX_ROOT_Z_TOL || std::abs(fb) <= CRX_ROOT_Z_TOL) return true;
     return fa * fb < 0.0;
 }
 
 template <typename EvalFn>
-static bool RefineZeroBisection(double qa, double qb, double fa, double fb,
-                                EvalFn eval_fn, double &root_out) {
+static auto RefineZeroBisection(double qa, double qb, double fa, double fb,
+                                EvalFn eval_fn, double &root_out) -> bool {
     if (!(std::isfinite(fa) && std::isfinite(fb))) return false;
     if (std::abs(fa) <= CRX_ROOT_Z_TOL) { root_out = WrapRad2Pi(qa); return true; }
     if (std::abs(fb) <= CRX_ROOT_Z_TOL) { root_out = WrapRad2Pi(qb); return true; }
@@ -806,7 +806,7 @@ static void AddDualSolutions(const std::vector<Vec6> &in, std::vector<Vec6> &out
 }
 
 template <typename EmitFn>
-static bool ForEachSignedPiVariant(const Vec6 &q, EmitFn emit) {
+static auto ForEachSignedPiVariant(const Vec6 &q, EmitFn emit) -> bool {
     constexpr double kPiFlipTol = 1e-8;
 
     std::vector<int> flip_ids;
@@ -815,7 +815,7 @@ static bool ForEachSignedPiVariant(const Vec6 &q, EmitFn emit) {
         if (std::abs(std::abs(q[i]) - M_PI) <= kPiFlipTol)
             flip_ids.push_back(i);
 
-    const std::uint32_t variants = static_cast<std::uint32_t>(1u << flip_ids.size());
+    const auto variants = static_cast<std::uint32_t>(1u << flip_ids.size());
     for (std::uint32_t mask = 0; mask < variants; ++mask) {
         Vec6 v = q;
         for (std::size_t bit = 0; bit < flip_ids.size(); ++bit) {
@@ -829,7 +829,7 @@ static bool ForEachSignedPiVariant(const Vec6 &q, EmitFn emit) {
 }
 
 template <typename EmitFn>
-static bool ForEachCandidateVariant(const Vec6 &q, EmitFn emit) {
+static auto ForEachCandidateVariant(const Vec6 &q, EmitFn emit) -> bool {
     if (!ForEachSignedPiVariant(q, [&](const Vec6 &base) { return emit(base); })) return false;
 
     Vec6 dual = Vec6::Zero();
@@ -941,21 +941,21 @@ static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, std::vec
 // Public entry points
 // ──────────────────────────────────────────────────────────────────────────────
 
-int SolveFK(const real_T *joints, real_T pose[16], const robot_T *ptr_robot) {
+auto SolveFK(const real_T *joints, real_T pose[16], const robot_T *ptr_robot) -> int {
     return SolveFKCore(joints, pose, nullptr, 0, true, ptr_robot);
 }
 
-int SolveFK_CAD(const real_T *joints, real_T pose[16], real_T *joint_poses, int max_poses,
-                const robot_T *ptr_robot) {
+auto SolveFK_CAD(const real_T *joints, real_T pose[16], real_T *joint_poses, int max_poses,
+                const robot_T *ptr_robot) -> int {
     return SolveFKCore(joints, pose, joint_poses, max_poses, false, ptr_robot);
 }
 
-int SolveIK(const real_T pose[16],
+auto SolveIK(const real_T pose[16],
             real_T *joints,
             real_T *joints_all,
             int max_solutions,
             const real_T *joints_approx,
-            const robot_T *ptr_robot) {
+            const robot_T *ptr_robot) -> int {
     if (iRobot_nDOFs(ptr_robot) != CRX_DOF_COUNT) return -1;
     if (max_solutions <= 0) return 0;
 
