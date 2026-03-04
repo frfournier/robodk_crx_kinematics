@@ -201,6 +201,19 @@ using Vec6r = Eigen::Matrix<real_T, kDofCount, 1>;
 using Mat3 = Eigen::Matrix3d;
 using Vec3 = Eigen::Vector3d;
 
+// Paired trig helper: use compiler sincos when available, otherwise fallback.
+static inline void SinCos(double angle_rad, double &sin_out,
+                          double &cos_out) {
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_sincos)
+  __builtin_sincos(angle_rad, &sin_out, &cos_out);
+  return;
+#endif
+#endif
+  sin_out = std::sin(angle_rad);
+  cos_out = std::cos(angle_rad);
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Pose helpers
 // ──────────────────────────────────────────────────────────────────────────────
@@ -233,8 +246,17 @@ static inline auto XYZWPR_ToIsometry(const real_T xyzwpr[6]) -> PoseIsoRT {
 
 static inline auto DHM_FromRad(real_T alpha, real_T a, real_T theta, real_T d)
     -> PoseIsoRT {
-  const real_T ca = std::cos(alpha), sa = std::sin(alpha);
-  const real_T ct = std::cos(theta), st = std::sin(theta);
+  double alpha_sin = 0.0;
+  double alpha_cos = 1.0;
+  SinCos(static_cast<double>(alpha), alpha_sin, alpha_cos);
+  const real_T sa = static_cast<real_T>(alpha_sin);
+  const real_T ca = static_cast<real_T>(alpha_cos);
+
+  double theta_sin = 0.0;
+  double theta_cos = 1.0;
+  SinCos(static_cast<double>(theta), theta_sin, theta_cos);
+  const real_T st = static_cast<real_T>(theta_sin);
+  const real_T ct = static_cast<real_T>(theta_cos);
   PoseIsoRT T = PoseIsoRT::Identity();
   T.linear() << ct, -st, 0.0, st * ca, ct * ca, -sa, st * sa, ct * sa, ca;
   T.translation() << a, -d * sa, d * ca;
@@ -897,8 +919,9 @@ static auto EvaluateCircle(double sample_q, const CircleEvalContext &context,
                            const CrxParams &params,
                            CircleEvaluation &evaluation,
                            Mat3 &plane_rotation_out) -> bool {
-  const double cos_q = std::cos(sample_q);
-  const double sin_q = std::sin(sample_q);
+  double sin_q = 0.0;
+  double cos_q = 1.0;
+  SinCos(sample_q, sin_q, cos_q);
   return EvaluateCircle_cs(cos_q, sin_q, context, params, evaluation,
                            plane_rotation_out);
 }
@@ -960,7 +983,8 @@ static void DedupSolutions(const std::vector<Vec6> &input_solutions,
   unique_solutions.clear();
   unique_solutions.reserve(
       std::min<std::size_t>(kMaxIkSolutions, input_solutions.size()));
-  for (Vec6 candidate_solution : input_solutions) {
+  for (const Vec6 &candidate_solution_raw : input_solutions) {
+    Vec6 candidate_solution = candidate_solution_raw;
     NormalizeVecKeepSignedPi(candidate_solution);
     const bool is_duplicate = std::any_of(
         unique_solutions.begin(), unique_solutions.end(),
@@ -1128,8 +1152,9 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
 
   // q sampling for Step 2/4. 1440 samples = 0.25 deg granularity.
   const double sample_step_q = kTwoPi / static_cast<double>(kIkQSamples);
-  const double cos_step = std::cos(sample_step_q);
-  const double sin_step = std::sin(sample_step_q);
+  double sin_step = 0.0;
+  double cos_step = 1.0;
+  SinCos(sample_step_q, sin_step, cos_step);
 
   CircleEvaluation previous_eval;
   CircleEvaluation current_eval;
