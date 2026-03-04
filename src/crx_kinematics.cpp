@@ -273,19 +273,17 @@ static inline auto WrapRad2Pi(double a) -> double {
   double w = std::fmod(a, kTwoPi);
   return (w < 0.0) ? w + kTwoPi : w;
 }
-static inline auto WrapRadPi(double a) -> double {
-  double w = std::fmod(a + M_PI, kTwoPi);
-  if (w < 0.0)
-    w += kTwoPi;
-  return w - M_PI;
-}
-
 static inline auto NormalizeRadKeepSignedPi(double a) -> double {
-  while (a > M_PI)
-    a -= kTwoPi;
-  while (a < -M_PI)
-    a += kTwoPi;
-  return a;
+  // O(1): map to [-pi, pi] and preserve signed pi for odd multiples.
+  double w = std::fmod(a, kTwoPi);
+  if (w > M_PI)
+    w -= kTwoPi;
+  else if (w < -M_PI)
+    w += kTwoPi;
+  return w;
+}
+static inline auto WrapRadPi(double a) -> double {
+  return NormalizeRadKeepSignedPi(a);
 }
 static inline void NormalizeVecKeepSignedPi(Vec6 &q) {
   q = q.unaryExpr([](double x) { return NormalizeRadKeepSignedPi(x); });
