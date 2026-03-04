@@ -1,5 +1,5 @@
 [project]
-name = "temp"
+name = "test-crx-kinematics"
 version = "0.1.0"
 description = "Tester for Fanuc CRX kinematics solver for RoboDK"
 readme = "README.md"
