@@ -23,6 +23,13 @@ win32 {
 # Required files
 INCLUDEPATH += $$PWD/include $$PWD/src $$PWD
 
+SOURCES += \
+    $$PWD/src/crx_kinematics.cpp
+
+HEADERS += \
+    $$PWD/include/samplekinematics.h
+    $$PWD/include/angle_conversions_inline.h
+
 # -----------------------------------
 # Eigen headers (required by crxkinematics.cpp)
 EIGEN3_INCLUDE_DIR = $$PWD/third_party/eigen
