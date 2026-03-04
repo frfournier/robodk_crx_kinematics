@@ -18,8 +18,8 @@ import pandas as pd
 
 
 def xlsx_to_grouped_json(xlsx_path: str | Path, json_path: str | Path) -> None:
-    xlsx_path = Path(xlsx_path)
-    json_path = Path(json_path)
+    xlsx_path = Path(__file__).parent / xlsx_path
+    json_path = Path(__file__).parent / Path(json_path)
 
     df = pd.read_excel(xlsx_path, sheet_name="Sheet1").dropna(how="all")
 
