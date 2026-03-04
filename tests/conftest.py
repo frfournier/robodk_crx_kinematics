@@ -93,8 +93,14 @@ def crx_10ia() -> RobotT:
     _set_row(robot, kRobotBaseXyzwprRow, [0.0, 0.0, -245.0, 0.0, 0.0, 0.0])
     _set_row(robot, kRobotToolXyzwprRow, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     _set_row(robot, kRobotJointSensesRow,[1.0, 1.0, -1.0, -1.0, -1.0, -1.0], col=kRobotJointSensesCol)
-    _set_row(robot, kRobotJointLowerLimitRow, [-190.0, -179.99, -195.0, -190.0, -179.99, -225.0])
-    _set_row(robot, kRobotJointUpperLimitRow, [190.0, 179.99, 375.0, 190.0, 179.99, 225.0])
+
+    # Roboguide joint limits
+    #_set_row(robot, kRobotJointLowerLimitRow, [-190.0, -179.99, -195.0, -190.0, -179.99, -225.0])
+    #_set_row(robot, kRobotJointUpperLimitRow, [190.0, 179.99, 375.0, 190.0, 179.99, 225.0])
+
+    # Wide joint limits for CRX-10iA
+    _set_row(robot, kRobotJointLowerLimitRow, [-190.0, -180.0, -195.0, -190.0, -180.0, -225.0])
+    _set_row(robot, kRobotJointUpperLimitRow, [190.0, 180.0, 375.0, 190.0, 180.0, 225.0])
 
     # alpha a theta d prismatic
     HALF_PI = math.pi / 2
