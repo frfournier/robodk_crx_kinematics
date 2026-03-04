@@ -354,30 +354,30 @@ static inline auto MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) -> double {
 // Solution storage — rad→deg conversion at write time only
 // ──────────────────────────────────────────────────────────────────────────────
 
-static inline void StoreSolution(real_T *joints_all, int id, const Vec6 &user_rad) {
-    real_T *dst = joints_all + CRX_SOLUTION_STRIDE * id;
-    std::fill(dst, dst + CRX_SOLUTION_STRIDE, static_cast<real_T>(0.0));
-    RadVecToDegArray(user_rad, dst);
+static inline void StoreSolution(real_T *all_solutions_deg, int solution_id, const Vec6 &solution_user_rad) {
+    real_T *solution_slot = all_solutions_deg + CRX_SOLUTION_STRIDE * solution_id;
+    std::fill(solution_slot, solution_slot + CRX_SOLUTION_STRIDE, static_cast<real_T>(0.0));
+    RadVecToDegArray(solution_user_rad, solution_slot);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // FK core
 // ──────────────────────────────────────────────────────────────────────────────
 
-static inline void BuildJointPoseInputRad(const real_T *dh, double model_rad,
-                                          real_T rx_tx_rz_tz[CRX_DH_ARG_ELEMS]) {
+static inline void BuildJointPoseInputRad(const real_T *dh_row, double joint_motion_rad,
+                                          real_T dh_pose_args[CRX_DH_ARG_ELEMS]) {
     // Snap alpha/theta offsets to exact right-angle family before composing FK.
     // This mirrors the CRX DHm assumptions in Robotics 2024, Sec. 2.5/2.6 and
     // avoids tiny import noise from robot files drifting branch selection.
-    rx_tx_rz_tz[0]                  = static_cast<real_T>(SnapToRightAngleFamily(dh[0]));
-    rx_tx_rz_tz[1]                  = dh[1];
-    rx_tx_rz_tz[CRX_DH_THETA_INDEX]  = static_cast<real_T>(SnapToRightAngleFamily(dh[CRX_DH_THETA_INDEX]));
-    rx_tx_rz_tz[CRX_DH_D_INDEX]      = dh[CRX_DH_D_INDEX];
+    dh_pose_args[0]                  = static_cast<real_T>(SnapToRightAngleFamily(dh_row[0]));
+    dh_pose_args[1]                  = dh_row[1];
+    dh_pose_args[CRX_DH_THETA_INDEX]  = static_cast<real_T>(SnapToRightAngleFamily(dh_row[CRX_DH_THETA_INDEX]));
+    dh_pose_args[CRX_DH_D_INDEX]      = dh_row[CRX_DH_D_INDEX];
 
-    if (dh[CRX_DH_PRISMATIC_FLAG_INDEX] == 0.0)
-        rx_tx_rz_tz[CRX_DH_THETA_INDEX] += static_cast<real_T>(model_rad);
+    if (dh_row[CRX_DH_PRISMATIC_FLAG_INDEX] == 0.0)
+        dh_pose_args[CRX_DH_THETA_INDEX] += static_cast<real_T>(joint_motion_rad);
     else
-        rx_tx_rz_tz[CRX_DH_D_INDEX]     += static_cast<real_T>(model_rad);
+        dh_pose_args[CRX_DH_D_INDEX]     += static_cast<real_T>(joint_motion_rad);
 }
 
 static auto SolveFKCore(const real_T *joints_user_deg,
@@ -386,79 +386,80 @@ static auto SolveFKCore(const real_T *joints_user_deg,
                        int max_poses,
                        bool check_limits,
                        const robot_T *ptr_robot) -> int {
-    const int nDOFs = iRobot_nDOFs(ptr_robot);
-    if (nDOFs != CRX_DOF_COUNT) return -1;
-    if (joint_poses_out != nullptr && max_poses < nDOFs + 1) return -1;
+    const int dof_count = iRobot_nDOFs(ptr_robot);
+    if (dof_count != CRX_DOF_COUNT) return -1;
+    if (joint_poses_out != nullptr && max_poses < dof_count + 1) return -1;
 
-    Vec6 joints_rad;
-    DegArrayToRadVec(joints_user_deg, joints_rad);
+    Vec6 user_joints_rad;
+    DegArrayToRadVec(joints_user_deg, user_joints_rad);
 
-    const auto senses = ReadNormalizedJointSenses(ptr_robot);
+    const auto joint_senses = ReadNormalizedJointSenses(ptr_robot);
 
-    Vec6 lo_rad, hi_rad;
-    if (check_limits) ReadJointLimitsRad(ptr_robot, lo_rad, hi_rad);
+    Vec6 lower_limits_rad, upper_limits_rad;
+    if (check_limits) ReadJointLimitsRad(ptr_robot, lower_limits_rad, upper_limits_rad);
 
-    real_T pose_base_local[kPoseElems];
-    real_T *pose_base = (joint_poses_out != nullptr)
+    real_T base_pose_local[kPoseElems];
+    real_T *base_pose = (joint_poses_out != nullptr)
                       ? (joint_poses_out + kPoseElems * 0)
-                      : pose_base_local;
+                      : base_pose_local;
 
-    real_T pose_tool[kPoseElems], pose_j6_tool[kPoseElems];
-    XYZWPR_2_Pose(iRobot_BaseXYZWPR(ptr_robot), pose_base);
-    XYZWPR_2_Pose(iRobot_ToolXYZWPR(ptr_robot), pose_tool);
-    IsometryToPoseArray(FixedJ6ToToolIsometryFk(), pose_j6_tool);
+    real_T tool_pose[kPoseElems], j6_to_tool_pose[kPoseElems];
+    XYZWPR_2_Pose(iRobot_BaseXYZWPR(ptr_robot), base_pose);
+    XYZWPR_2_Pose(iRobot_ToolXYZWPR(ptr_robot), tool_pose);
+    IsometryToPoseArray(FixedJ6ToToolIsometryFk(), j6_to_tool_pose);
 
-    real_T *last_pose = pose_base;
-    real_T next_pose_local[kPoseElems];
+    real_T *accumulated_pose = base_pose;
+    real_T next_pose_buffer[kPoseElems];
 
     // FANUC CRX convention: DH joint-3 variable is coupled as (J2 + J3), not J3.
     // This is the same convention used by the paper's IK formulas (Sec. 2.6, Eq. 19).
-    const double sensed_j2_rad = joints_rad[CRX_J2_INDEX] * senses[CRX_J2_INDEX];
+    const double sensed_joint2_rad = user_joints_rad[CRX_J2_INDEX] * joint_senses[CRX_J2_INDEX];
 
-    for (int i = 0; i < nDOFs; ++i) {
-        const double sensed_rad = joints_rad[i] * senses[i];
+    for (int joint_id = 0; joint_id < dof_count; ++joint_id) {
+        const double sensed_joint_rad = user_joints_rad[joint_id] * joint_senses[joint_id];
 
-        if (check_limits && (sensed_rad < lo_rad[i] || sensed_rad > hi_rad[i])) return -2;
+        if (check_limits && (sensed_joint_rad < lower_limits_rad[joint_id] ||
+                             sensed_joint_rad > upper_limits_rad[joint_id])) return -2;
 
-        double model_rad = sensed_rad;
-        if (i == CRX_J3_INDEX) model_rad = -sensed_j2_rad + sensed_rad;
+        double joint_model_rad = sensed_joint_rad;
+        if (joint_id == CRX_J3_INDEX) joint_model_rad = -sensed_joint2_rad + sensed_joint_rad;
 
-        real_T rx_tx_rz_tz[CRX_DH_ARG_ELEMS];
-        BuildJointPoseInputRad(iRobot_DHM_JointId(ptr_robot, i), model_rad, rx_tx_rz_tz);
+        real_T dh_pose_args[CRX_DH_ARG_ELEMS];
+        BuildJointPoseInputRad(iRobot_DHM_JointId(ptr_robot, joint_id), joint_model_rad, dh_pose_args);
 
-        real_T T_i[kPoseElems];
-        IsometryToPoseArray(DHM_FromRad(rx_tx_rz_tz[0], rx_tx_rz_tz[1],
-                                        rx_tx_rz_tz[2], rx_tx_rz_tz[3]), T_i);
+        real_T joint_pose[kPoseElems];
+        IsometryToPoseArray(DHM_FromRad(dh_pose_args[0], dh_pose_args[1],
+                                        dh_pose_args[2], dh_pose_args[3]), joint_pose);
 
-        real_T *next_pose = (joint_poses_out != nullptr)
-                          ? (joint_poses_out + kPoseElems * (i + 1))
-                          : next_pose_local;
-        Pose_Mult(last_pose, T_i, next_pose);
-        last_pose = next_pose;
+        real_T *next_pose_ptr = (joint_poses_out != nullptr)
+                              ? (joint_poses_out + kPoseElems * (joint_id + 1))
+                              : next_pose_buffer;
+        Pose_Mult(accumulated_pose, joint_pose, next_pose_ptr);
+        accumulated_pose = next_pose_ptr;
     }
 
-    real_T pose_flange[kPoseElems];
-    Pose_Mult(last_pose,   pose_j6_tool, pose_flange);
-    Pose_Mult(pose_flange, pose_tool,    pose_out);
+    real_T flange_pose[kPoseElems];
+    Pose_Mult(accumulated_pose, j6_to_tool_pose, flange_pose);
+    Pose_Mult(flange_pose, tool_pose, pose_out);
     return 1;
 }
 
-static auto IsFkRoundtripValid(const Vec6 &user_rad,
+static auto IsFkRoundtripValid(const Vec6 &candidate_user_joints_rad,
                                const PoseIsoRT &target_pose,
                                const Eigen::Quaterniond &target_quat,
                                const robot_T *ptr_robot) -> bool {
-    real_T user_deg[CRX_DOF_COUNT];
-    real_T fk_pose[kPoseElems];
-    RadVecToDegArray(user_rad, user_deg);
-    if (SolveFKCore(user_deg, fk_pose, nullptr, 0, false, ptr_robot) != 1) return false;
+    real_T candidate_user_joints_deg[CRX_DOF_COUNT];
+    real_T fk_pose_array[kPoseElems];
+    RadVecToDegArray(candidate_user_joints_rad, candidate_user_joints_deg);
+    if (SolveFKCore(candidate_user_joints_deg, fk_pose_array, nullptr, 0, false, ptr_robot) != 1) return false;
 
-    const PoseIsoRT T_fk = PoseArrayToIsometry(fk_pose);
-    const Vec3 dp = T_fk.translation().cast<double>() - target_pose.translation().cast<double>();
-    if (!std::isfinite(dp.squaredNorm()) || dp.squaredNorm() > CRX_SOLUTION_ATOL_MM2) return false;
+    const PoseIsoRT fk_pose_isometry = PoseArrayToIsometry(fk_pose_array);
+    const Vec3 position_error = fk_pose_isometry.translation().cast<double>() - target_pose.translation().cast<double>();
+    if (!std::isfinite(position_error.squaredNorm()) || position_error.squaredNorm() > CRX_SOLUTION_ATOL_MM2) return false;
 
-    const Eigen::Quaterniond q_fk(T_fk.linear().cast<double>());
-    const double ang_err = q_fk.angularDistance(target_quat);
-    return std::isfinite(ang_err) && ang_err <= CRX_SOLUTION_ATOL_RAD;
+    const Eigen::Quaterniond fk_quaternion(fk_pose_isometry.linear().cast<double>());
+    const double orientation_error_rad = fk_quaternion.angularDistance(target_quat);
+    return std::isfinite(orientation_error_rad) && orientation_error_rad <= CRX_SOLUTION_ATOL_RAD;
 }
 
 
@@ -466,10 +467,10 @@ static auto IsFkRoundtripValid(const Vec6 &user_rad,
 // IK — analytic CRX
 //
 // Paper map (robotics13060091.xhtml, Sec. 2.6):
-// - Step 1 / Eq. (13): target pose to O6/O5                  -> SolveIK + ctx.O5
+// - Step 1 / Eq. (13): target pose to O6/O5                  -> SolveIK + circle_context.o5_point
 // - Step 2 / Eq. (14): O4(q) circle parametrization           -> EvaluateCircle(_cs)
 // - Step 3 / Eq. (15): O3_UP/O3_DW from triangle constraints  -> FindThirdTriangleCorner
-// - Step 4/5: UP(q), DW(q) and zero search                    -> dot_up/dot_down + bisection
+// - Step 4/5: UP(q), DW(q) and zero search                    -> up_dot_product/down_dot_product + bisection
 // - Step 6 / Eq. (16..22): recover J1..J6                     -> DetermineJointValues
 // - Step 7 / Eq. (23): dual posture transform                 -> DualSolutionRad
 // ──────────────────────────────────────────────────────────────────────────────
@@ -482,137 +483,144 @@ struct CrxParams {
     double a2 = 0.0, r4 = 0.0, r5 = 0.0, r6 = 0.0;
 };
 
-static auto ReadCrxParams(const robot_T *r, CrxParams &p) -> bool {
-    for (int i = 0; i < CRX_DOF_COUNT; ++i) {
-        const real_T *dh = iRobot_DHM_JointId(r, i);
-        if (dh[4] != 0.0) return false; // prismatic not supported
-        p.alpha_rad[i]  = SnapToRightAngleFamily(dh[0]);
-        p.a[i]          = dh[1];
-        p.theta0_rad[i] = SnapToRightAngleFamily(dh[2]);
-        p.d[i]          = dh[3];
+static auto ReadCrxParams(const robot_T *robot, CrxParams &params) -> bool {
+    for (int joint_id = 0; joint_id < CRX_DOF_COUNT; ++joint_id) {
+        const real_T *dh_row = iRobot_DHM_JointId(robot, joint_id);
+        if (dh_row[4] != 0.0) return false; // prismatic not supported
+        params.alpha_rad[joint_id]  = SnapToRightAngleFamily(dh_row[0]);
+        params.a[joint_id]          = dh_row[1];
+        params.theta0_rad[joint_id] = SnapToRightAngleFamily(dh_row[2]);
+        params.d[joint_id]          = dh_row[3];
     }
-    p.a2 = p.a[2]; p.r4 = p.d[3]; p.r5 = p.d[4]; p.r6 = p.d[5];
+    params.a2 = params.a[2];
+    params.r4 = params.d[3];
+    params.r5 = params.d[4];
+    params.r6 = params.d[5];
     return true;
 }
 
-static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &p, double &pre_shift_z) -> bool {
+static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &params, double &base_z_shift_mm) -> bool {
     // RoboDK stores the production FK model convention. The geometric IK in Sec. 2.6
     // assumes a normalized internal convention; this adapter validates expected CRX
     // DH signatures and remaps only if they match exactly.
-    pre_shift_z = 0.0;
+    base_z_shift_mm = 0.0;
     const double tol = CRX_DH_CONVENTION_TOL;
 
     const bool alpha_ok =
-        AngleDiffAbs(p.alpha_rad[0],  0.0    ) < tol &&
-        AngleDiffAbs(p.alpha_rad[1], -HALF_PI) < tol &&
-        AngleDiffAbs(p.alpha_rad[2],  0.0    ) < tol &&
-        AngleDiffAbs(p.alpha_rad[3], -HALF_PI) < tol &&
-        AngleDiffAbs(p.alpha_rad[4],  HALF_PI) < tol &&
-        AngleDiffAbs(p.alpha_rad[5], -HALF_PI) < tol;
+        AngleDiffAbs(params.alpha_rad[0],  0.0    ) < tol &&
+        AngleDiffAbs(params.alpha_rad[1], -HALF_PI) < tol &&
+        AngleDiffAbs(params.alpha_rad[2],  0.0    ) < tol &&
+        AngleDiffAbs(params.alpha_rad[3], -HALF_PI) < tol &&
+        AngleDiffAbs(params.alpha_rad[4],  HALF_PI) < tol &&
+        AngleDiffAbs(params.alpha_rad[5], -HALF_PI) < tol;
 
     const bool theta_ok =
-        AngleDiffAbs(p.theta0_rad[0],  0.0    ) < tol &&
-        AngleDiffAbs(p.theta0_rad[1], -HALF_PI) < tol &&
-        AngleDiffAbs(p.theta0_rad[2],  0.0    ) < tol &&
-        AngleDiffAbs(p.theta0_rad[3],  0.0    ) < tol &&
-        AngleDiffAbs(p.theta0_rad[4],  0.0    ) < tol &&
-        AngleDiffAbs(p.theta0_rad[5],  0.0    ) < tol;
+        AngleDiffAbs(params.theta0_rad[0],  0.0    ) < tol &&
+        AngleDiffAbs(params.theta0_rad[1], -HALF_PI) < tol &&
+        AngleDiffAbs(params.theta0_rad[2],  0.0    ) < tol &&
+        AngleDiffAbs(params.theta0_rad[3],  0.0    ) < tol &&
+        AngleDiffAbs(params.theta0_rad[4],  0.0    ) < tol &&
+        AngleDiffAbs(params.theta0_rad[5],  0.0    ) < tol;
 
     const bool a_ok =
-        std::abs(p.a[0]) <= F64_EPS &&
-        std::abs(p.a[1]) <= F64_EPS &&
-        p.a[2]  > 0.0               &&
-        std::abs(p.a[3]) <= F64_EPS &&
-        std::abs(p.a[4]) <= F64_EPS &&
-        std::abs(p.a[5]) <= F64_EPS;
+        std::abs(params.a[0]) <= F64_EPS &&
+        std::abs(params.a[1]) <= F64_EPS &&
+        params.a[2]  > 0.0               &&
+        std::abs(params.a[3]) <= F64_EPS &&
+        std::abs(params.a[4]) <= F64_EPS &&
+        std::abs(params.a[5]) <= F64_EPS;
 
     const bool d_ok =
-        p.d[0]  > 0.0                &&
-        std::abs(p.d[1]) <= F64_EPS  &&
-        std::abs(p.d[2]) <= F64_EPS  &&
-        p.d[3]  > 0.0                &&
-        p.d[4] <= -F64_EPS           && // Pass-1 Fix #2
-        p.d[5]  > 0.0;
+        params.d[0]  > 0.0                &&
+        std::abs(params.d[1]) <= F64_EPS  &&
+        std::abs(params.d[2]) <= F64_EPS  &&
+        params.d[3]  > 0.0                &&
+        params.d[4] <= -F64_EPS           && // Pass-1 Fix #2
+        params.d[5]  > 0.0;
 
     // Fail closed when a model differs from the CRX assumptions:
     // returning -1 asks RoboDK to use its generic numerical IK.
     if (!(alpha_ok && theta_ok && a_ok && d_ok)) return false;
 
     // The next remaps align RoboDK FK convention with the paper's internal frame setup.
-    // pre_shift_z is undone on T06 in SolveIK to keep external behavior unchanged.
-    pre_shift_z    = p.d[0];
-    p.d[0]         = 0.0;
-    p.alpha_rad[2] = M_PI;
-    p.d[3]         = -p.d[3];
-    p.d[4]         = -p.d[4];
-    p.d[5]         = -p.d[5];
-    p.a2 = p.a[2]; p.r4 = p.d[3]; p.r5 = p.d[4]; p.r6 = p.d[5];
+    // base_z_shift_mm is undone on T06 in SolveIK to keep external behavior unchanged.
+    base_z_shift_mm    = params.d[0];
+    params.d[0]        = 0.0;
+    params.alpha_rad[2] = M_PI;
+    params.d[3]        = -params.d[3];
+    params.d[4]        = -params.d[4];
+    params.d[5]        = -params.d[5];
+    params.a2 = params.a[2];
+    params.r4 = params.d[3];
+    params.r5 = params.d[4];
+    params.r6 = params.d[5];
     return true;
 }
 
-static inline auto CoupledThetaRad(const Vec6 &j, const CrxParams &p) -> std::array<double, CRX_DOF_COUNT> {
+static inline auto CoupledThetaRad(const Vec6 &solver_joints_rad, const CrxParams &params) -> std::array<double, CRX_DOF_COUNT> {
     // Sec. 2.6 uses the CRX-specific coupled third axis variable (J2 + J3).
     // Keeping this in one helper prevents accidental uncoupled edits elsewhere.
-    return { j[0] + p.theta0_rad[0],
-             j[1] + p.theta0_rad[1],
-             j[1] + j[2] + p.theta0_rad[2],
-             j[3] + p.theta0_rad[3],
-             j[4] + p.theta0_rad[4],
-             j[5] + p.theta0_rad[5] };
+    return { solver_joints_rad[0] + params.theta0_rad[0],
+             solver_joints_rad[1] + params.theta0_rad[1],
+             solver_joints_rad[1] + solver_joints_rad[2] + params.theta0_rad[2],
+             solver_joints_rad[3] + params.theta0_rad[3],
+             solver_joints_rad[4] + params.theta0_rad[4],
+             solver_joints_rad[5] + params.theta0_rad[5] };
 }
 
-static inline auto ForwardFromSolverJoints(const Vec6 &j, const CrxParams &p) -> PoseIsoRT {
-    const auto theta = CoupledThetaRad(j, p);
-    PoseIsoRT T = PoseIsoRT::Identity();
-    for (int i = 0; i < CRX_DOF_COUNT; ++i)
-        T = T * DHM_FromRad(static_cast<real_T>(p.alpha_rad[i]),
-                            static_cast<real_T>(p.a[i]),
-                            static_cast<real_T>(theta[i]),
-                            static_cast<real_T>(p.d[i]));
-    return T * FixedJ6ToToolIsometryAnalytic();
+static inline auto ForwardFromSolverJoints(const Vec6 &solver_joints_rad, const CrxParams &params) -> PoseIsoRT {
+    const auto coupled_theta_rad = CoupledThetaRad(solver_joints_rad, params);
+    PoseIsoRT transform = PoseIsoRT::Identity();
+    for (int joint_id = 0; joint_id < CRX_DOF_COUNT; ++joint_id)
+        transform = transform * DHM_FromRad(static_cast<real_T>(params.alpha_rad[joint_id]),
+                                            static_cast<real_T>(params.a[joint_id]),
+                                            static_cast<real_T>(coupled_theta_rad[joint_id]),
+                                            static_cast<real_T>(params.d[joint_id]));
+    return transform * FixedJ6ToToolIsometryAnalytic();
 }
 
-static inline auto IsPoseConsistent(const Vec6 &j, const PoseIsoRT &T_target, const CrxParams &p) -> bool {
-    const PoseIsoRT T_fk = ForwardFromSolverJoints(j, p);
-    const Vec3 dp = T_fk.translation().cast<double>() - T_target.translation().cast<double>();
-    if (!std::isfinite(dp.squaredNorm()) || dp.squaredNorm() > CRX_SOLUTION_ATOL_MM2) return false;
-    const double ang_err = Eigen::Quaterniond(T_fk.linear().cast<double>())
-                               .angularDistance(Eigen::Quaterniond(T_target.linear().cast<double>()));
-    return std::isfinite(ang_err) && ang_err <= CRX_SOLUTION_ATOL_RAD;
+static inline auto IsPoseConsistent(const Vec6 &solver_joints_rad, const PoseIsoRT &target_pose,
+                                    const CrxParams &params) -> bool {
+    const PoseIsoRT fk_pose = ForwardFromSolverJoints(solver_joints_rad, params);
+    const Vec3 position_error = fk_pose.translation().cast<double>() - target_pose.translation().cast<double>();
+    if (!std::isfinite(position_error.squaredNorm()) || position_error.squaredNorm() > CRX_SOLUTION_ATOL_MM2) return false;
+    const double orientation_error_rad = Eigen::Quaterniond(fk_pose.linear().cast<double>())
+                                             .angularDistance(Eigen::Quaterniond(target_pose.linear().cast<double>()));
+    return std::isfinite(orientation_error_rad) && orientation_error_rad <= CRX_SOLUTION_ATOL_RAD;
 }
 
 // Specialized hot-path basis build for ConstructPlane(O4, UnitZ()).
 static inline auto ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane) -> bool {
     constexpr double kPlaneEps2 = 1e-18;
 
-    const double n2 = O4.squaredNorm();
-    if (!std::isfinite(n2) || n2 <= F64_EPS * F64_EPS) return false;
+    const double o4_norm_sq = O4.squaredNorm();
+    if (!std::isfinite(o4_norm_sq) || o4_norm_sq <= F64_EPS * F64_EPS) return false;
 
-    const Vec3 x = O4 * (1.0 / std::sqrt(n2));
+    const Vec3 plane_x = O4 * (1.0 / std::sqrt(o4_norm_sq));
 
     // Prefer y close to projected +Z so q progression around the O4 circle stays
     // smooth most of the time; fall back near collinearity to avoid NaNs.
-    Vec3 y = Vec3::UnitZ() - x.z() * x;
-    double y2 = y.squaredNorm();
-    if (!std::isfinite(y2) || y2 <= kPlaneEps2) {
-        y = x.unitOrthogonal();
-        y2 = y.squaredNorm();
-        if (!std::isfinite(y2) || y2 <= kPlaneEps2) return false;
+    Vec3 plane_y = Vec3::UnitZ() - plane_x.z() * plane_x;
+    double plane_y_norm_sq = plane_y.squaredNorm();
+    if (!std::isfinite(plane_y_norm_sq) || plane_y_norm_sq <= kPlaneEps2) {
+        plane_y = plane_x.unitOrthogonal();
+        plane_y_norm_sq = plane_y.squaredNorm();
+        if (!std::isfinite(plane_y_norm_sq) || plane_y_norm_sq <= kPlaneEps2) return false;
     } else {
-        y *= (1.0 / std::sqrt(y2));
+        plane_y *= (1.0 / std::sqrt(plane_y_norm_sq));
     }
 
-    Vec3 z = x.cross(y);
-    const double z2 = z.squaredNorm();
-    if (!std::isfinite(z2) || z2 <= kPlaneEps2) return false;
-    z *= (1.0 / std::sqrt(z2));
+    Vec3 plane_z = plane_x.cross(plane_y);
+    const double plane_z_norm_sq = plane_z.squaredNorm();
+    if (!std::isfinite(plane_z_norm_sq) || plane_z_norm_sq <= kPlaneEps2) return false;
+    plane_z *= (1.0 / std::sqrt(plane_z_norm_sq));
 
     // Defensive re-orthogonalization against numeric drift.
-    y = z.cross(x);
+    plane_y = plane_z.cross(plane_x);
 
-    R_plane.col(0) = x;
-    R_plane.col(1) = y;
-    R_plane.col(2) = z;
+    R_plane.col(0) = plane_x;
+    R_plane.col(1) = plane_y;
+    R_plane.col(2) = plane_z;
 
 #ifndef NDEBUG
     assert(std::abs(R_plane.determinant() - 1.0) < 1e-9 &&
@@ -621,66 +629,67 @@ static inline auto ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane) -> boo
     return true;
 }
 
-static inline auto FindThirdTriangleCorner(double AB, double AC, double BC,
-                                           double &x, double &y_abs) -> bool {
-    if (AB <= F64_EPS) return false;
-    x = (AC*AC - BC*BC + AB*AB) / (2.0 * AB);
-    const double y2 = AC*AC - x*x;
-    if (y2 < -CRX_TRIANGLE_NEG_TOL) return false;
-    y_abs = std::sqrt(std::max(0.0, y2));
+static inline auto FindThirdTriangleCorner(double side_ab, double side_ac, double side_bc,
+                                           double &x_coord, double &y_abs) -> bool {
+    if (side_ab <= F64_EPS) return false;
+    x_coord = (side_ac * side_ac - side_bc * side_bc + side_ab * side_ab) / (2.0 * side_ab);
+    const double y_squared = side_ac * side_ac - x_coord * x_coord;
+    if (y_squared < -CRX_TRIANGLE_NEG_TOL) return false;
+    y_abs = std::sqrt(std::max(0.0, y_squared));
     return true;
 }
 
-static inline auto JointTransformRad(const CrxParams &p, int id, double q_rad) -> PoseIsoRT {
-    return DHM_FromRad(static_cast<real_T>(p.alpha_rad[id]),
-                       static_cast<real_T>(p.a[id]),
-                       static_cast<real_T>(p.theta0_rad[id] + q_rad),
-                       static_cast<real_T>(p.d[id]));
+static inline auto JointTransformRad(const CrxParams &params, int joint_id,
+                                     double joint_angle_rad) -> PoseIsoRT {
+    return DHM_FromRad(static_cast<real_T>(params.alpha_rad[joint_id]),
+                       static_cast<real_T>(params.a[joint_id]),
+                       static_cast<real_T>(params.theta0_rad[joint_id] + joint_angle_rad),
+                       static_cast<real_T>(params.d[joint_id]));
 }
 
-static auto DetermineJointValues(const Vec3 &O3,
-                                 const Vec3 &O4,
-                                 const Vec3 &O5,
-                                 const PoseIsoRT &T06_target,
-                                 const CrxParams &p,
-                                 Vec6 &joints_rad) -> bool {
+static auto DetermineJointValues(const Vec3 &o3_point,
+                                 const Vec3 &o4_point,
+                                 const Vec3 &o5_point,
+                                 const PoseIsoRT &target_pose_06,
+                                 const CrxParams &params,
+                                 Vec6 &out_joints_rad) -> bool {
     // This back-substitution corresponds to the paper's Step 6 (Eq. 16..22):
     // once a valid O3/O4 pair is known, solve J1..J6 from chained frame reductions.
-    const Vec3 O6 = T06_target.translation().cast<double>();
+    const Vec3 o6_point = target_pose_06.translation().cast<double>();
 
-    const double J1 = std::atan2(O4.y(), O4.x());
-    const Mat3 R_L1_L0 = JointTransformRad(p, 0, J1).inverse().linear().cast<double>();
+    const double J1 = std::atan2(o4_point.y(), o4_point.x());
+    const Mat3 rotation_l1_from_l0 = JointTransformRad(params, 0, J1).inverse().linear().cast<double>();
 
-    const Vec3 O_1_3 = R_L1_L0 * O3;
-    const double J2  = std::atan2(O_1_3.x(), O_1_3.z());
+    const Vec3 o3_in_l1 = rotation_l1_from_l0 * o3_point;
+    const double J2  = std::atan2(o3_in_l1.x(), o3_in_l1.z());
 
-    const Vec3 O_1_4 = R_L1_L0 * O4;
-    const double J3  = std::atan2(O_1_4.z() - O_1_3.z(), O_1_4.x() - O_1_3.x());
+    const Vec3 o4_in_l1 = rotation_l1_from_l0 * o4_point;
+    const double J3  = std::atan2(o4_in_l1.z() - o3_in_l1.z(), o4_in_l1.x() - o3_in_l1.x());
 
-    const PoseIsoRT T_L2_L1 = JointTransformRad(p, 1, J2).inverse();
+    const PoseIsoRT transform_l2_from_l1 = JointTransformRad(params, 1, J2).inverse();
     // Joint 3 uses the coupled variable (J2 + J3) in the DH chain.
-    const PoseIsoRT T_L3_L2 = JointTransformRad(p, 2, J2 + J3).inverse();
-    const PoseIsoRT T_L3_L0 = T_L3_L2 * T_L2_L1 * PoseIsoRT(R_L1_L0);
+    const PoseIsoRT transform_l3_from_l2 = JointTransformRad(params, 2, J2 + J3).inverse();
+    const PoseIsoRT transform_l3_from_l0 = transform_l3_from_l2 * transform_l2_from_l1 * PoseIsoRT(rotation_l1_from_l0);
 
-    const Vec3 O_3_5 = (T_L3_L0 * O5.cast<real_T>()).template head<3>().cast<double>();
-    const double J4  = std::atan2(O_3_5.x(), O_3_5.z());
+    const Vec3 o5_in_l3 = (transform_l3_from_l0 * o5_point.cast<real_T>()).template head<3>().cast<double>();
+    const double J4  = std::atan2(o5_in_l3.x(), o5_in_l3.z());
 
-    const PoseIsoRT T_L4_L0 = JointTransformRad(p, 3, J4).inverse() * T_L3_L0;
+    const PoseIsoRT transform_l4_from_l0 = JointTransformRad(params, 3, J4).inverse() * transform_l3_from_l0;
 
-    const Vec3 O_4_6 = (T_L4_L0 * O6.cast<real_T>()).template head<3>().cast<double>();
-    const double J5  = std::atan2(O_4_6.x(), -O_4_6.z());
+    const Vec3 o6_in_l4 = (transform_l4_from_l0 * o6_point.cast<real_T>()).template head<3>().cast<double>();
+    const double J5  = std::atan2(o6_in_l4.x(), -o6_in_l4.z());
 
-    const PoseIsoRT T_L5_L0 = JointTransformRad(p, 4, J5).inverse() * T_L4_L0;
-    const Vec3 tool_x_in_L5 = (T_L5_L0.linear() * T06_target.linear()).cast<double>().col(0);
-    const double J6          = std::atan2(-tool_x_in_L5.z(), tool_x_in_L5.x());
+    const PoseIsoRT transform_l5_from_l0 = JointTransformRad(params, 4, J5).inverse() * transform_l4_from_l0;
+    const Vec3 tool_x_axis_in_l5 = (transform_l5_from_l0.linear() * target_pose_06.linear()).cast<double>().col(0);
+    const double J6              = std::atan2(-tool_x_axis_in_l5.z(), tool_x_axis_in_l5.x());
 
     if (!(std::isfinite(J1) && std::isfinite(J2) && std::isfinite(J3) &&
           std::isfinite(J4) && std::isfinite(J5) && std::isfinite(J6)))
         return false;
 
-    joints_rad << NormalizeRadKeepSignedPi(J1), NormalizeRadKeepSignedPi(J2),
-                  NormalizeRadKeepSignedPi(J3), NormalizeRadKeepSignedPi(J4),
-                  NormalizeRadKeepSignedPi(J5), NormalizeRadKeepSignedPi(J6);
+    out_joints_rad << NormalizeRadKeepSignedPi(J1), NormalizeRadKeepSignedPi(J2),
+                      NormalizeRadKeepSignedPi(J3), NormalizeRadKeepSignedPi(J4),
+                      NormalizeRadKeepSignedPi(J5), NormalizeRadKeepSignedPi(J6);
 
     return true;
 }
@@ -688,290 +697,320 @@ static auto DetermineJointValues(const Vec3 &O3,
 // ─────────────────────────── Circle sweep ───────────────────────────────────
 
 struct CircleEvalContext {
-    Mat3   target_R      = Mat3::Identity();
-    Vec3   target_t      = Vec3::Zero();
-    Vec3   O5            = Vec3::Zero();
-    double min_d04_sq    = 0.0;
-    double max_d04_sq    = 0.0;
-    bool   has_min_bound = false;
+    Mat3   target_rotation       = Mat3::Identity();
+    Vec3   target_translation    = Vec3::Zero();
+    Vec3   o5_point              = Vec3::Zero();
+    double min_o0_o4_dist_sq     = 0.0;
+    double max_o0_o4_dist_sq     = 0.0;
+    bool   has_min_o0_o4_bound   = false;
 };
 
 struct CircleEvaluation {
-    Vec3   O4       = Vec3::Zero();
-    Vec3   O3_up    = Vec3::Zero();
-    Vec3   O3_down  = Vec3::Zero();
-    double dot_up   = std::numeric_limits<double>::quiet_NaN();
-    double dot_down = std::numeric_limits<double>::quiet_NaN();
-    bool   valid    = false;
+    Vec3   o4_point       = Vec3::Zero();
+    Vec3   o3_up_point    = Vec3::Zero();
+    Vec3   o3_down_point  = Vec3::Zero();
+    double up_dot_product = std::numeric_limits<double>::quiet_NaN();
+    double down_dot_product = std::numeric_limits<double>::quiet_NaN();
+    bool   is_valid       = false;
 };
 
-static auto EvaluateCircle_cs(double cq, double sq,
-                              const CircleEvalContext &ctx,
-                              const CrxParams &p,
-                              CircleEvaluation &eval,
-                              Mat3 &R_plane_out) -> bool {
+static auto EvaluateCircle_cs(double cos_q, double sin_q,
+                              const CircleEvalContext &context,
+                              const CrxParams &params,
+                              CircleEvaluation &evaluation,
+                              Mat3 &plane_rotation_out) -> bool {
     // Step 2/3/4 core: for one q sample, compute O4(q), both O3 branches, then the
     // two normalized dot products UP(q)/DW(q) whose zeros define valid solutions.
-    eval.valid = false;
+    evaluation.is_valid = false;
 
-    const Vec3 O4_local(p.r5 * cq, p.r5 * sq, p.r6);
-    eval.O4.noalias() = ctx.target_R * O4_local;
-    eval.O4 += ctx.target_t;
+    const Vec3 o4_local(params.r5 * cos_q, params.r5 * sin_q, params.r6);
+    evaluation.o4_point.noalias() = context.target_rotation * o4_local;
+    evaluation.o4_point += context.target_translation;
 
-    const double d04_sq = eval.O4.squaredNorm();
-    if (!std::isfinite(d04_sq) || d04_sq <= F64_EPS * F64_EPS ||
-        d04_sq > ctx.max_d04_sq ||
-        (ctx.has_min_bound && d04_sq < ctx.min_d04_sq))
+    const double o0_o4_dist_sq = evaluation.o4_point.squaredNorm();
+    if (!std::isfinite(o0_o4_dist_sq) || o0_o4_dist_sq <= F64_EPS * F64_EPS ||
+        o0_o4_dist_sq > context.max_o0_o4_dist_sq ||
+        (context.has_min_o0_o4_bound && o0_o4_dist_sq < context.min_o0_o4_dist_sq))
         return false;
 
-    if (!ConstructPlane_O4_UnitZ(eval.O4, R_plane_out)) return false;
+    if (!ConstructPlane_O4_UnitZ(evaluation.o4_point, plane_rotation_out)) return false;
 
-    const double d04 = std::sqrt(d04_sq);
-    double x = 0.0, y = 0.0;
+    const double o0_o4_dist = std::sqrt(o0_o4_dist_sq);
+    double triangle_x_coord = 0.0;
+    double triangle_y_abs = 0.0;
     // The paper's triangle uses signed CRX lengths; -r4 preserves that convention.
-    if (!FindThirdTriangleCorner(d04, p.a2, -p.r4, x, y)) return false;
+    if (!FindThirdTriangleCorner(o0_o4_dist, params.a2, -params.r4, triangle_x_coord, triangle_y_abs)) return false;
 
-    eval.O3_up   = R_plane_out * Vec3(x,  y, 0.0);
-    eval.O3_down = R_plane_out * Vec3(x, -y, 0.0);
+    evaluation.o3_up_point   = plane_rotation_out * Vec3(triangle_x_coord,  triangle_y_abs, 0.0);
+    evaluation.o3_down_point = plane_rotation_out * Vec3(triangle_x_coord, -triangle_y_abs, 0.0);
 
-    const Vec3 Z5 = ctx.O5 - eval.O4;
-    const double z5_sq = Z5.squaredNorm();
-    if (!std::isfinite(z5_sq) || z5_sq <= F64_EPS * F64_EPS) return false;
-    const double inv_z5 = 1.0 / std::sqrt(z5_sq);
+    const Vec3 o4_to_o5_vector = context.o5_point - evaluation.o4_point;
+    const double o4_to_o5_norm_sq = o4_to_o5_vector.squaredNorm();
+    if (!std::isfinite(o4_to_o5_norm_sq) || o4_to_o5_norm_sq <= F64_EPS * F64_EPS) return false;
+    const double inv_o4_to_o5_norm = 1.0 / std::sqrt(o4_to_o5_norm_sq);
 
-    const Vec3 U34_up = eval.O4 - eval.O3_up;
-    const Vec3 U34_dn = eval.O4 - eval.O3_down;
+    const Vec3 o3_to_o4_up_vector = evaluation.o4_point - evaluation.o3_up_point;
+    const Vec3 o3_to_o4_down_vector = evaluation.o4_point - evaluation.o3_down_point;
 
-    const double u_up_sq = U34_up.squaredNorm();
-    const double u_dn_sq = U34_dn.squaredNorm();
-    if (!std::isfinite(u_up_sq) || u_up_sq <= F64_EPS * F64_EPS) return false;
-    if (!std::isfinite(u_dn_sq) || u_dn_sq <= F64_EPS * F64_EPS) return false;
+    const double up_vector_norm_sq = o3_to_o4_up_vector.squaredNorm();
+    const double down_vector_norm_sq = o3_to_o4_down_vector.squaredNorm();
+    if (!std::isfinite(up_vector_norm_sq) || up_vector_norm_sq <= F64_EPS * F64_EPS) return false;
+    if (!std::isfinite(down_vector_norm_sq) || down_vector_norm_sq <= F64_EPS * F64_EPS) return false;
 
-    eval.dot_up   = U34_up.dot(Z5) * (1.0 / std::sqrt(u_up_sq)) * inv_z5;
-    eval.dot_down = U34_dn.dot(Z5) * (1.0 / std::sqrt(u_dn_sq)) * inv_z5;
-    eval.valid    = std::isfinite(eval.dot_up) && std::isfinite(eval.dot_down);
-    return eval.valid;
+    evaluation.up_dot_product =
+        o3_to_o4_up_vector.dot(o4_to_o5_vector) * (1.0 / std::sqrt(up_vector_norm_sq)) * inv_o4_to_o5_norm;
+    evaluation.down_dot_product =
+        o3_to_o4_down_vector.dot(o4_to_o5_vector) * (1.0 / std::sqrt(down_vector_norm_sq)) * inv_o4_to_o5_norm;
+    evaluation.is_valid = std::isfinite(evaluation.up_dot_product) && std::isfinite(evaluation.down_dot_product);
+    return evaluation.is_valid;
 }
 
-static auto EvaluateCircle(double q,
-                           const CircleEvalContext &ctx,
-                           const CrxParams &p,
-                           CircleEvaluation &eval,
-                           Mat3 &R_plane_out) -> bool {
-    const double cq = std::cos(q);
-    const double sq = std::sin(q);
-    return EvaluateCircle_cs(cq, sq, ctx, p, eval, R_plane_out);
+static auto EvaluateCircle(double sample_q,
+                           const CircleEvalContext &context,
+                           const CrxParams &params,
+                           CircleEvaluation &evaluation,
+                           Mat3 &plane_rotation_out) -> bool {
+    const double cos_q = std::cos(sample_q);
+    const double sin_q = std::sin(sample_q);
+    return EvaluateCircle_cs(cos_q, sin_q, context, params, evaluation, plane_rotation_out);
 }
 
-static inline auto HasBracket(double fa, double fb) -> bool {
-    if (!(std::isfinite(fa) && std::isfinite(fb))) return false;
-    if (std::abs(fa) <= CRX_ROOT_Z_TOL || std::abs(fb) <= CRX_ROOT_Z_TOL) return true;
-    return fa * fb < 0.0;
+static inline auto HasBracket(double f_left, double f_right) -> bool {
+    if (!(std::isfinite(f_left) && std::isfinite(f_right))) return false;
+    if (std::abs(f_left) <= CRX_ROOT_Z_TOL || std::abs(f_right) <= CRX_ROOT_Z_TOL) return true;
+    return f_left * f_right < 0.0;
 }
 
 template <typename EvalFn>
-static auto RefineZeroBisection(double qa, double qb, double fa, double fb,
-                                EvalFn eval_fn, double &root_out) -> bool {
+static auto RefineZeroBisection(double q_left, double q_right, double f_left, double f_right,
+                                EvalFn eval_fn, double &root_out_q) -> bool {
     // Deliberately simple and deterministic (no Newton step): Step 5 signals can
     // flatten near singular boundaries, where bracketing is more reliable.
-    if (!(std::isfinite(fa) && std::isfinite(fb))) return false;
-    if (std::abs(fa) <= CRX_ROOT_Z_TOL) { root_out = WrapRad2Pi(qa); return true; }
-    if (std::abs(fb) <= CRX_ROOT_Z_TOL) { root_out = WrapRad2Pi(qb); return true; }
-    if (fa * fb > 0.0) return false;
+    if (!(std::isfinite(f_left) && std::isfinite(f_right))) return false;
+    if (std::abs(f_left) <= CRX_ROOT_Z_TOL) { root_out_q = WrapRad2Pi(q_left); return true; }
+    if (std::abs(f_right) <= CRX_ROOT_Z_TOL) { root_out_q = WrapRad2Pi(q_right); return true; }
+    if (f_left * f_right > 0.0) return false;
 
-    double a = qa, b = qb;
-    for (int i = 0; i < CRX_REFINE_MAX_ITER; ++i) {
-        const double m  = 0.5 * (a + b);
-        const double fm = eval_fn(m);
-        if (!std::isfinite(fm)) return false;
-        if (std::abs(fm) <= CRX_ROOT_Z_TOL || (b - a) < CRX_REFINE_XTOL) {
-            root_out = WrapRad2Pi(m);
+    double left_q = q_left;
+    double right_q = q_right;
+    for (int iter = 0; iter < CRX_REFINE_MAX_ITER; ++iter) {
+        const double mid_q  = 0.5 * (left_q + right_q);
+        const double f_mid = eval_fn(mid_q);
+        if (!std::isfinite(f_mid)) return false;
+        if (std::abs(f_mid) <= CRX_ROOT_Z_TOL || (right_q - left_q) < CRX_REFINE_XTOL) {
+            root_out_q = WrapRad2Pi(mid_q);
             return true;
         }
-        if (fa * fm <= 0.0) { b = m; fb = fm; }
-        else                { a = m; fa = fm; }
+        if (f_left * f_mid <= 0.0) {
+            right_q = mid_q;
+            f_right = f_mid;
+        } else {
+            left_q = mid_q;
+            f_left = f_mid;
+        }
     }
-    root_out = WrapRad2Pi(0.5 * (a + b));
+    root_out_q = WrapRad2Pi(0.5 * (left_q + right_q));
     return true;
 }
 
-static void DedupSolutions(const std::vector<Vec6> &in, std::vector<Vec6> &out) {
-    out.clear();
-    out.reserve(std::min<std::size_t>(kMaxSolutions, in.size()));
-    for (Vec6 s : in) {
-        NormalizeVecKeepSignedPi(s);
-        const bool dup = std::any_of(out.begin(), out.end(), [&](const Vec6& u){
-            return WrappedMaxAbsDiffRad(s, u) <= CRX_SOLUTION_ATOL_RAD;
+static void DedupSolutions(const std::vector<Vec6> &input_solutions, std::vector<Vec6> &unique_solutions) {
+    unique_solutions.clear();
+    unique_solutions.reserve(std::min<std::size_t>(kMaxSolutions, input_solutions.size()));
+    for (Vec6 candidate_solution : input_solutions) {
+        NormalizeVecKeepSignedPi(candidate_solution);
+        const bool is_duplicate = std::any_of(unique_solutions.begin(), unique_solutions.end(), [&](const Vec6& accepted_solution){
+            return WrappedMaxAbsDiffRad(candidate_solution, accepted_solution) <= CRX_SOLUTION_ATOL_RAD;
         });
-        if (!dup) {
-            if (out.size() >= kMaxSolutions) break;
-            out.push_back(s);
+        if (!is_duplicate) {
+            if (unique_solutions.size() >= kMaxSolutions) break;
+            unique_solutions.push_back(candidate_solution);
         }
     }
 }
 
-static void DualSolutionRad(const Vec6 &s, Vec6 &d) {
+static void DualSolutionRad(const Vec6 &source_solution, Vec6 &dual_solution_out) {
     // Eq. (23) dual map (paper Sec. 2.6, Step 7), expressed in radians:
     // [J1-PI, -J2, PI-J3, J4-PI, J5, J6].
-    d = s;
-    d[0] = s[0] - M_PI;
-    d[1] = -s[1];
-    d[2] = M_PI - s[2];
-    d[3] = s[3] - M_PI;
-    d[4] = s[4];
-    d[5] = s[5];
-    NormalizeUserSolutionDomains(d);
+    dual_solution_out = source_solution;
+    dual_solution_out[0] = source_solution[0] - M_PI;
+    dual_solution_out[1] = -source_solution[1];
+    dual_solution_out[2] = M_PI - source_solution[2];
+    dual_solution_out[3] = source_solution[3] - M_PI;
+    dual_solution_out[4] = source_solution[4];
+    dual_solution_out[5] = source_solution[5];
+    NormalizeUserSolutionDomains(dual_solution_out);
 }
 
-static void AddDualSolutions(const std::vector<Vec6> &in, std::vector<Vec6> &out) {
-    out.clear();
-    out.reserve(std::min<std::size_t>(kMaxSolutions, in.size() * 2u));
-    for (const Vec6 &s : in) {
-        if (out.size() >= kMaxSolutions) return;
-        out.push_back(s);
+static void AddDualSolutions(const std::vector<Vec6> &primal_solutions, std::vector<Vec6> &all_solutions) {
+    all_solutions.clear();
+    all_solutions.reserve(std::min<std::size_t>(kMaxSolutions, primal_solutions.size() * 2u));
+    for (const Vec6 &primal_solution : primal_solutions) {
+        if (all_solutions.size() >= kMaxSolutions) return;
+        all_solutions.push_back(primal_solution);
     }
-    Vec6 d = Vec6::Zero();
-    for (const Vec6 &s : in) {
-        if (out.size() >= kMaxSolutions) return;
-        DualSolutionRad(s, d);
-        NormalizeVecKeepSignedPi(d);
-        out.push_back(d);
+    Vec6 dual_solution = Vec6::Zero();
+    for (const Vec6 &primal_solution : primal_solutions) {
+        if (all_solutions.size() >= kMaxSolutions) return;
+        DualSolutionRad(primal_solution, dual_solution);
+        NormalizeVecKeepSignedPi(dual_solution);
+        all_solutions.push_back(dual_solution);
     }
 }
 
 template <typename EmitFn>
-static auto ForEachSignedPiVariant(const Vec6 &q, EmitFn emit) -> bool {
+static auto ForEachSignedPiVariant(const Vec6 &base_solution, EmitFn emit) -> bool {
     constexpr double kPiFlipTol = 1e-8;
 
-    std::vector<int> flip_ids;
-    flip_ids.reserve(CRX_DOF_COUNT);
-    for (int i = 0; i < CRX_DOF_COUNT; ++i)
-        if (std::abs(std::abs(q[i]) - M_PI) <= kPiFlipTol)
-            flip_ids.push_back(i);
+    std::vector<int> pi_flip_joint_ids;
+    pi_flip_joint_ids.reserve(CRX_DOF_COUNT);
+    for (int joint_id = 0; joint_id < CRX_DOF_COUNT; ++joint_id)
+        if (std::abs(std::abs(base_solution[joint_id]) - M_PI) <= kPiFlipTol)
+            pi_flip_joint_ids.push_back(joint_id);
 
     // +PI and -PI represent the same physical angle but can map to different
     // controller branches/joint-limit edges. Emit both to keep branch choice stable.
-    const auto variants = static_cast<std::uint32_t>(1u << flip_ids.size());
-    for (std::uint32_t mask = 0; mask < variants; ++mask) {
-        Vec6 v = q;
-        for (std::size_t bit = 0; bit < flip_ids.size(); ++bit) {
+    const auto variant_count = static_cast<std::uint32_t>(1u << pi_flip_joint_ids.size());
+    for (std::uint32_t mask = 0; mask < variant_count; ++mask) {
+        Vec6 variant_solution = base_solution;
+        for (std::size_t bit = 0; bit < pi_flip_joint_ids.size(); ++bit) {
             if ((mask & (1u << bit)) == 0u) continue;
-            const int j = flip_ids[bit];
-            v[j] = (q[j] >= 0.0) ? -M_PI : M_PI;
+            const int joint_id = pi_flip_joint_ids[bit];
+            variant_solution[joint_id] = (base_solution[joint_id] >= 0.0) ? -M_PI : M_PI;
         }
-        if (!emit(v)) return false;
+        if (!emit(variant_solution)) return false;
     }
     return true;
 }
 
 template <typename EmitFn>
-static auto ForEachCandidateVariant(const Vec6 &q, EmitFn emit) -> bool {
-    if (!ForEachSignedPiVariant(q, [&](const Vec6 &base) { return emit(base); })) return false;
+static auto ForEachCandidateVariant(const Vec6 &base_solution, EmitFn emit) -> bool {
+    if (!ForEachSignedPiVariant(base_solution, [&](const Vec6 &signed_pi_variant) { return emit(signed_pi_variant); })) {
+        return false;
+    }
 
-    Vec6 dual = Vec6::Zero();
-    DualSolutionRad(q, dual);
-    return ForEachSignedPiVariant(dual, [&](const Vec6 &dvar) { return emit(dvar); });
+    Vec6 dual_solution = Vec6::Zero();
+    DualSolutionRad(base_solution, dual_solution);
+    return ForEachSignedPiVariant(dual_solution, [&](const Vec6 &dual_variant) { return emit(dual_variant); });
 }
 
 struct Candidate {
-    Vec6   user_rad = Vec6::Zero();
-    double dist2    = 0.0;
+    Vec6   user_joints_rad = Vec6::Zero();
+    double distance_sq     = 0.0;
 };
 
 // ─────────────────────────── Closed-form CRX IK ─────────────────────────────
 
-static void SolveCrxIk(const PoseIsoRT &T06_target, const CrxParams &p, std::vector<Vec6> &solutions_out) {
+static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
+                       std::vector<Vec6> &solutions_out) {
     solutions_out.clear();
     solutions_out.reserve(kMaxSolutions);
 
-    CircleEvalContext ctx;
-    ctx.target_R = T06_target.linear().cast<double>();
-    ctx.target_t = T06_target.translation().cast<double>();
-    ctx.O5       = ctx.target_R * Vec3(0.0, 0.0, p.r6) + ctx.target_t;
+    CircleEvalContext circle_context;
+    circle_context.target_rotation = target_pose_06.linear().cast<double>();
+    circle_context.target_translation = target_pose_06.translation().cast<double>();
+    circle_context.o5_point = circle_context.target_rotation * Vec3(0.0, 0.0, params.r6) +
+                              circle_context.target_translation;
 
     // Step 3 inequality (Eq. 15): triangle feasibility window for d04.
-    const double L1 = std::abs(p.a2), L2 = std::abs(p.r4);
-    const double reach_eps = 1e-6 * std::max(1.0, L1 + L2);
-    const double max_d04 = L1 + L2 + reach_eps;
-    const double min_d04 = std::abs(L1 - L2) - reach_eps;
-    ctx.max_d04_sq    = max_d04 * max_d04;
-    ctx.has_min_bound = min_d04 > 0.0;
-    ctx.min_d04_sq    = ctx.has_min_bound ? min_d04 * min_d04 : 0.0;
+    const double triangle_side_a2 = std::abs(params.a2);
+    const double triangle_side_r4 = std::abs(params.r4);
+    const double reach_margin = 1e-6 * std::max(1.0, triangle_side_a2 + triangle_side_r4);
+    const double max_o0_o4_dist = triangle_side_a2 + triangle_side_r4 + reach_margin;
+    const double min_o0_o4_dist = std::abs(triangle_side_a2 - triangle_side_r4) - reach_margin;
+    circle_context.max_o0_o4_dist_sq = max_o0_o4_dist * max_o0_o4_dist;
+    circle_context.has_min_o0_o4_bound = min_o0_o4_dist > 0.0;
+    circle_context.min_o0_o4_dist_sq =
+        circle_context.has_min_o0_o4_bound ? min_o0_o4_dist * min_o0_o4_dist : 0.0;
 
-    std::vector<Vec6> sols;
-    sols.reserve(kMaxSolutions);
+    std::vector<Vec6> primal_solutions;
+    primal_solutions.reserve(kMaxSolutions);
 
-    const auto eval_up = [&](double q_eval) -> double {
-        CircleEvaluation tmp; Mat3 rp;
-        return EvaluateCircle(WrapRad2Pi(q_eval), ctx, p, tmp, rp)
-               ? tmp.dot_up : std::numeric_limits<double>::quiet_NaN();
+    const auto evaluate_up_dot = [&](double q_eval) -> double {
+        CircleEvaluation evaluation;
+        Mat3 plane_rotation;
+        return EvaluateCircle(WrapRad2Pi(q_eval), circle_context, params, evaluation, plane_rotation)
+               ? evaluation.up_dot_product
+               : std::numeric_limits<double>::quiet_NaN();
     };
-    const auto eval_down = [&](double q_eval) -> double {
-        CircleEvaluation tmp; Mat3 rp;
-        return EvaluateCircle(WrapRad2Pi(q_eval), ctx, p, tmp, rp)
-               ? tmp.dot_down : std::numeric_limits<double>::quiet_NaN();
+    const auto evaluate_down_dot = [&](double q_eval) -> double {
+        CircleEvaluation evaluation;
+        Mat3 plane_rotation;
+        return EvaluateCircle(WrapRad2Pi(q_eval), circle_context, params, evaluation, plane_rotation)
+               ? evaluation.down_dot_product
+               : std::numeric_limits<double>::quiet_NaN();
     };
 
-    Vec6 q = Vec6::Zero();
-    const auto try_store = [&](const Vec3 &O3_cand, const CircleEvaluation &re) {
-        if (sols.size() >= kMaxSolutions) return;
-        if (DetermineJointValues(O3_cand, re.O4, ctx.O5, T06_target, p, q)) {
-            NormalizeVecKeepSignedPi(q);
-            sols.push_back(q);
+    Vec6 candidate_joints_rad = Vec6::Zero();
+    const auto try_store_solution = [&](const Vec3 &o3_candidate, const CircleEvaluation &evaluation) {
+        if (primal_solutions.size() >= kMaxSolutions) return;
+        if (DetermineJointValues(o3_candidate, evaluation.o4_point, circle_context.o5_point,
+                                 target_pose_06, params, candidate_joints_rad)) {
+            NormalizeVecKeepSignedPi(candidate_joints_rad);
+            primal_solutions.push_back(candidate_joints_rad);
         }
     };
 
     // q sampling for Step 2/4. 1440 samples = 0.25 deg granularity.
-    const double q_step = TWO_PI / static_cast<double>(CRX_IK_Q_SAMPLES);
-    const double c_step = std::cos(q_step);
-    const double s_step = std::sin(q_step);
+    const double sample_step_q = TWO_PI / static_cast<double>(CRX_IK_Q_SAMPLES);
+    const double cos_step = std::cos(sample_step_q);
+    const double sin_step = std::sin(sample_step_q);
 
-    CircleEvaluation prev_eval, cur_eval, root_eval;
-    Mat3 prev_rp, cur_rp, root_rp;
+    CircleEvaluation previous_eval;
+    CircleEvaluation current_eval;
+    CircleEvaluation root_eval;
+    Mat3 previous_plane_rotation;
+    Mat3 current_plane_rotation;
+    Mat3 root_plane_rotation;
 
-    double prev_q = 0.0;
-    double cq = 1.0;
-    double sq = 0.0;
+    double previous_q = 0.0;
+    double cos_q = 1.0;
+    double sin_q = 0.0;
 
-    bool prev_ok = EvaluateCircle_cs(cq, sq, ctx, p, prev_eval, prev_rp);
+    bool previous_ok = EvaluateCircle_cs(cos_q, sin_q, circle_context, params,
+                                         previous_eval, previous_plane_rotation);
 
-    for (int i = 1; i <= CRX_IK_Q_SAMPLES; ++i) {
-        const double cur_q = q_step * static_cast<double>(i);
+    for (int sample_idx = 1; sample_idx <= CRX_IK_Q_SAMPLES; ++sample_idx) {
+        const double current_q = sample_step_q * static_cast<double>(sample_idx);
 
         // Trig recurrence avoids repeated sin/cos calls in the hot loop.
-        const double cq_new = cq * c_step - sq * s_step;
-        const double sq_new = sq * c_step + cq * s_step;
-        cq = cq_new;
-        sq = sq_new;
+        const double next_cos_q = cos_q * cos_step - sin_q * sin_step;
+        const double next_sin_q = sin_q * cos_step + cos_q * sin_step;
+        cos_q = next_cos_q;
+        sin_q = next_sin_q;
 
-        const bool cur_ok = EvaluateCircle_cs(cq, sq, ctx, p, cur_eval, cur_rp);
+        const bool current_ok = EvaluateCircle_cs(cos_q, sin_q, circle_context, params,
+                                                  current_eval, current_plane_rotation);
 
-        if (prev_ok && cur_ok) {
-            if (HasBracket(prev_eval.dot_up, cur_eval.dot_up)) {
-                double root = 0.0;
-                if (RefineZeroBisection(prev_q, cur_q,
-                                        prev_eval.dot_up, cur_eval.dot_up, eval_up, root) &&
-                    EvaluateCircle(root, ctx, p, root_eval, root_rp))
-                    try_store(root_eval.O3_up, root_eval);
+        if (previous_ok && current_ok) {
+            if (HasBracket(previous_eval.up_dot_product, current_eval.up_dot_product)) {
+                double root_q = 0.0;
+                if (RefineZeroBisection(previous_q, current_q,
+                                        previous_eval.up_dot_product, current_eval.up_dot_product,
+                                        evaluate_up_dot, root_q) &&
+                    EvaluateCircle(root_q, circle_context, params, root_eval, root_plane_rotation)) {
+                    try_store_solution(root_eval.o3_up_point, root_eval);
+                }
             }
-            if (HasBracket(prev_eval.dot_down, cur_eval.dot_down)) {
-                double root = 0.0;
-                if (RefineZeroBisection(prev_q, cur_q,
-                                        prev_eval.dot_down, cur_eval.dot_down, eval_down, root) &&
-                    EvaluateCircle(root, ctx, p, root_eval, root_rp))
-                    try_store(root_eval.O3_down, root_eval);
+            if (HasBracket(previous_eval.down_dot_product, current_eval.down_dot_product)) {
+                double root_q = 0.0;
+                if (RefineZeroBisection(previous_q, current_q,
+                                        previous_eval.down_dot_product, current_eval.down_dot_product,
+                                        evaluate_down_dot, root_q) &&
+                    EvaluateCircle(root_q, circle_context, params, root_eval, root_plane_rotation)) {
+                    try_store_solution(root_eval.o3_down_point, root_eval);
+                }
             }
         }
-        prev_q    = cur_q;
-        prev_eval = cur_eval;
-        prev_ok   = cur_ok;
+        previous_q = current_q;
+        previous_eval = current_eval;
+        previous_ok = current_ok;
 
-        if (sols.size() >= kMaxSolutions) break;
+        if (primal_solutions.size() >= kMaxSolutions) break;
     }
 
-    std::vector<Vec6> dual_sols;
-    AddDualSolutions(sols, dual_sols);
-    DedupSolutions(dual_sols, solutions_out);
+    std::vector<Vec6> all_solutions_with_duals;
+    AddDualSolutions(primal_solutions, all_solutions_with_duals);
+    DedupSolutions(all_solutions_with_duals, solutions_out);
 }
 
 } // namespace
@@ -999,45 +1038,45 @@ auto SolveIK(const real_T pose[16],
     if (iRobot_nDOFs(ptr_robot) != CRX_DOF_COUNT) return -1;
     if (max_solutions <= 0) return 0;
 
-    CrxParams params;
-    if (!ReadCrxParams(ptr_robot, params)) return -1;
+    CrxParams crx_params;
+    if (!ReadCrxParams(ptr_robot, crx_params)) return -1;
 
-    const PoseIsoRT T_base = XYZWPR_ToIsometry(iRobot_BaseXYZWPR(ptr_robot));
-    const PoseIsoRT T_tool = XYZWPR_ToIsometry(iRobot_ToolXYZWPR(ptr_robot));
-    const PoseIsoRT T_pose = PoseArrayToIsometry(pose);
-    const Eigen::Quaterniond q_pose_target(T_pose.linear().cast<double>());
+    const PoseIsoRT base_transform = XYZWPR_ToIsometry(iRobot_BaseXYZWPR(ptr_robot));
+    const PoseIsoRT tool_transform = XYZWPR_ToIsometry(iRobot_ToolXYZWPR(ptr_robot));
+    const PoseIsoRT target_pose = PoseArrayToIsometry(pose);
+    const Eigen::Quaterniond target_quaternion(target_pose.linear().cast<double>());
 
     // Remove RoboDK base/tool adapters to work in the CRX DH base frame.
-    const PoseIsoRT T06_target_raw = T_base.inverse() * T_pose * T_tool.inverse();
+    const PoseIsoRT target_pose_06_raw = base_transform.inverse() * target_pose * tool_transform.inverse();
 
-    double pre_shift_z = 0.0;
-    if (!ConvertRoboDkDhToAnalyticIkConvention(params, pre_shift_z)) return -1;
+    double convention_base_z_shift_mm = 0.0;
+    if (!ConvertRoboDkDhToAnalyticIkConvention(crx_params, convention_base_z_shift_mm)) return -1;
 
-    PoseIsoRT T06_target = T06_target_raw;
-    if (std::abs(pre_shift_z) > F64_EPS) {
-        PoseIsoRT T_shift = PoseIsoRT::Identity();
-        T_shift.translation() << 0.0, 0.0, -pre_shift_z;
+    PoseIsoRT target_pose_06 = target_pose_06_raw;
+    if (std::abs(convention_base_z_shift_mm) > F64_EPS) {
+        PoseIsoRT convention_shift_transform = PoseIsoRT::Identity();
+        convention_shift_transform.translation() << 0.0, 0.0, -convention_base_z_shift_mm;
         // Undo the convention adapter translation so SolveCrxIk sees paper-style frames.
-        T06_target = T_shift * T06_target_raw;
+        target_pose_06 = convention_shift_transform * target_pose_06_raw;
     }
 
-    std::vector<Vec6> solver_solutions;
-    SolveCrxIk(T06_target, params, solver_solutions);
+    std::vector<Vec6> geometric_solutions;
+    SolveCrxIk(target_pose_06, crx_params, geometric_solutions);
 
     // Limits converted once in rad
-    Vec6 lo_rad, hi_rad;
-    ReadJointLimitsRad(ptr_robot, lo_rad, hi_rad);
+    Vec6 lower_limits_rad, upper_limits_rad;
+    ReadJointLimitsRad(ptr_robot, lower_limits_rad, upper_limits_rad);
 
     // If geometric sweep found nothing, we still allow a validated "hold current branch"
     // answer from joints_approx. This keeps motion planners stable near singular borders.
-    if (solver_solutions.empty()) {
+    if (geometric_solutions.empty()) {
         if (joints_approx != nullptr) {
-            Vec6 approx_rad = Vec6::Zero();
-            DegArrayToRadVec(joints_approx, approx_rad);
-            if (ClampToLimits(approx_rad, lo_rad, hi_rad, CRX_LIMIT_TOL_RAD) &&
-                IsFkRoundtripValid(approx_rad, T_pose, q_pose_target, ptr_robot)) {
-                RadVecToDegArray(approx_rad, joints);
-                if (joints_all != nullptr) StoreSolution(joints_all, 0, approx_rad);
+            Vec6 approx_joints_rad = Vec6::Zero();
+            DegArrayToRadVec(joints_approx, approx_joints_rad);
+            if (ClampToLimits(approx_joints_rad, lower_limits_rad, upper_limits_rad, CRX_LIMIT_TOL_RAD) &&
+                IsFkRoundtripValid(approx_joints_rad, target_pose, target_quaternion, ptr_robot)) {
+                RadVecToDegArray(approx_joints_rad, joints);
+                if (joints_all != nullptr) StoreSolution(joints_all, 0, approx_joints_rad);
                 return 1;
             }
         }
@@ -1045,75 +1084,86 @@ auto SolveIK(const real_T pose[16],
     }
 
     // Approx converted once at entry
-    Vec6 approx_rad = Vec6::Zero();
-    const bool has_approx = (joints_approx != nullptr);
-    if (has_approx) { DegArrayToRadVec(joints_approx, approx_rad); NormalizeVecKeepSignedPi(approx_rad); }
+    Vec6 approx_joints_rad = Vec6::Zero();
+    const bool has_approximate_joints = (joints_approx != nullptr);
+    if (has_approximate_joints) {
+        DegArrayToRadVec(joints_approx, approx_joints_rad);
+        NormalizeVecKeepSignedPi(approx_joints_rad);
+    }
 
-    std::vector<Candidate> cands;
-    cands.reserve(kMaxSolutions);
+    std::vector<Candidate> ranked_candidates;
+    ranked_candidates.reserve(kMaxSolutions);
 
-    auto is_dup_direct = [&](const Vec6& u) {
-        return std::any_of(cands.begin(), cands.end(), [&](const Candidate& c){
-            return MaxAbsDiffRadDirect(u, c.user_rad) <= CRX_SOLUTION_ATOL_RAD;
+    auto is_direct_duplicate = [&](const Vec6& candidate_joints_rad) {
+        return std::any_of(ranked_candidates.begin(), ranked_candidates.end(), [&](const Candidate& candidate){
+            return MaxAbsDiffRadDirect(candidate_joints_rad, candidate.user_joints_rad) <= CRX_SOLUTION_ATOL_RAD;
         });
     };
 
-    for (Vec6 sol : solver_solutions) {
-        NormalizeUserSolutionDomains(sol);
+    for (Vec6 solution_rad : geometric_solutions) {
+        NormalizeUserSolutionDomains(solution_rad);
 
-        const bool complete = ForEachCandidateVariant(sol, [&](Vec6 user_rad) {
-            if (!ClampToLimits(user_rad, lo_rad, hi_rad, CRX_LIMIT_TOL_RAD)) return true;
+        const bool processed_all_variants = ForEachCandidateVariant(solution_rad, [&](Vec6 user_variant_rad) {
+            if (!ClampToLimits(user_variant_rad, lower_limits_rad, upper_limits_rad, CRX_LIMIT_TOL_RAD)) return true;
 
-            if (!IsFkRoundtripValid(user_rad, T_pose, q_pose_target, ptr_robot)) return true;
+            if (!IsFkRoundtripValid(user_variant_rad, target_pose, target_quaternion, ptr_robot)) return true;
 
             // Keep signed-pi variants distinct for deterministic branch matching.
-            if (is_dup_direct(user_rad)) return true;
+            if (is_direct_duplicate(user_variant_rad)) return true;
 
-            const double dist2 = has_approx ? WrappedDist2Rad(user_rad, approx_rad)
-                                            : static_cast<double>(cands.size());
+            const double distance_sq = has_approximate_joints ? WrappedDist2Rad(user_variant_rad, approx_joints_rad)
+                                                              : static_cast<double>(ranked_candidates.size());
 
-            if (cands.size() < kMaxSolutions) {
-                cands.push_back(Candidate{user_rad, dist2});
-            } else if (has_approx) {
+            if (ranked_candidates.size() < kMaxSolutions) {
+                ranked_candidates.push_back(Candidate{user_variant_rad, distance_sq});
+            } else if (has_approximate_joints) {
                 // keep best-k when approx provided
-                auto worst_it = std::max_element(cands.begin(), cands.end(),
-                    [](const Candidate& a, const Candidate& b){ return a.dist2 < b.dist2; });
-                if (worst_it != cands.end() && dist2 < worst_it->dist2) *worst_it = Candidate{user_rad, dist2};
+                auto worst_candidate_it = std::max_element(
+                    ranked_candidates.begin(), ranked_candidates.end(),
+                    [](const Candidate& a, const Candidate& b){ return a.distance_sq < b.distance_sq; });
+                if (worst_candidate_it != ranked_candidates.end() &&
+                    distance_sq < worst_candidate_it->distance_sq) {
+                    *worst_candidate_it = Candidate{user_variant_rad, distance_sq};
+                }
             } // else: preserve first-k behavior
             return true;
         });
 
-        if (!complete) break;
+        if (!processed_all_variants) break;
     }
 
     // Optionally insert approx candidate if valid and not duplicate
-    if (has_approx) {
-        Vec6 approx_cand = approx_rad;
-        if (ClampToLimits(approx_cand, lo_rad, hi_rad, CRX_LIMIT_TOL_RAD) &&
-            IsFkRoundtripValid(approx_cand, T_pose, q_pose_target, ptr_robot) &&
-            !is_dup_direct(approx_cand)) {
+    if (has_approximate_joints) {
+        Vec6 approx_candidate_rad = approx_joints_rad;
+        if (ClampToLimits(approx_candidate_rad, lower_limits_rad, upper_limits_rad, CRX_LIMIT_TOL_RAD) &&
+            IsFkRoundtripValid(approx_candidate_rad, target_pose, target_quaternion, ptr_robot) &&
+            !is_direct_duplicate(approx_candidate_rad)) {
 
-            if (cands.size() < kMaxSolutions) {
-                cands.push_back(Candidate{approx_cand, 0.0});
+            if (ranked_candidates.size() < kMaxSolutions) {
+                ranked_candidates.push_back(Candidate{approx_candidate_rad, 0.0});
             } else {
-                auto worst_it = std::max_element(cands.begin(), cands.end(),
-                    [](const Candidate& a, const Candidate& b){ return a.dist2 < b.dist2; });
-                if (worst_it != cands.end() && 0.0 < worst_it->dist2) *worst_it = Candidate{approx_cand, 0.0};
+                auto worst_candidate_it = std::max_element(
+                    ranked_candidates.begin(), ranked_candidates.end(),
+                    [](const Candidate& a, const Candidate& b){ return a.distance_sq < b.distance_sq; });
+                if (worst_candidate_it != ranked_candidates.end() &&
+                    0.0 < worst_candidate_it->distance_sq) {
+                    *worst_candidate_it = Candidate{approx_candidate_rad, 0.0};
+                }
             }
         }
     }
 
-    if (cands.empty()) return 0;
+    if (ranked_candidates.empty()) return 0;
 
-    std::sort(cands.begin(), cands.end(),
-              [](const Candidate& a, const Candidate& b){ return a.dist2 < b.dist2; });
+    std::sort(ranked_candidates.begin(), ranked_candidates.end(),
+              [](const Candidate& a, const Candidate& b){ return a.distance_sq < b.distance_sq; });
 
-    const int n = std::min<int>(max_solutions, static_cast<int>(cands.size()));
+    const int solution_count = std::min<int>(max_solutions, static_cast<int>(ranked_candidates.size()));
 
-    RadVecToDegArray(cands[0].user_rad, joints);
+    RadVecToDegArray(ranked_candidates[0].user_joints_rad, joints);
     if (joints_all != nullptr)
-        for (int s = 0; s < n; ++s)
-            StoreSolution(joints_all, s, cands[s].user_rad);
+        for (int solution_idx = 0; solution_idx < solution_count; ++solution_idx)
+            StoreSolution(joints_all, solution_idx, ranked_candidates[solution_idx].user_joints_rad);
 
-    return n;
+    return solution_count;
 }
