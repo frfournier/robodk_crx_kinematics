@@ -151,6 +151,8 @@ static constexpr double kJointLimitToleranceRad =
 static constexpr double kRightAngleSnapToleranceRad = 1e-5;
 static constexpr double kDhConventionToleranceRad = 1e-5;
 static constexpr double kTriangleNegativeTolerance = 1e-9;
+static constexpr double kTriangleShellRelativeTolerance =
+    static_cast<double>(1.0e-6);
 
 static constexpr std::size_t kMaxIkSolutions = 32;
 
@@ -740,14 +742,28 @@ static inline auto ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane)
 static inline auto FindThirdTriangleCorner(double side_ab, double side_ac,
                                            double side_bc, double &x_coord,
                                            double &y_abs) -> bool {
+  if (!(std::isfinite(side_ab) && std::isfinite(side_ac) &&
+        std::isfinite(side_bc)))
+    return false;
   if (side_ab <= kEpsilon)
     return false;
+
   x_coord = (side_ac * side_ac - side_bc * side_bc + side_ab * side_ab) /
             (2.0 * side_ab);
   const double y_squared = side_ac * side_ac - x_coord * x_coord;
-  if (y_squared < -kTriangleNegativeTolerance)
+  if (!std::isfinite(y_squared))
     return false;
-  y_abs = std::sqrt(std::max(0.0, y_squared));
+
+  const double side_scale = std::max(
+      std::max(std::abs(side_ab), std::abs(side_ac)), std::abs(side_bc));
+  const double shell_len_tol =
+      kTriangleShellRelativeTolerance * std::max(1.0, side_scale);
+  const double eps_shell =
+      std::max(kTriangleNegativeTolerance, shell_len_tol * shell_len_tol);
+
+  if (y_squared < -eps_shell)
+    return false;
+  y_abs = std::sqrt((y_squared < 0.0) ? 0.0 : y_squared);
   return true;
 }
 
