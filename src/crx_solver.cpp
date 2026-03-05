@@ -24,7 +24,7 @@ static constexpr int kDhArgCount = 4;
 static constexpr int kDhThetaIndex = 2;
 static constexpr int kDhDIndex = 3;
 
-static constexpr int kIkQSamples = 960;
+static constexpr int kIkQSamples = 1440;
 static constexpr int kRefineMaxIterations = 100;
 static constexpr double kRefineXTolerance = 1e-12;
 static constexpr double kRootZeroTolerance = 1e-14;
