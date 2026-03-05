@@ -691,9 +691,14 @@ static inline auto IsPoseConsistent(const Vec6 &solver_joints_rad,
          orientation_error_rad <= kSolutionAngleToleranceRad;
 }
 
+struct PlaneBasisXY {
+  Vec3 x = Vec3::Zero();
+  Vec3 y = Vec3::Zero();
+};
+
 // Specialized hot-path basis build for ConstructPlane(O4, UnitZ()).
-static inline auto ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane)
-    -> bool {
+static inline auto ConstructPlane_O4_UnitZ_XY(const Vec3 &O4,
+                                              PlaneBasisXY &basis) -> bool {
   constexpr double kPlaneEps2 = 1e-18;
 
   const double o4_norm_sq = O4.squaredNorm();
@@ -702,9 +707,10 @@ static inline auto ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane)
 
   const Vec3 plane_x = O4 * (1.0 / std::sqrt(o4_norm_sq));
 
+  Vec3 plane_y = Vec3::Zero();
   // Prefer y close to projected +Z so q progression around the O4 circle stays
   // smooth most of the time; fall back near collinearity to avoid NaNs.
-  Vec3 plane_y = Vec3::UnitZ() - plane_x.z() * plane_x;
+  plane_y = Vec3::UnitZ() - plane_x.z() * plane_x;
   double plane_y_norm_sq = plane_y.squaredNorm();
   if (!std::isfinite(plane_y_norm_sq) || plane_y_norm_sq <= kPlaneEps2) {
     plane_y = plane_x.unitOrthogonal();
@@ -715,22 +721,14 @@ static inline auto ConstructPlane_O4_UnitZ(const Vec3 &O4, Mat3 &R_plane)
     plane_y *= (1.0 / std::sqrt(plane_y_norm_sq));
   }
 
-  Vec3 plane_z = plane_x.cross(plane_y);
-  const double plane_z_norm_sq = plane_z.squaredNorm();
-  if (!std::isfinite(plane_z_norm_sq) || plane_z_norm_sq <= kPlaneEps2)
-    return false;
-  plane_z *= (1.0 / std::sqrt(plane_z_norm_sq));
-
-  // Defensive re-orthogonalization against numeric drift.
-  plane_y = plane_z.cross(plane_x);
-
-  R_plane.col(0) = plane_x;
-  R_plane.col(1) = plane_y;
-  R_plane.col(2) = plane_z;
+  basis.x = plane_x;
+  basis.y = plane_y;
 
 #ifndef NDEBUG
-  assert(std::abs(R_plane.determinant() - 1.0) < 1e-9 &&
-         "ConstructPlane_O4_UnitZ: R_plane is not a rotation matrix");
+  const Vec3 plane_z = basis.x.cross(basis.y);
+  const double det_like = basis.x.dot(basis.y.cross(plane_z));
+  assert(std::abs(det_like - 1.0) < 1e-9 &&
+         "ConstructPlane_O4_UnitZ_XY: basis is not orthonormal");
 #endif
   return true;
 }
@@ -837,8 +835,9 @@ static auto DetermineJointValues(const Vec3 &o3_point, const Vec3 &o4_point,
 // ─────────────────────────── Circle sweep ───────────────────────────────────
 
 struct CircleEvalContext {
-  Mat3 target_rotation = Mat3::Identity();
-  Vec3 target_translation = Vec3::Zero();
+  Vec3 o4_base = Vec3::Zero();
+  Vec3 o4_cos_axis = Vec3::Zero();
+  Vec3 o4_sin_axis = Vec3::Zero();
   Vec3 o5_point = Vec3::Zero();
   double min_o0_o4_dist_sq = 0.0;
   double max_o0_o4_dist_sq = 0.0;
@@ -854,19 +853,27 @@ struct CircleEvaluation {
   bool is_valid = false;
 };
 
-static auto EvaluateCircle_cs(double cos_q, double sin_q,
-                              const CircleEvalContext &context,
-                              const CrxParams &params,
-                              CircleEvaluation &evaluation,
-                              Mat3 &plane_rotation_out) -> bool {
+struct CircleDotEvaluation {
+  Vec3 o4_point = Vec3::Zero();
+  double triangle_x_coord = 0.0;
+  double triangle_y_abs = 0.0;
+  double up_dot_product = std::numeric_limits<double>::quiet_NaN();
+  double down_dot_product = std::numeric_limits<double>::quiet_NaN();
+  bool is_valid = false;
+};
+
+static auto EvaluateCircleDots_cs(double cos_q, double sin_q,
+                                  const CircleEvalContext &context,
+                                  const CrxParams &params,
+                                  CircleDotEvaluation &evaluation,
+                                  PlaneBasisXY *basis_out = nullptr) -> bool {
   // Step 2/3/4 core: for one q sample, compute O4(q), both O3 branches, then
   // the two normalized dot products UP(q)/DW(q) whose zeros define valid
   // solutions.
   evaluation.is_valid = false;
 
-  const Vec3 o4_local(params.r5 * cos_q, params.r5 * sin_q, params.r6);
-  evaluation.o4_point.noalias() = context.target_rotation * o4_local;
-  evaluation.o4_point += context.target_translation;
+  evaluation.o4_point = context.o4_base + context.o4_cos_axis * cos_q +
+                        context.o4_sin_axis * sin_q;
 
   const double o0_o4_dist_sq = evaluation.o4_point.squaredNorm();
   if (!std::isfinite(o0_o4_dist_sq) || o0_o4_dist_sq <= kEpsilon * kEpsilon ||
@@ -875,22 +882,19 @@ static auto EvaluateCircle_cs(double cos_q, double sin_q,
        o0_o4_dist_sq < context.min_o0_o4_dist_sq))
     return false;
 
-  if (!ConstructPlane_O4_UnitZ(evaluation.o4_point, plane_rotation_out))
-    return false;
-
   const double o0_o4_dist = std::sqrt(o0_o4_dist_sq);
-  double triangle_x_coord = 0.0;
-  double triangle_y_abs = 0.0;
   // The paper's triangle uses signed CRX lengths; -r4 preserves that
   // convention.
   if (!FindThirdTriangleCorner(o0_o4_dist, params.a2, -params.r4,
-                               triangle_x_coord, triangle_y_abs))
+                               evaluation.triangle_x_coord,
+                               evaluation.triangle_y_abs))
     return false;
 
-  evaluation.o3_up_point =
-      plane_rotation_out * Vec3(triangle_x_coord, triangle_y_abs, 0.0);
-  evaluation.o3_down_point =
-      plane_rotation_out * Vec3(triangle_x_coord, -triangle_y_abs, 0.0);
+  PlaneBasisXY basis;
+  if (!ConstructPlane_O4_UnitZ_XY(evaluation.o4_point, basis))
+    return false;
+  if (basis_out != nullptr)
+    *basis_out = basis;
 
   const Vec3 o4_to_o5_vector = context.o5_point - evaluation.o4_point;
   const double o4_to_o5_norm_sq = o4_to_o5_vector.squaredNorm();
@@ -899,25 +903,25 @@ static auto EvaluateCircle_cs(double cos_q, double sin_q,
     return false;
   const double inv_o4_to_o5_norm = 1.0 / std::sqrt(o4_to_o5_norm_sq);
 
-  const Vec3 o3_to_o4_up_vector = evaluation.o4_point - evaluation.o3_up_point;
-  const Vec3 o3_to_o4_down_vector =
-      evaluation.o4_point - evaluation.o3_down_point;
-
-  const double up_vector_norm_sq = o3_to_o4_up_vector.squaredNorm();
-  const double down_vector_norm_sq = o3_to_o4_down_vector.squaredNorm();
-  if (!std::isfinite(up_vector_norm_sq) ||
-      up_vector_norm_sq <= kEpsilon * kEpsilon)
+  const double dx = o0_o4_dist - evaluation.triangle_x_coord;
+  const double y_abs = evaluation.triangle_y_abs;
+  const double o3_to_o4_norm_sq = dx * dx + y_abs * y_abs;
+  if (!std::isfinite(o3_to_o4_norm_sq) ||
+      o3_to_o4_norm_sq <= kEpsilon * kEpsilon)
     return false;
-  if (!std::isfinite(down_vector_norm_sq) ||
-      down_vector_norm_sq <= kEpsilon * kEpsilon)
+  const double inv_o3_to_o4_norm = 1.0 / std::sqrt(o3_to_o4_norm_sq);
+
+  const double o4_to_o5_x = o4_to_o5_vector.dot(basis.x);
+  const double o4_to_o5_y = o4_to_o5_vector.dot(basis.y);
+  if (!std::isfinite(o4_to_o5_x) || !std::isfinite(o4_to_o5_y))
     return false;
 
+  const double up_dot_raw = dx * o4_to_o5_x - y_abs * o4_to_o5_y;
+  const double down_dot_raw = dx * o4_to_o5_x + y_abs * o4_to_o5_y;
   evaluation.up_dot_product = ClampCosineNearUnit(
-      o3_to_o4_up_vector.dot(o4_to_o5_vector) *
-      (1.0 / std::sqrt(up_vector_norm_sq)) * inv_o4_to_o5_norm);
+      up_dot_raw * inv_o3_to_o4_norm * inv_o4_to_o5_norm);
   evaluation.down_dot_product = ClampCosineNearUnit(
-      o3_to_o4_down_vector.dot(o4_to_o5_vector) *
-      (1.0 / std::sqrt(down_vector_norm_sq)) * inv_o4_to_o5_norm);
+      down_dot_raw * inv_o3_to_o4_norm * inv_o4_to_o5_norm);
   evaluation.is_valid = std::isfinite(evaluation.up_dot_product) &&
                         std::isfinite(evaluation.down_dot_product) &&
                         std::abs(evaluation.up_dot_product) <=
@@ -927,15 +931,43 @@ static auto EvaluateCircle_cs(double cos_q, double sin_q,
   return evaluation.is_valid;
 }
 
-static auto EvaluateCircle(double sample_q, const CircleEvalContext &context,
-                           const CrxParams &params,
-                           CircleEvaluation &evaluation,
-                           Mat3 &plane_rotation_out) -> bool {
+static auto EvaluateCircleFull_cs(double cos_q, double sin_q,
+                                  const CircleEvalContext &context,
+                                  const CrxParams &params,
+                                  CircleEvaluation &evaluation) -> bool {
+  evaluation.is_valid = false;
+  CircleDotEvaluation dot_eval;
+  PlaneBasisXY basis;
+  if (!EvaluateCircleDots_cs(cos_q, sin_q, context, params, dot_eval, &basis))
+    return false;
+
+  evaluation.o4_point = dot_eval.o4_point;
+  evaluation.o3_up_point = basis.x * dot_eval.triangle_x_coord +
+                           basis.y * dot_eval.triangle_y_abs;
+  evaluation.o3_down_point = basis.x * dot_eval.triangle_x_coord -
+                             basis.y * dot_eval.triangle_y_abs;
+  evaluation.up_dot_product = dot_eval.up_dot_product;
+  evaluation.down_dot_product = dot_eval.down_dot_product;
+  evaluation.is_valid = true;
+  return true;
+}
+
+static auto EvaluateCircleDots(double sample_q, const CircleEvalContext &context,
+                               const CrxParams &params,
+                               CircleDotEvaluation &evaluation) -> bool {
   double sin_q = 0.0;
   double cos_q = 1.0;
   SinCos(sample_q, sin_q, cos_q);
-  return EvaluateCircle_cs(cos_q, sin_q, context, params, evaluation,
-                           plane_rotation_out);
+  return EvaluateCircleDots_cs(cos_q, sin_q, context, params, evaluation);
+}
+
+static auto EvaluateCircleFull(double sample_q, const CircleEvalContext &context,
+                               const CrxParams &params,
+                               CircleEvaluation &evaluation) -> bool {
+  double sin_q = 0.0;
+  double cos_q = 1.0;
+  SinCos(sample_q, sin_q, cos_q);
+  return EvaluateCircleFull_cs(cos_q, sin_q, context, params, evaluation);
 }
 
 static inline auto HasBracket(double f_left, double f_right) -> bool {
@@ -1156,12 +1188,13 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
   solutions_out.reserve(kMaxIkSolutions);
 
   CircleEvalContext circle_context;
-  circle_context.target_rotation = target_pose_06.linear().cast<double>();
-  circle_context.target_translation =
-      target_pose_06.translation().cast<double>();
-  circle_context.o5_point =
-      circle_context.target_rotation * Vec3(0.0, 0.0, params.r6) +
-      circle_context.target_translation;
+  const Mat3 target_rotation = target_pose_06.linear().cast<double>();
+  const Vec3 target_translation = target_pose_06.translation().cast<double>();
+  const Vec3 target_r6 = target_rotation.col(2) * params.r6;
+  circle_context.o4_base = target_translation + target_r6;
+  circle_context.o4_cos_axis = target_rotation.col(0) * params.r5;
+  circle_context.o4_sin_axis = target_rotation.col(1) * params.r5;
+  circle_context.o5_point = target_translation + target_r6;
 
   // Step 3 inequality (Eq. 15): triangle feasibility window for d04.
   const double triangle_side_a2 = std::abs(params.a2);
@@ -1182,18 +1215,14 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
   primal_solutions.reserve(kMaxIkSolutions);
 
   const auto evaluate_up_dot = [&](double q_eval) -> double {
-    CircleEvaluation evaluation;
-    Mat3 plane_rotation;
-    return EvaluateCircle(WrapRad2Pi(q_eval), circle_context, params,
-                          evaluation, plane_rotation)
+    CircleDotEvaluation evaluation;
+    return EvaluateCircleDots(q_eval, circle_context, params, evaluation)
                ? evaluation.up_dot_product
                : std::numeric_limits<double>::quiet_NaN();
   };
   const auto evaluate_down_dot = [&](double q_eval) -> double {
-    CircleEvaluation evaluation;
-    Mat3 plane_rotation;
-    return EvaluateCircle(WrapRad2Pi(q_eval), circle_context, params,
-                          evaluation, plane_rotation)
+    CircleDotEvaluation evaluation;
+    return EvaluateCircleDots(q_eval, circle_context, params, evaluation)
                ? evaluation.down_dot_product
                : std::numeric_limits<double>::quiet_NaN();
   };
@@ -1217,19 +1246,16 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
   double cos_step = 1.0;
   SinCos(sample_step_q, sin_step, cos_step);
 
-  CircleEvaluation previous_eval;
-  CircleEvaluation current_eval;
+  CircleDotEvaluation previous_eval;
+  CircleDotEvaluation current_eval;
   CircleEvaluation root_eval;
-  Mat3 previous_plane_rotation;
-  Mat3 current_plane_rotation;
-  Mat3 root_plane_rotation;
 
   double previous_q = 0.0;
   double cos_q = 1.0;
   double sin_q = 0.0;
 
-  bool previous_ok = EvaluateCircle_cs(cos_q, sin_q, circle_context, params,
-                                       previous_eval, previous_plane_rotation);
+  bool previous_ok =
+      EvaluateCircleDots_cs(cos_q, sin_q, circle_context, params, previous_eval);
 
   for (int sample_idx = 1; sample_idx <= kIkQSamples; ++sample_idx) {
     const double current_q = sample_step_q * static_cast<double>(sample_idx);
@@ -1241,8 +1267,7 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
     sin_q = next_sin_q;
 
     const bool current_ok =
-        EvaluateCircle_cs(cos_q, sin_q, circle_context, params, current_eval,
-                          current_plane_rotation);
+        EvaluateCircleDots_cs(cos_q, sin_q, circle_context, params, current_eval);
 
     if (previous_ok && current_ok) {
       if (HasBracket(previous_eval.up_dot_product,
@@ -1251,8 +1276,7 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
         if (RefineZeroIllinois(
                 previous_q, current_q, previous_eval.up_dot_product,
                 current_eval.up_dot_product, evaluate_up_dot, root_q) &&
-            EvaluateCircle(root_q, circle_context, params, root_eval,
-                           root_plane_rotation)) {
+            EvaluateCircleFull(root_q, circle_context, params, root_eval)) {
           try_store_solution(root_eval.o3_up_point, root_eval);
         }
       }
@@ -1262,8 +1286,7 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
         if (RefineZeroIllinois(
                 previous_q, current_q, previous_eval.down_dot_product,
                 current_eval.down_dot_product, evaluate_down_dot, root_q) &&
-            EvaluateCircle(root_q, circle_context, params, root_eval,
-                           root_plane_rotation)) {
+            EvaluateCircleFull(root_q, circle_context, params, root_eval)) {
           try_store_solution(root_eval.o3_down_point, root_eval);
         }
       }
