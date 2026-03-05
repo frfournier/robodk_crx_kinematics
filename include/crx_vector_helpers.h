@@ -38,9 +38,7 @@ inline auto ClampToLimits(Vec6 &q, const Vec6 &lo, const Vec6 &hi,
 }
 
 inline auto WrappedDist2Rad(const Vec6 &a, const Vec6 &b) -> double {
-  return (a - b)
-      .unaryExpr([](double x) { return WrapRadPi(x); })
-      .squaredNorm();
+  return (a - b).unaryExpr([](double x) { return WrapRadPi(x); }).squaredNorm();
 }
 
 inline auto MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) -> double {

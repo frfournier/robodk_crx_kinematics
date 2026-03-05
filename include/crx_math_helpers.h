@@ -63,7 +63,9 @@ inline auto NormalizeRadKeepSignedPi(double a) -> double {
   return w;
 }
 
-inline auto WrapRadPi(double a) -> double { return NormalizeRadKeepSignedPi(a); }
+inline auto WrapRadPi(double a) -> double {
+  return NormalizeRadKeepSignedPi(a);
+}
 
 inline auto ClampCosineNearUnit(double value) -> double {
   if (!std::isfinite(value))
@@ -75,8 +77,8 @@ inline auto ClampCosineNearUnit(double value) -> double {
   return value;
 }
 
-inline auto
-SnapToRightAngleFamily(double a, double tol = kRightAngleSnapToleranceRad)
+inline auto SnapToRightAngleFamily(double a,
+                                   double tol = kRightAngleSnapToleranceRad)
     -> double {
   static const std::array<double, 5> refs = {-M_PI, -kHalfPi, 0.0, kHalfPi,
                                              M_PI};

@@ -8,8 +8,9 @@
 
 namespace {
 
-static auto SolveFkApi(const real_T *joints, real_T pose[crx::kPoseElementCount],
-                       real_T *joint_poses, int max_poses, bool check_limits,
+static auto SolveFkApi(const real_T *joints,
+                       real_T pose[crx::kPoseElementCount], real_T *joint_poses,
+                       int max_poses, bool check_limits,
                        const robot_T *ptr_robot) -> int {
   if (joints == nullptr || pose == nullptr || ptr_robot == nullptr)
     return -1;
@@ -29,12 +30,13 @@ static auto SolveFkApi(const real_T *joints, real_T pose[crx::kPoseElementCount]
   if (joint_poses != nullptr) {
     if (max_poses < crx::kDofCount + 1)
       return -1;
-    joint_pose_isometries.resize(crx::kDofCount + 1, crx::PoseIsoRT::Identity());
+    joint_pose_isometries.resize(crx::kDofCount + 1,
+                                 crx::PoseIsoRT::Identity());
     joint_pose_ptr = &joint_pose_isometries;
   }
 
-  const int status =
-      crx::SolveFkIsometry(model, joints_rad, fk_pose, joint_pose_ptr, check_limits);
+  const int status = crx::SolveFkIsometry(model, joints_rad, fk_pose,
+                                          joint_pose_ptr, check_limits);
   if (status != 1)
     return status;
 
