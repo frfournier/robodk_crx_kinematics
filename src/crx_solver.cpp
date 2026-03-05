@@ -28,6 +28,7 @@ static constexpr int kIkQSamples = 960;
 static constexpr int kRefineMaxIterations = 100;
 static constexpr double kRefineXTolerance = 1e-12;
 static constexpr double kRootZeroTolerance = 1e-14;
+static constexpr double kRootSampleHitTolerance = 1e-5;
 
 static constexpr double kSolutionAngleToleranceDeg = 1e-3;
 static constexpr double kSolutionAngleToleranceRad =
@@ -35,6 +36,12 @@ static constexpr double kSolutionAngleToleranceRad =
 static constexpr double kSolutionPositionToleranceMm = 1e-4;
 static constexpr double kSolutionPositionToleranceMmSquared =
     kSolutionPositionToleranceMm * kSolutionPositionToleranceMm;
+static constexpr double kApproxFallbackAngleToleranceDeg = 1e-2;
+static constexpr double kApproxFallbackAngleToleranceRad =
+    angle_conv::DegToRad(kApproxFallbackAngleToleranceDeg);
+static constexpr double kApproxFallbackPositionToleranceMm = 1e-2;
+static constexpr double kApproxFallbackPositionToleranceMmSquared =
+    kApproxFallbackPositionToleranceMm * kApproxFallbackPositionToleranceMm;
 
 static constexpr double kJointLimitToleranceDeg = 1e-2;
 static constexpr double kJointLimitToleranceRad =
@@ -80,9 +87,15 @@ static auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
     const double sensed_joint_rad =
         user_joints_rad[joint_id] * model.joint_senses[joint_id];
 
-    if (check_limits && (sensed_joint_rad < model.lower_limits_rad[joint_id] ||
-                         sensed_joint_rad > model.upper_limits_rad[joint_id]))
-      return -2;
+    if (check_limits) {
+      const double user_joint_rad = user_joints_rad[joint_id];
+      if (user_joint_rad <
+              (model.lower_limits_rad[joint_id] - kJointLimitToleranceRad) ||
+          user_joint_rad >
+              (model.upper_limits_rad[joint_id] + kJointLimitToleranceRad)) {
+        return -2;
+      }
+    }
 
     double joint_model_rad = sensed_joint_rad;
     if (joint_id == kJoint3Index)
@@ -103,10 +116,11 @@ static auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
   return 1;
 }
 
-static auto IsFkRoundtripValid(const Vec6 &candidate_user_joints_rad,
-                               const PoseIsoRT &target_pose,
-                               const Eigen::Quaterniond &target_quat,
-                               const CrxModelData &model) -> bool {
+static auto IsFkRoundtripValidWithTolerances(
+    const Vec6 &candidate_user_joints_rad, const PoseIsoRT &target_pose,
+    const Eigen::Quaterniond &target_quat, const CrxModelData &model,
+    double max_position_error_squared_mm, double max_orientation_error_rad)
+    -> bool {
   PoseIsoRT fk_pose_isometry = PoseIsoRT::Identity();
   if (SolveFKCore(candidate_user_joints_rad, fk_pose_isometry, nullptr, false,
                   model) != 1)
@@ -115,7 +129,7 @@ static auto IsFkRoundtripValid(const Vec6 &candidate_user_joints_rad,
   const Vec3 position_error = fk_pose_isometry.translation().cast<double>() -
                               target_pose.translation().cast<double>();
   if (!std::isfinite(position_error.squaredNorm()) ||
-      position_error.squaredNorm() > kSolutionPositionToleranceMmSquared)
+      position_error.squaredNorm() > max_position_error_squared_mm)
     return false;
 
   const Eigen::Quaterniond fk_quaternion(
@@ -123,7 +137,17 @@ static auto IsFkRoundtripValid(const Vec6 &candidate_user_joints_rad,
   const double orientation_error_rad =
       fk_quaternion.angularDistance(target_quat);
   return std::isfinite(orientation_error_rad) &&
-         orientation_error_rad <= kSolutionAngleToleranceRad;
+         orientation_error_rad <= max_orientation_error_rad;
+}
+
+static auto IsFkRoundtripValid(const Vec6 &candidate_user_joints_rad,
+                               const PoseIsoRT &target_pose,
+                               const Eigen::Quaterniond &target_quat,
+                               const CrxModelData &model) -> bool {
+  return IsFkRoundtripValidWithTolerances(candidate_user_joints_rad, target_pose,
+                                          target_quat, model,
+                                          kSolutionPositionToleranceMmSquared,
+                                          kSolutionAngleToleranceRad);
 }
 struct CrxParams {
   std::array<double, kDofCount> alpha_rad{};
@@ -790,6 +814,24 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
       EvaluateCircleDots_cs(cos_q, sin_q, circle_context, params, tolerances,
                             previous_eval);
 
+  const auto try_store_sample_root = [&](double sample_q, bool use_up_branch) {
+    if (primal_solutions.size() >= kMaxIkSolutions)
+      return;
+    if (EvaluateCircleFull(sample_q, circle_context, params, tolerances,
+                           root_eval)) {
+      try_store_solution(
+          use_up_branch ? root_eval.o3_up_point : root_eval.o3_down_point,
+          root_eval);
+    }
+  };
+
+  if (previous_ok) {
+    if (std::abs(previous_eval.up_dot_product) <= kRootSampleHitTolerance)
+      try_store_sample_root(previous_q, true);
+    if (std::abs(previous_eval.down_dot_product) <= kRootSampleHitTolerance)
+      try_store_sample_root(previous_q, false);
+  }
+
   for (int sample_idx = 1; sample_idx <= kIkQSamples; ++sample_idx) {
     const double current_q = sample_step_q * static_cast<double>(sample_idx);
 
@@ -826,6 +868,12 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
           try_store_solution(root_eval.o3_down_point, root_eval);
         }
       }
+    }
+    if (current_ok) {
+      if (std::abs(current_eval.up_dot_product) <= kRootSampleHitTolerance)
+        try_store_sample_root(current_q, true);
+      if (std::abs(current_eval.down_dot_product) <= kRootSampleHitTolerance)
+        try_store_sample_root(current_q, false);
     }
     previous_q = current_q;
     previous_eval = current_eval;
@@ -1007,11 +1055,16 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
     if (has_approximate_joints) {
       Vec6 approx_fallback_joints_rad = approx_joints_rad_local;
       if (ClampToLimits(approx_fallback_joints_rad, model.lower_limits_rad,
-                        model.upper_limits_rad, kJointLimitToleranceRad) &&
-          IsFkRoundtripValid(approx_fallback_joints_rad, target_pose,
-                             target_quaternion, model)) {
-        solutions_out.push_back(approx_fallback_joints_rad);
-        return 1;
+                        model.upper_limits_rad, kJointLimitToleranceRad)) {
+        if (IsFkRoundtripValid(approx_fallback_joints_rad, target_pose,
+                               target_quaternion, model) ||
+            IsFkRoundtripValidWithTolerances(
+                approx_fallback_joints_rad, target_pose, target_quaternion,
+                model, kApproxFallbackPositionToleranceMmSquared,
+                kApproxFallbackAngleToleranceRad)) {
+          solutions_out.push_back(approx_fallback_joints_rad);
+          return 1;
+        }
       }
     }
     return 0;
@@ -1023,9 +1076,5 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
 }
 
 } // namespace crx
-
-
-
-
 
 

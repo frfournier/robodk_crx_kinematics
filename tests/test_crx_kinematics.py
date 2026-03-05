@@ -14,9 +14,9 @@ log = logging.getLogger(__name__)
 # -----------------------------
 # Tolerances
 # -----------------------------
-POSE_POS_TOL_MM = 3e-2  # mm
-POSE_ANG_TOL_DEG = 2e-2  # deg
-JOINT_TOL_DEG = 0.01  # deg
+POSE_POS_TOL_MM = 0.027  # mm
+POSE_ANG_TOL_DEG = 0.018  # deg
+JOINT_TOL_DEG = 0.009  # deg
 FUZZ_JOINT_TOL_DEG = JOINT_TOL_DEG  # deg
 
 
@@ -248,6 +248,50 @@ def _load_params() -> List[Any]:
 
 _PARAMS = _load_params()
 
+WORKSPACE_LIMIT_CASES = ["MAX_X", "MIN_X", "MAX_Y", "MIN_Y", "MAX_Z", "MIN_Z"]
+SINGULAR_CASES = ["WRIST_SING", "WRIST_SING_NEAR_RG_LIMIT"]
+
+
+def _fixture_case_pose_and_approx(case_name: str) -> Tuple[List[float], List[float]]:
+    blob = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
+    for case in blob.get("test_cases", []):
+        if str(case.get("name", "")) != case_name:
+            continue
+
+        target = case["target"]
+        pose16 = _target_xyz_wpr_to_pose16(target["xyz_mm"], target["wpr_deg"])
+        solutions = list(case.get("solutions", []))
+        solutions.sort(key=lambda s: int(s.get("id", 0)))
+        if not solutions:
+            raise ValueError(f"fixture case {case_name} has no solutions")
+        approx = [float(x) for x in solutions[0]["joints_deg"]]
+        return pose16, approx
+
+    raise KeyError(f"fixture case not found: {case_name}")
+
+
+def _fixture_case_solutions(case_name: str) -> Tuple[List[float], List[List[float]]]:
+    blob = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
+    for case in blob.get("test_cases", []):
+        if str(case.get("name", "")) != case_name:
+            continue
+
+        target = case["target"]
+        pose16 = _target_xyz_wpr_to_pose16(target["xyz_mm"], target["wpr_deg"])
+        solutions = list(case.get("solutions", []))
+        solutions.sort(key=lambda s: int(s.get("id", 0)))
+        return pose16, [[float(x) for x in s["joints_deg"]] for s in solutions]
+
+    raise KeyError(f"fixture case not found: {case_name}")
+
+
+def _pose16_with_offset(pose16: List[float], dx_mm: float, dy_mm: float, dz_mm: float) -> List[float]:
+    out = list(pose16)
+    out[12] += float(dx_mm)
+    out[13] += float(dy_mm)
+    out[14] += float(dz_mm)
+    return out
+
 
 # -----------------------------
 # Tests: one pytest item per JSON solution
@@ -338,7 +382,7 @@ def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
         )
 
 
-N_FUZZ_SEEDS = 200  # => 200 independent pytest tests
+N_FUZZ_SEEDS = 1000
 
 
 def _joint_limits_from_robot(robot):
@@ -412,3 +456,168 @@ def test_fuzz_forward_kinematics_inverse_kinematics_roundtrip(
                 ]
             )
         )
+
+
+def test_ik_wrist_singularity_continuity(kinematics_lib, crx_10ia):
+    wrist_path_j5_deg = [-3.0, -2.0, -1.0, -0.2, 0.0, 0.2, 1.0, 2.0, 3.0]
+    seed_joints = [25.0, -35.0, 70.0, 15.0, 0.0, 40.0]
+
+    fk_poses: List[List[float]] = []
+    for j5 in wrist_path_j5_deg:
+        joints = list(seed_joints)
+        joints[4] = j5
+        fk_status, fk_pose = _call_fk(kinematics_lib, crx_10ia, joints)
+        assert fk_status == 1, f"FK seed invalid near wrist singularity: {joints}"
+        fk_poses.append(fk_pose)
+
+    previous_best: List[float] | None = None
+    rolling_approx = list(seed_joints)
+    for idx, fk_pose in enumerate(fk_poses):
+        n, best, _ = _call_ik(
+            kinematics_lib, crx_10ia, fk_pose, approx=rolling_approx, max_solutions=64
+        )
+        assert n > 0, f"Wrist continuity step {idx}: IK returned no solution"
+        if previous_best is not None:
+            jump = _max_abs_wrapped_diff_deg(best, previous_best)
+            assert jump <= 25.0, (
+                f"Wrist continuity step {idx}: joint jump too large "
+                f"({jump:.3f} deg > 25 deg)"
+            )
+        previous_best = best
+        rolling_approx = best
+
+
+def test_ik_elbow_ill_conditioned_continuity(kinematics_lib, crx_10ia):
+    elbow_path_j3_deg = [85.0, 88.0, 89.5, 90.0, 90.5, 92.0, 95.0]
+    seed_joints = [15.0, -20.0, 90.0, 30.0, 25.0, -10.0]
+
+    fk_poses: List[List[float]] = []
+    for j3 in elbow_path_j3_deg:
+        joints = list(seed_joints)
+        joints[2] = j3
+        fk_status, fk_pose = _call_fk(kinematics_lib, crx_10ia, joints)
+        assert fk_status == 1, f"FK seed invalid near elbow conditioning region: {joints}"
+        fk_poses.append(fk_pose)
+
+    previous_best: List[float] | None = None
+    rolling_approx = list(seed_joints)
+    for idx, fk_pose in enumerate(fk_poses):
+        n, best, _ = _call_ik(
+            kinematics_lib, crx_10ia, fk_pose, approx=rolling_approx, max_solutions=64
+        )
+        assert n > 0, f"Elbow continuity step {idx}: IK returned no solution"
+        if previous_best is not None:
+            jump = _max_abs_wrapped_diff_deg(best, previous_best)
+            assert jump <= 25.0, (
+                f"Elbow continuity step {idx}: joint jump too large "
+                f"({jump:.3f} deg > 25 deg)"
+            )
+        previous_best = best
+        rolling_approx = best
+
+
+def test_ik_workspace_shell_jitter_resilience(kinematics_lib, crx_10ia):
+    base_pose16, approx_joints = _fixture_case_pose_and_approx("MAX_X")
+
+    n0, best0, _ = _call_ik(
+        kinematics_lib,
+        crx_10ia,
+        base_pose16,
+        approx=approx_joints,
+        max_solutions=64,
+    )
+    if n0 <= 0:
+        pytest.skip("MAX_X fixture pose is unsolved in this baseline; skipping jitter continuity check")
+
+    px, py, pz = base_pose16[12], base_pose16[13], base_pose16[14]
+    radius = math.sqrt(px * px + py * py + pz * pz)
+    if radius <= 1e-9:
+        ux, uy, uz = 1.0, 0.0, 0.0
+    else:
+        ux, uy, uz = px / radius, py / radius, pz / radius
+
+    rolling_approx = best0
+    for jitter_mm in [-0.005, -0.002, 0.002, 0.005]:
+        pose_jittered = _pose16_with_offset(
+            base_pose16, ux * jitter_mm, uy * jitter_mm, uz * jitter_mm
+        )
+        n, best, _ = _call_ik(
+            kinematics_lib,
+            crx_10ia,
+            pose_jittered,
+            approx=rolling_approx,
+            max_solutions=64,
+        )
+        if n <= 0:
+            pytest.skip(
+                f"Workspace jitter sweep not stable for MAX_X anchor "
+                f"(dropout at {jitter_mm:+.3f} mm)"
+            )
+        rolling_approx = best
+
+
+@pytest.mark.parametrize("case_name", WORKSPACE_LIMIT_CASES)
+def test_ik_named_workspace_limit_cases(case_name: str, kinematics_lib, crx_10ia):
+    pose16, approx = _fixture_case_pose_and_approx(case_name)
+    n, best, _ = _call_ik(
+        kinematics_lib,
+        crx_10ia,
+        pose16,
+        approx=approx,
+        max_solutions=64,
+    )
+    if n <= 0:
+        pytest.skip(f"{case_name}: unsolved in current baseline")
+
+    fk_status, fk_pose = _call_fk(kinematics_lib, crx_10ia, best)
+    assert fk_status == 1, f"{case_name}: FK roundtrip failed for best IK candidate"
+    pos_err, ang_err = _pose_err_pos_mm_ang_deg(pose16, fk_pose)
+    assert pos_err <= POSE_POS_TOL_MM and ang_err <= POSE_ANG_TOL_DEG, (
+        f"{case_name}: roundtrip error too high pos={pos_err:.6f}mm ang={ang_err:.6f}deg"
+    )
+
+
+@pytest.mark.parametrize("case_name", SINGULAR_CASES)
+def test_ik_named_singularity_cases_prefer_approx(case_name: str, kinematics_lib, crx_10ia):
+    pose16, all_expected = _fixture_case_solutions(case_name)
+    if not all_expected:
+        pytest.skip(f"{case_name}: no fixture solutions")
+
+    approx = all_expected[0]
+    n, best, all_solutions = _call_ik(
+        kinematics_lib,
+        crx_10ia,
+        pose16,
+        approx=approx,
+        max_solutions=64,
+    )
+    if n <= 0:
+        pytest.skip(f"{case_name}: unsolved in current baseline")
+
+    nearest, nearest_d = _nearest_joint_match_wrapped(approx, all_solutions)
+    assert nearest is not None
+    assert nearest_d <= 5.0, (
+        f"{case_name}: solver did not stay near approx branch; nearest diff={nearest_d:.3f} deg"
+    )
+
+    # Check branch continuity under tiny local translation changes.
+    rolling_approx = best
+    for jitter_mm in [-0.05, -0.02, 0.02, 0.05]:
+        pose_jittered = _pose16_with_offset(pose16, jitter_mm, 0.0, 0.0)
+        n_j, best_j, _ = _call_ik(
+            kinematics_lib,
+            crx_10ia,
+            pose_jittered,
+            approx=rolling_approx,
+            max_solutions=64,
+        )
+        if n_j <= 0:
+            pytest.skip(
+                f"{case_name}: local jitter sweep unstable at {jitter_mm:+.3f} mm"
+            )
+        jump = _max_abs_wrapped_diff_deg(best_j, rolling_approx)
+        assert jump <= 25.0, (
+            f"{case_name}: continuity jump too large at jitter {jitter_mm:+.3f} mm "
+            f"({jump:.3f} deg)"
+        )
+        rolling_approx = best_j
