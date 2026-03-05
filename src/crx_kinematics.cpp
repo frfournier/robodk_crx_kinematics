@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <vector>
 
 #include "crx_kinematics.h"
@@ -11,7 +12,6 @@ namespace {
 static auto SolveFkApi(const real_T *joints,
                        real_T pose[crx::kPoseElementCount], real_T *joint_poses,
                        int max_poses, bool check_limits,
-                       bool convert_coupled_j3_to_decoupled,
                        const robot_T *ptr_robot) -> int {
   if (joints == nullptr || pose == nullptr || ptr_robot == nullptr)
     return -1;
@@ -23,9 +23,8 @@ static auto SolveFkApi(const real_T *joints,
     return -1;
 
   crx::Vec6 joints_rad = crx::Vec6::Zero();
-  crx::DegArrayToRadVec(joints, joints_rad);
-  if (convert_coupled_j3_to_decoupled)
-    crx::ConvertJ23CoupledToDecoupled(joints_rad);
+  if (!crx::RoboDkJointsDegCoupledToUserRad(joints, joints_rad))
+    return -1;
 
   crx::PoseIsoRT fk_pose = crx::PoseIsoRT::Identity();
   std::vector<crx::PoseIsoRT> joint_pose_isometries;
@@ -59,13 +58,12 @@ extern "C" {
 
 auto SolveFK(const real_T *joints, real_T pose[16], const robot_T *ptr_robot)
     -> int {
-  return SolveFkApi(joints, pose, nullptr, 0, true, true, ptr_robot);
+  return SolveFkApi(joints, pose, nullptr, 0, true, ptr_robot);
 }
 
 auto SolveFK_CAD(const real_T *joints, real_T pose[16], real_T *joint_poses,
                  int max_poses, const robot_T *ptr_robot) -> int {
-  return SolveFkApi(joints, pose, joint_poses, max_poses, false, true,
-                    ptr_robot);
+  return SolveFkApi(joints, pose, joint_poses, max_poses, false, ptr_robot);
 }
 
 auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
@@ -86,7 +84,8 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
   crx::Vec6 approx_joints_rad = crx::Vec6::Zero();
   const crx::Vec6 *approx_joints_ptr = nullptr;
   if (joints_approx != nullptr) {
-    crx::DegArrayToRadVec(joints_approx, approx_joints_rad);
+    if (!crx::RoboDkJointsDegCoupledToUserRad(joints_approx, approx_joints_rad))
+      return -1;
     crx::NormalizeVecKeepSignedPi(approx_joints_rad);
     approx_joints_ptr = &approx_joints_rad;
   }
@@ -98,11 +97,17 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
   if (solution_count <= 0)
     return solution_count;
 
-  crx::RadVecToDegArray(ranked_solutions_rad[0], joints);
+  if (!crx::UserJointsRadToRoboDkCoupledDeg(ranked_solutions_rad[0], joints))
+    return -1;
   if (joints_all != nullptr) {
     for (int solution_idx = 0; solution_idx < solution_count; ++solution_idx) {
-      crx::StoreSolution(joints_all, solution_idx,
-                         ranked_solutions_rad[solution_idx]);
+      real_T *solution_slot = joints_all + crx::kSolutionStride * solution_idx;
+      std::fill(solution_slot, solution_slot + crx::kSolutionStride,
+                static_cast<real_T>(0.0));
+      if (!crx::UserJointsRadToRoboDkCoupledDeg(
+              ranked_solutions_rad[solution_idx], solution_slot)) {
+        return -1;
+      }
     }
   }
 

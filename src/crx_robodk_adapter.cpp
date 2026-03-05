@@ -2,6 +2,7 @@
 
 #include "crx_math_helpers.h"
 #include "crx_pose_helpers.h"
+#include "crx_vector_helpers.h"
 
 namespace {
 
@@ -87,6 +88,30 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
     row.is_prismatic = (dh_row[4] != 0.0);
     model.dh_rows[joint_id] = row;
   }
+  return true;
+}
+
+auto RoboDkJointsDegCoupledToUserRad(const real_T *joints_deg,
+                                     Vec6 &joints_user_rad) -> bool {
+  if (joints_deg == nullptr)
+    return false;
+
+  // RoboDK API boundary convention for CRX uses coupled J3 (J2 + J3_decoupled).
+  // Internal solver convention uses decoupled J3.
+  DegArrayToRadVec(joints_deg, joints_user_rad);
+  ConvertJ23CoupledToDecoupled(joints_user_rad);
+  return true;
+}
+
+auto UserJointsRadToRoboDkCoupledDeg(const Vec6 &joints_user_rad,
+                                     real_T *joints_deg) -> bool {
+  if (joints_deg == nullptr)
+    return false;
+
+  // Convert back to RoboDK CRX API convention before returning solutions.
+  Vec6 joints_api_rad = joints_user_rad;
+  ConvertJ23DecoupledToCoupled(joints_api_rad);
+  RadVecToDegArray(joints_api_rad, joints_deg);
   return true;
 }
 
