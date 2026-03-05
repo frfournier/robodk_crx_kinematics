@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /tmp/robodk-installer
 COPY .docker/installscript.qs ./installscript.qs
 
-RUN curl -fsSL https://robodk.com/downloads/Install-RoboDK.tar.gz -o Install-RoboDK.tar.gz \
+RUN curl -fsSL https://cdn.robodk.com/downloads/Install-RoboDK.tar.gz -o Install-RoboDK.tar.gz \
     && tar -xzf Install-RoboDK.tar.gz \
     && chmod +x Install-RoboDK \
     && ./Install-RoboDK --platform minimal --verbose --script ./installscript.qs
