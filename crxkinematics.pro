@@ -24,11 +24,18 @@ win32 {
 INCLUDEPATH += $$PWD/include $$PWD/src $$PWD
 
 SOURCES += \
-    $$PWD/src/crx_kinematics.cpp
+    $$PWD/src/crx_kinematics.cpp \
+    $$PWD/src/crx_solver.cpp \
+    $$PWD/src/crx_robodk_adapter.cpp
 
 HEADERS += \
-    $$PWD/include/crx_kinematics.h
-    $$PWD/include/angle_conversions_inline.h
+    $$PWD/include/crx_kinematics.h \
+    $$PWD/include/crx_types.h \
+    $$PWD/include/crx_math_helpers.h \
+    $$PWD/include/crx_vector_helpers.h \
+    $$PWD/include/crx_pose_helpers.h \
+    $$PWD/include/crx_solver.h \
+    $$PWD/include/crx_robodk_adapter.h
 
 # -----------------------------------
 # Eigen headers (required by crxkinematics.cpp)

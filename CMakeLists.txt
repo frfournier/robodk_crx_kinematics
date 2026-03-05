@@ -82,6 +82,8 @@ endif()
 # ------------------------------------------------------------------------------
 add_library(crx_kinematics SHARED
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_robodk_adapter.cpp"
 )
 
 set_target_properties(crx_kinematics PROPERTIES
