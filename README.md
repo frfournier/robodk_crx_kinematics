@@ -1,4 +1,4 @@
-# Fanuc CRX (CRX-10iA family) — Custom Inverse Kinematics for RoboDK
+# Fanuc CRX — Custom Inverse Kinematics for RoboDK
 
 ## Overview
 
