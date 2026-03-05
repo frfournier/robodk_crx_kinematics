@@ -55,7 +55,7 @@
 ** - FANUC-specific coupling used in this file:
 **     * geometric J3 axis variable is (J2 + J3), not J3 alone
 **     * dual posture relation follows Eq. (23) from the paper
-**   (see comments near CoupledThetaRad / DualSolutionRad).
+**   (see comments near DualSolutionRad).
 **
 ** Numerical behavior & validation
 ** -------------------------------
@@ -83,7 +83,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <numeric>
 #include <vector>
 
 #include <Eigen/Core>
@@ -271,12 +270,6 @@ static inline auto FixedJ6ToToolIsometryFk() -> PoseIsoRT {
   return PoseIsoRT::Identity();
 }
 
-static inline auto FixedJ6ToToolIsometryAnalytic() -> PoseIsoRT {
-  PoseIsoRT T = PoseIsoRT::Identity();
-  T.linear() << 1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, -1.0;
-  return T;
-}
-
 static inline void XYZWPR_2_Pose(const real_T xyzwpr[kDofCount],
                                  real_T pose[kPoseElementCount]) {
   IsometryToPoseArray(XYZWPR_ToIsometry(xyzwpr), pose);
@@ -405,13 +398,6 @@ static inline auto WrappedDist2Rad(const Vec6 &a, const Vec6 &b) -> double {
   return (a - b)
       .unaryExpr([](double x) { return WrapRadPi(x); })
       .squaredNorm();
-}
-static inline auto WrappedMaxAbsDiffRad(const Vec6 &a, const Vec6 &b)
-    -> double {
-  return (a - b)
-      .unaryExpr([](double x) { return WrapRadPi(x); })
-      .cwiseAbs()
-      .maxCoeff();
 }
 static inline auto MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) -> double {
   return (a - b).cwiseAbs().maxCoeff();
@@ -647,50 +633,6 @@ static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &params,
   return true;
 }
 
-static inline auto CoupledThetaRad(const Vec6 &solver_joints_rad,
-                                   const CrxParams &params)
-    -> std::array<double, kDofCount> {
-  // Sec. 2.6 uses the CRX-specific coupled third axis variable (J2 + J3).
-  // Keeping this in one helper prevents accidental uncoupled edits elsewhere.
-  return {solver_joints_rad[0] + params.theta0_rad[0],
-          solver_joints_rad[1] + params.theta0_rad[1],
-          solver_joints_rad[1] + solver_joints_rad[2] + params.theta0_rad[2],
-          solver_joints_rad[3] + params.theta0_rad[3],
-          solver_joints_rad[4] + params.theta0_rad[4],
-          solver_joints_rad[5] + params.theta0_rad[5]};
-}
-
-static inline auto ForwardFromSolverJoints(const Vec6 &solver_joints_rad,
-                                           const CrxParams &params)
-    -> PoseIsoRT {
-  const auto coupled_theta_rad = CoupledThetaRad(solver_joints_rad, params);
-  PoseIsoRT transform = PoseIsoRT::Identity();
-  for (int joint_id = 0; joint_id < kDofCount; ++joint_id)
-    transform = transform *
-                DHM_FromRad(static_cast<real_T>(params.alpha_rad[joint_id]),
-                            static_cast<real_T>(params.a[joint_id]),
-                            static_cast<real_T>(coupled_theta_rad[joint_id]),
-                            static_cast<real_T>(params.d[joint_id]));
-  return transform * FixedJ6ToToolIsometryAnalytic();
-}
-
-static inline auto IsPoseConsistent(const Vec6 &solver_joints_rad,
-                                    const PoseIsoRT &target_pose,
-                                    const CrxParams &params) -> bool {
-  const PoseIsoRT fk_pose = ForwardFromSolverJoints(solver_joints_rad, params);
-  const Vec3 position_error = fk_pose.translation().cast<double>() -
-                              target_pose.translation().cast<double>();
-  if (!std::isfinite(position_error.squaredNorm()) ||
-      position_error.squaredNorm() > kSolutionPositionToleranceMmSquared)
-    return false;
-  const double orientation_error_rad =
-      Eigen::Quaterniond(fk_pose.linear().cast<double>())
-          .angularDistance(
-              Eigen::Quaterniond(target_pose.linear().cast<double>()));
-  return std::isfinite(orientation_error_rad) &&
-         orientation_error_rad <= kSolutionAngleToleranceRad;
-}
-
 struct PlaneBasisXY {
   Vec3 x = Vec3::Zero();
   Vec3 y = Vec3::Zero();
@@ -850,7 +792,6 @@ struct CircleEvaluation {
   Vec3 o3_down_point = Vec3::Zero();
   double up_dot_product = std::numeric_limits<double>::quiet_NaN();
   double down_dot_product = std::numeric_limits<double>::quiet_NaN();
-  bool is_valid = false;
 };
 
 struct CircleDotEvaluation {
@@ -859,7 +800,6 @@ struct CircleDotEvaluation {
   double triangle_y_abs = 0.0;
   double up_dot_product = std::numeric_limits<double>::quiet_NaN();
   double down_dot_product = std::numeric_limits<double>::quiet_NaN();
-  bool is_valid = false;
 };
 
 static auto EvaluateCircleDots_cs(double cos_q, double sin_q,
@@ -870,8 +810,6 @@ static auto EvaluateCircleDots_cs(double cos_q, double sin_q,
   // Step 2/3/4 core: for one q sample, compute O4(q), both O3 branches, then
   // the two normalized dot products UP(q)/DW(q) whose zeros define valid
   // solutions.
-  evaluation.is_valid = false;
-
   evaluation.o4_point = context.o4_base + context.o4_cos_axis * cos_q +
                         context.o4_sin_axis * sin_q;
 
@@ -922,20 +860,16 @@ static auto EvaluateCircleDots_cs(double cos_q, double sin_q,
       up_dot_raw * inv_o3_to_o4_norm * inv_o4_to_o5_norm);
   evaluation.down_dot_product = ClampCosineNearUnit(
       down_dot_raw * inv_o3_to_o4_norm * inv_o4_to_o5_norm);
-  evaluation.is_valid = std::isfinite(evaluation.up_dot_product) &&
-                        std::isfinite(evaluation.down_dot_product) &&
-                        std::abs(evaluation.up_dot_product) <=
-                            1.0 + kCosineClampTolerance &&
-                        std::abs(evaluation.down_dot_product) <=
-                            1.0 + kCosineClampTolerance;
-  return evaluation.is_valid;
+  return std::isfinite(evaluation.up_dot_product) &&
+         std::isfinite(evaluation.down_dot_product) &&
+         std::abs(evaluation.up_dot_product) <= 1.0 + kCosineClampTolerance &&
+         std::abs(evaluation.down_dot_product) <= 1.0 + kCosineClampTolerance;
 }
 
 static auto EvaluateCircleFull_cs(double cos_q, double sin_q,
                                   const CircleEvalContext &context,
                                   const CrxParams &params,
                                   CircleEvaluation &evaluation) -> bool {
-  evaluation.is_valid = false;
   CircleDotEvaluation dot_eval;
   PlaneBasisXY basis;
   if (!EvaluateCircleDots_cs(cos_q, sin_q, context, params, dot_eval, &basis))
@@ -948,7 +882,6 @@ static auto EvaluateCircleFull_cs(double cos_q, double sin_q,
                              basis.y * dot_eval.triangle_y_abs;
   evaluation.up_dot_product = dot_eval.up_dot_product;
   evaluation.down_dot_product = dot_eval.down_dot_product;
-  evaluation.is_valid = true;
   return true;
 }
 
@@ -1071,28 +1004,6 @@ static auto RefineZeroIllinois(double q_left, double q_right, double f_left,
   return true;
 }
 
-static void DedupSolutions(const std::vector<Vec6> &input_solutions,
-                           std::vector<Vec6> &unique_solutions) {
-  unique_solutions.clear();
-  unique_solutions.reserve(
-      std::min<std::size_t>(kMaxIkSolutions, input_solutions.size()));
-  for (const Vec6 &candidate_solution_raw : input_solutions) {
-    Vec6 candidate_solution = candidate_solution_raw;
-    NormalizeVecKeepSignedPi(candidate_solution);
-    const bool is_duplicate = std::any_of(
-        unique_solutions.begin(), unique_solutions.end(),
-        [&](const Vec6 &accepted_solution) {
-          return WrappedMaxAbsDiffRad(candidate_solution, accepted_solution) <=
-                 kSolutionAngleToleranceRad;
-        });
-    if (!is_duplicate) {
-      if (unique_solutions.size() >= kMaxIkSolutions)
-        break;
-      unique_solutions.push_back(candidate_solution);
-    }
-  }
-}
-
 static void DualSolutionRad(const Vec6 &source_solution,
                             Vec6 &dual_solution_out) {
   // Eq. (23) dual map (paper Sec. 2.6, Step 7), expressed in radians:
@@ -1105,26 +1016,6 @@ static void DualSolutionRad(const Vec6 &source_solution,
   dual_solution_out[4] = source_solution[4];
   dual_solution_out[5] = source_solution[5];
   NormalizeUserSolutionDomains(dual_solution_out);
-}
-
-static void AddDualSolutions(const std::vector<Vec6> &primal_solutions,
-                             std::vector<Vec6> &all_solutions) {
-  all_solutions.clear();
-  all_solutions.reserve(
-      std::min<std::size_t>(kMaxIkSolutions, primal_solutions.size() * 2u));
-  for (const Vec6 &primal_solution : primal_solutions) {
-    if (all_solutions.size() >= kMaxIkSolutions)
-      return;
-    all_solutions.push_back(primal_solution);
-  }
-  Vec6 dual_solution = Vec6::Zero();
-  for (const Vec6 &primal_solution : primal_solutions) {
-    if (all_solutions.size() >= kMaxIkSolutions)
-      return;
-    DualSolutionRad(primal_solution, dual_solution);
-    NormalizeVecKeepSignedPi(dual_solution);
-    all_solutions.push_back(dual_solution);
-  }
 }
 
 template <typename EmitFn>
@@ -1299,9 +1190,9 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
       break;
   }
 
-  std::vector<Vec6> all_solutions_with_duals;
-  AddDualSolutions(primal_solutions, all_solutions_with_duals);
-  DedupSolutions(all_solutions_with_duals, solutions_out);
+  // Keep SolveCrxIk focused on geometric roots. Dual/signed-pi expansion and
+  // duplicate suppression happen after full FK/limit validation in SolveIK.
+  solutions_out = primal_solutions;
 }
 
 } // namespace
@@ -1408,6 +1299,18 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
                        });
   };
 
+  auto replace_worst_candidate_if_better = [&](const Candidate &incoming) {
+    auto worst_candidate_it =
+        std::max_element(ranked_candidates.begin(), ranked_candidates.end(),
+                         [](const Candidate &a, const Candidate &b) {
+                           return a.distance_sq < b.distance_sq;
+                         });
+    if (worst_candidate_it != ranked_candidates.end() &&
+        incoming.distance_sq < worst_candidate_it->distance_sq) {
+      *worst_candidate_it = incoming;
+    }
+  };
+
   for (Vec6 solution_rad : geometric_solutions) {
     NormalizeUserSolutionDomains(solution_rad);
 
@@ -1435,15 +1338,8 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
                 Candidate{user_variant_rad, distance_sq});
           } else if (has_approximate_joints) {
             // keep best-k when approx provided
-            auto worst_candidate_it = std::max_element(
-                ranked_candidates.begin(), ranked_candidates.end(),
-                [](const Candidate &a, const Candidate &b) {
-                  return a.distance_sq < b.distance_sq;
-                });
-            if (worst_candidate_it != ranked_candidates.end() &&
-                distance_sq < worst_candidate_it->distance_sq) {
-              *worst_candidate_it = Candidate{user_variant_rad, distance_sq};
-            }
+            replace_worst_candidate_if_better(
+                Candidate{user_variant_rad, distance_sq});
           } // else: preserve first-k behavior
           return true;
         });
@@ -1464,15 +1360,7 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
       if (ranked_candidates.size() < kMaxIkSolutions) {
         ranked_candidates.push_back(Candidate{approx_candidate_rad, 0.0});
       } else {
-        auto worst_candidate_it =
-            std::max_element(ranked_candidates.begin(), ranked_candidates.end(),
-                             [](const Candidate &a, const Candidate &b) {
-                               return a.distance_sq < b.distance_sq;
-                             });
-        if (worst_candidate_it != ranked_candidates.end() &&
-            0.0 < worst_candidate_it->distance_sq) {
-          *worst_candidate_it = Candidate{approx_candidate_rad, 0.0};
-        }
+        replace_worst_candidate_if_better(Candidate{approx_candidate_rad, 0.0});
       }
     }
   }
