@@ -562,6 +562,34 @@ struct CrxParams {
   double a2 = 0.0, r4 = 0.0, r5 = 0.0, r6 = 0.0;
 };
 
+struct IkTolerancePack {
+  double length_scale = 1.0;
+  double eps_len = 1e-10;
+  double eps_len2 = 1e-20;
+  double eps_xy = 1e-8;
+  double eps_sin = 1e-8;
+  double eps_reach_sq = 1e-9;
+};
+
+static inline auto BuildIkTolerancePack(const CrxParams &params)
+    -> IkTolerancePack {
+  IkTolerancePack tolerances;
+  tolerances.length_scale =
+      std::max({std::abs(params.a2), std::abs(params.r4), std::abs(params.r5),
+                std::abs(params.r6), 1.0});
+  const double machine_epsilon = std::numeric_limits<double>::epsilon();
+  tolerances.eps_len =
+      std::max(1e-12, 8.0 * machine_epsilon * tolerances.length_scale);
+  tolerances.eps_len2 = tolerances.eps_len * tolerances.eps_len;
+  tolerances.eps_xy =
+      std::max(1e-12, 4096.0 * machine_epsilon * tolerances.length_scale);
+  tolerances.eps_sin = 1e-10;
+  tolerances.eps_reach_sq = std::max(
+      1e-12, machine_epsilon * tolerances.length_scale *
+                 tolerances.length_scale);
+  return tolerances;
+}
+
 static auto ReadCrxParams(const robot_T *robot, CrxParams &params) -> bool {
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
     const real_T *dh_row = iRobot_DHM_JointId(robot, joint_id);
@@ -640,28 +668,31 @@ struct PlaneBasisXY {
 
 // Specialized hot-path basis build for ConstructPlane(O4, UnitZ()).
 static inline auto ConstructPlane_O4_UnitZ_XY(const Vec3 &O4,
+                                              const IkTolerancePack &tolerances,
                                               PlaneBasisXY &basis) -> bool {
-  constexpr double kPlaneEps2 = 1e-18;
-
   const double o4_norm_sq = O4.squaredNorm();
-  if (!std::isfinite(o4_norm_sq) || o4_norm_sq <= kEpsilon * kEpsilon)
+  if (!std::isfinite(o4_norm_sq) || o4_norm_sq <= tolerances.eps_len2)
     return false;
 
   const Vec3 plane_x = O4 * (1.0 / std::sqrt(o4_norm_sq));
 
-  Vec3 plane_y = Vec3::Zero();
-  // Prefer y close to projected +Z so q progression around the O4 circle stays
-  // smooth most of the time; fall back near collinearity to avoid NaNs.
-  plane_y = Vec3::UnitZ() - plane_x.z() * plane_x;
+  Vec3 plane_y = Vec3::UnitZ() - plane_x.z() * plane_x;
   double plane_y_norm_sq = plane_y.squaredNorm();
-  if (!std::isfinite(plane_y_norm_sq) || plane_y_norm_sq <= kPlaneEps2) {
-    plane_y = plane_x.unitOrthogonal();
+  if (!std::isfinite(plane_y_norm_sq) || plane_y_norm_sq <= tolerances.eps_len2) {
+    const Vec3 fallback_axis =
+        (std::abs(plane_x.z()) > 0.99) ? Vec3::UnitY() : Vec3::UnitZ();
+    plane_y = fallback_axis - plane_x.dot(fallback_axis) * plane_x;
     plane_y_norm_sq = plane_y.squaredNorm();
-    if (!std::isfinite(plane_y_norm_sq) || plane_y_norm_sq <= kPlaneEps2)
-      return false;
-  } else {
-    plane_y *= (1.0 / std::sqrt(plane_y_norm_sq));
+    if (!std::isfinite(plane_y_norm_sq) ||
+        plane_y_norm_sq <= tolerances.eps_len2) {
+      plane_y = plane_x.unitOrthogonal();
+      plane_y_norm_sq = plane_y.squaredNorm();
+      if (!std::isfinite(plane_y_norm_sq) ||
+          plane_y_norm_sq <= tolerances.eps_len2)
+        return false;
+    }
   }
+  plane_y *= (1.0 / std::sqrt(plane_y_norm_sq));
 
   basis.x = plane_x;
   basis.y = plane_y;
@@ -715,14 +746,22 @@ static inline auto JointTransformRad(const CrxParams &params, int joint_id,
 static auto DetermineJointValues(const Vec3 &o3_point, const Vec3 &o4_point,
                                  const Vec3 &o5_point,
                                  const PoseIsoRT &target_pose_06,
-                                 const CrxParams &params, Vec6 &out_joints_rad)
+                                 const CrxParams &params,
+                                 const IkTolerancePack &tolerances,
+                                 const Vec6 *approx_joints_rad,
+                                 Vec6 &out_joints_rad)
     -> bool {
   // This back-substitution corresponds to the paper's Step 6 (Eq. 16..22):
   // once a valid O3/O4 pair is known, solve J1..J6 from chained frame
   // reductions.
   const Vec3 o6_point = target_pose_06.translation().cast<double>();
 
-  const double J1 = std::atan2(o4_point.y(), o4_point.x());
+  const double raw_J1 = std::atan2(o4_point.y(), o4_point.x());
+  double J1 = raw_J1;
+  const double shoulder_radius = std::hypot(o4_point.x(), o4_point.y());
+  if (shoulder_radius < tolerances.eps_xy && approx_joints_rad != nullptr)
+    J1 = (*approx_joints_rad)[0];
+
   const Mat3 rotation_l1_from_l0 =
       JointTransformRad(params, 0, J1).inverse().linear().cast<double>();
 
@@ -730,8 +769,14 @@ static auto DetermineJointValues(const Vec3 &o3_point, const Vec3 &o4_point,
   const double J2 = std::atan2(o3_in_l1.x(), o3_in_l1.z());
 
   const Vec3 o4_in_l1 = rotation_l1_from_l0 * o4_point;
-  const double J3 =
-      std::atan2(o4_in_l1.z() - o3_in_l1.z(), o4_in_l1.x() - o3_in_l1.x());
+  const Vec3 o4_minus_o3_in_l1 = o4_in_l1 - o3_in_l1;
+  const double raw_J3 =
+      std::atan2(o4_minus_o3_in_l1.z(), o4_minus_o3_in_l1.x());
+  double J3 = raw_J3;
+  const double elbow_radius =
+      std::hypot(o4_minus_o3_in_l1.x(), o4_minus_o3_in_l1.z());
+  if (elbow_radius < tolerances.eps_xy && approx_joints_rad != nullptr)
+    J3 = (*approx_joints_rad)[2];
 
   const PoseIsoRT transform_l2_from_l1 =
       JointTransformRad(params, 1, J2).inverse();
@@ -761,7 +806,11 @@ static auto DetermineJointValues(const Vec3 &o3_point, const Vec3 &o4_point,
       (transform_l5_from_l0.linear() * target_pose_06.linear())
           .cast<double>()
           .col(0);
-  const double J6 = std::atan2(-tool_x_axis_in_l5.z(), tool_x_axis_in_l5.x());
+  const double raw_J6 = std::atan2(-tool_x_axis_in_l5.z(), tool_x_axis_in_l5.x());
+  double J6 = raw_J6;
+  const double sin_j5 = std::sin(J5);
+  if (std::abs(sin_j5) < tolerances.eps_sin && approx_joints_rad != nullptr)
+    J6 = (*approx_joints_rad)[5];
 
   if (!(std::isfinite(J1) && std::isfinite(J2) && std::isfinite(J3) &&
         std::isfinite(J4) && std::isfinite(J5) && std::isfinite(J6)))
@@ -781,6 +830,7 @@ struct CircleEvalContext {
   Vec3 o4_cos_axis = Vec3::Zero();
   Vec3 o4_sin_axis = Vec3::Zero();
   Vec3 o5_point = Vec3::Zero();
+  double reach_sq_clamp_tolerance = 0.0;
   double min_o0_o4_dist_sq = 0.0;
   double max_o0_o4_dist_sq = 0.0;
   bool has_min_o0_o4_bound = false;
@@ -805,6 +855,7 @@ struct CircleDotEvaluation {
 static auto EvaluateCircleDots_cs(double cos_q, double sin_q,
                                   const CircleEvalContext &context,
                                   const CrxParams &params,
+                                  const IkTolerancePack &tolerances,
                                   CircleDotEvaluation &evaluation,
                                   PlaneBasisXY *basis_out = nullptr) -> bool {
   // Step 2/3/4 core: for one q sample, compute O4(q), both O3 branches, then
@@ -813,12 +864,21 @@ static auto EvaluateCircleDots_cs(double cos_q, double sin_q,
   evaluation.o4_point = context.o4_base + context.o4_cos_axis * cos_q +
                         context.o4_sin_axis * sin_q;
 
-  const double o0_o4_dist_sq = evaluation.o4_point.squaredNorm();
-  if (!std::isfinite(o0_o4_dist_sq) || o0_o4_dist_sq <= kEpsilon * kEpsilon ||
-      o0_o4_dist_sq > context.max_o0_o4_dist_sq ||
-      (context.has_min_o0_o4_bound &&
-       o0_o4_dist_sq < context.min_o0_o4_dist_sq))
+  double o0_o4_dist_sq = evaluation.o4_point.squaredNorm();
+  if (!std::isfinite(o0_o4_dist_sq) || o0_o4_dist_sq <= tolerances.eps_len2)
     return false;
+  if (o0_o4_dist_sq >
+      context.max_o0_o4_dist_sq + context.reach_sq_clamp_tolerance)
+    return false;
+  if (o0_o4_dist_sq > context.max_o0_o4_dist_sq)
+    o0_o4_dist_sq = context.max_o0_o4_dist_sq;
+  if (context.has_min_o0_o4_bound) {
+    if (o0_o4_dist_sq <
+        context.min_o0_o4_dist_sq - context.reach_sq_clamp_tolerance)
+      return false;
+    if (o0_o4_dist_sq < context.min_o0_o4_dist_sq)
+      o0_o4_dist_sq = context.min_o0_o4_dist_sq;
+  }
 
   const double o0_o4_dist = std::sqrt(o0_o4_dist_sq);
   // The paper's triangle uses signed CRX lengths; -r4 preserves that
@@ -829,23 +889,21 @@ static auto EvaluateCircleDots_cs(double cos_q, double sin_q,
     return false;
 
   PlaneBasisXY basis;
-  if (!ConstructPlane_O4_UnitZ_XY(evaluation.o4_point, basis))
+  if (!ConstructPlane_O4_UnitZ_XY(evaluation.o4_point, tolerances, basis))
     return false;
   if (basis_out != nullptr)
     *basis_out = basis;
 
   const Vec3 o4_to_o5_vector = context.o5_point - evaluation.o4_point;
   const double o4_to_o5_norm_sq = o4_to_o5_vector.squaredNorm();
-  if (!std::isfinite(o4_to_o5_norm_sq) ||
-      o4_to_o5_norm_sq <= kEpsilon * kEpsilon)
+  if (!std::isfinite(o4_to_o5_norm_sq) || o4_to_o5_norm_sq <= tolerances.eps_len2)
     return false;
   const double inv_o4_to_o5_norm = 1.0 / std::sqrt(o4_to_o5_norm_sq);
 
   const double dx = o0_o4_dist - evaluation.triangle_x_coord;
   const double y_abs = evaluation.triangle_y_abs;
   const double o3_to_o4_norm_sq = dx * dx + y_abs * y_abs;
-  if (!std::isfinite(o3_to_o4_norm_sq) ||
-      o3_to_o4_norm_sq <= kEpsilon * kEpsilon)
+  if (!std::isfinite(o3_to_o4_norm_sq) || o3_to_o4_norm_sq <= tolerances.eps_len2)
     return false;
   const double inv_o3_to_o4_norm = 1.0 / std::sqrt(o3_to_o4_norm_sq);
 
@@ -869,10 +927,12 @@ static auto EvaluateCircleDots_cs(double cos_q, double sin_q,
 static auto EvaluateCircleFull_cs(double cos_q, double sin_q,
                                   const CircleEvalContext &context,
                                   const CrxParams &params,
+                                  const IkTolerancePack &tolerances,
                                   CircleEvaluation &evaluation) -> bool {
   CircleDotEvaluation dot_eval;
   PlaneBasisXY basis;
-  if (!EvaluateCircleDots_cs(cos_q, sin_q, context, params, dot_eval, &basis))
+  if (!EvaluateCircleDots_cs(cos_q, sin_q, context, params, tolerances,
+                             dot_eval, &basis))
     return false;
 
   evaluation.o4_point = dot_eval.o4_point;
@@ -887,20 +947,24 @@ static auto EvaluateCircleFull_cs(double cos_q, double sin_q,
 
 static auto EvaluateCircleDots(double sample_q, const CircleEvalContext &context,
                                const CrxParams &params,
+                               const IkTolerancePack &tolerances,
                                CircleDotEvaluation &evaluation) -> bool {
   double sin_q = 0.0;
   double cos_q = 1.0;
   SinCos(sample_q, sin_q, cos_q);
-  return EvaluateCircleDots_cs(cos_q, sin_q, context, params, evaluation);
+  return EvaluateCircleDots_cs(cos_q, sin_q, context, params, tolerances,
+                               evaluation);
 }
 
 static auto EvaluateCircleFull(double sample_q, const CircleEvalContext &context,
                                const CrxParams &params,
+                               const IkTolerancePack &tolerances,
                                CircleEvaluation &evaluation) -> bool {
   double sin_q = 0.0;
   double cos_q = 1.0;
   SinCos(sample_q, sin_q, cos_q);
-  return EvaluateCircleFull_cs(cos_q, sin_q, context, params, evaluation);
+  return EvaluateCircleFull_cs(cos_q, sin_q, context, params, tolerances,
+                               evaluation);
 }
 
 static inline auto HasBracket(double f_left, double f_right) -> bool {
@@ -1074,9 +1138,12 @@ struct Candidate {
 // ─────────────────────────── Closed-form CRX IK ─────────────────────────────
 
 static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
+                       const Vec6 *approx_joints_rad,
                        std::vector<Vec6> &solutions_out) {
   solutions_out.clear();
   solutions_out.reserve(kMaxIkSolutions);
+
+  const IkTolerancePack tolerances = BuildIkTolerancePack(params);
 
   CircleEvalContext circle_context;
   const Mat3 target_rotation = target_pose_06.linear().cast<double>();
@@ -1096,6 +1163,7 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
       triangle_side_a2 + triangle_side_r4 + reach_margin;
   const double min_o0_o4_dist =
       std::abs(triangle_side_a2 - triangle_side_r4) - reach_margin;
+  circle_context.reach_sq_clamp_tolerance = tolerances.eps_reach_sq;
   circle_context.max_o0_o4_dist_sq = max_o0_o4_dist * max_o0_o4_dist;
   circle_context.has_min_o0_o4_bound = min_o0_o4_dist > 0.0;
   circle_context.min_o0_o4_dist_sq = circle_context.has_min_o0_o4_bound
@@ -1107,13 +1175,15 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
 
   const auto evaluate_up_dot = [&](double q_eval) -> double {
     CircleDotEvaluation evaluation;
-    return EvaluateCircleDots(q_eval, circle_context, params, evaluation)
+    return EvaluateCircleDots(q_eval, circle_context, params, tolerances,
+                              evaluation)
                ? evaluation.up_dot_product
                : std::numeric_limits<double>::quiet_NaN();
   };
   const auto evaluate_down_dot = [&](double q_eval) -> double {
     CircleDotEvaluation evaluation;
-    return EvaluateCircleDots(q_eval, circle_context, params, evaluation)
+    return EvaluateCircleDots(q_eval, circle_context, params, tolerances,
+                              evaluation)
                ? evaluation.down_dot_product
                : std::numeric_limits<double>::quiet_NaN();
   };
@@ -1125,6 +1195,7 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
       return;
     if (DetermineJointValues(o3_candidate, evaluation.o4_point,
                              circle_context.o5_point, target_pose_06, params,
+                             tolerances, approx_joints_rad,
                              candidate_joints_rad)) {
       NormalizeVecKeepSignedPi(candidate_joints_rad);
       primal_solutions.push_back(candidate_joints_rad);
@@ -1146,7 +1217,8 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
   double sin_q = 0.0;
 
   bool previous_ok =
-      EvaluateCircleDots_cs(cos_q, sin_q, circle_context, params, previous_eval);
+      EvaluateCircleDots_cs(cos_q, sin_q, circle_context, params, tolerances,
+                            previous_eval);
 
   for (int sample_idx = 1; sample_idx <= kIkQSamples; ++sample_idx) {
     const double current_q = sample_step_q * static_cast<double>(sample_idx);
@@ -1158,7 +1230,8 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
     sin_q = next_sin_q;
 
     const bool current_ok =
-        EvaluateCircleDots_cs(cos_q, sin_q, circle_context, params, current_eval);
+        EvaluateCircleDots_cs(cos_q, sin_q, circle_context, params, tolerances,
+                              current_eval);
 
     if (previous_ok && current_ok) {
       if (HasBracket(previous_eval.up_dot_product,
@@ -1167,7 +1240,8 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
         if (RefineZeroIllinois(
                 previous_q, current_q, previous_eval.up_dot_product,
                 current_eval.up_dot_product, evaluate_up_dot, root_q) &&
-            EvaluateCircleFull(root_q, circle_context, params, root_eval)) {
+            EvaluateCircleFull(root_q, circle_context, params, tolerances,
+                               root_eval)) {
           try_store_solution(root_eval.o3_up_point, root_eval);
         }
       }
@@ -1177,7 +1251,8 @@ static void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
         if (RefineZeroIllinois(
                 previous_q, current_q, previous_eval.down_dot_product,
                 current_eval.down_dot_product, evaluate_down_dot, root_q) &&
-            EvaluateCircleFull(root_q, circle_context, params, root_eval)) {
+            EvaluateCircleFull(root_q, circle_context, params, tolerances,
+                               root_eval)) {
           try_store_solution(root_eval.o3_down_point, root_eval);
         }
       }
@@ -1251,8 +1326,17 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
     target_pose_06 = convention_shift_transform * target_pose_06_raw;
   }
 
+  // Approx converted once at entry for branch continuity in geometric solve
+  // and for final ranking.
+  Vec6 approx_joints_rad = Vec6::Zero();
+  const bool has_approximate_joints = (joints_approx != nullptr);
+  if (has_approximate_joints) {
+    DegArrayToRadVec(joints_approx, approx_joints_rad);
+    NormalizeVecKeepSignedPi(approx_joints_rad);
+  }
+
   std::vector<Vec6> geometric_solutions;
-  SolveCrxIk(target_pose_06, crx_params, geometric_solutions);
+  SolveCrxIk(target_pose_06, crx_params, nullptr, geometric_solutions);
 
   // Limits converted once in rad
   Vec6 lower_limits_rad, upper_limits_rad;
@@ -1263,27 +1347,21 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
   // singular borders.
   if (geometric_solutions.empty()) {
     if (joints_approx != nullptr) {
-      Vec6 approx_joints_rad = Vec6::Zero();
-      DegArrayToRadVec(joints_approx, approx_joints_rad);
-      if (ClampToLimits(approx_joints_rad, lower_limits_rad, upper_limits_rad,
+      Vec6 approx_fallback_joints_rad = Vec6::Zero();
+      DegArrayToRadVec(joints_approx, approx_fallback_joints_rad);
+      if (ClampToLimits(approx_fallback_joints_rad, lower_limits_rad,
+                        upper_limits_rad,
                         kJointLimitToleranceRad) &&
-          IsFkRoundtripValid(approx_joints_rad, target_pose, target_quaternion,
+          IsFkRoundtripValid(approx_fallback_joints_rad, target_pose,
+                             target_quaternion,
                              ptr_robot)) {
-        RadVecToDegArray(approx_joints_rad, joints);
+        RadVecToDegArray(approx_fallback_joints_rad, joints);
         if (joints_all != nullptr)
-          StoreSolution(joints_all, 0, approx_joints_rad);
+          StoreSolution(joints_all, 0, approx_fallback_joints_rad);
         return 1;
       }
     }
     return 0;
-  }
-
-  // Approx converted once at entry
-  Vec6 approx_joints_rad = Vec6::Zero();
-  const bool has_approximate_joints = (joints_approx != nullptr);
-  if (has_approximate_joints) {
-    DegArrayToRadVec(joints_approx, approx_joints_rad);
-    NormalizeVecKeepSignedPi(approx_joints_rad);
   }
 
   std::vector<Candidate> ranked_candidates;
