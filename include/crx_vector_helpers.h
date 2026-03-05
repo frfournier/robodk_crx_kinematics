@@ -20,6 +20,16 @@ inline void NormalizeVecKeepSignedPi(Vec6 &q) {
   q = q.unaryExpr([](double x) { return NormalizeRadKeepSignedPi(x); });
 }
 
+inline void ConvertJ23CoupledToDecoupled(Vec6 &q) {
+  // RoboDK FK endpoint may provide J3 in coupled form (J2 + J3_decoupled).
+  // Internal solver convention uses decoupled J3.
+  q[kJoint3Index] -= q[kJoint2Index];
+}
+
+inline void ConvertJ23DecoupledToCoupled(Vec6 &q) {
+  q[kJoint3Index] += q[kJoint2Index];
+}
+
 inline void NormalizeUserSolutionDomains(Vec6 &q) {
   const double joint3_raw = q[kJoint3Index];
   q = q.unaryExpr([](double x) { return NormalizeRadKeepSignedPi(x); });

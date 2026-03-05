@@ -11,6 +11,7 @@ namespace {
 static auto SolveFkApi(const real_T *joints,
                        real_T pose[crx::kPoseElementCount], real_T *joint_poses,
                        int max_poses, bool check_limits,
+                       bool convert_coupled_j3_to_decoupled,
                        const robot_T *ptr_robot) -> int {
   if (joints == nullptr || pose == nullptr || ptr_robot == nullptr)
     return -1;
@@ -23,6 +24,8 @@ static auto SolveFkApi(const real_T *joints,
 
   crx::Vec6 joints_rad = crx::Vec6::Zero();
   crx::DegArrayToRadVec(joints, joints_rad);
+  if (convert_coupled_j3_to_decoupled)
+    crx::ConvertJ23CoupledToDecoupled(joints_rad);
 
   crx::PoseIsoRT fk_pose = crx::PoseIsoRT::Identity();
   std::vector<crx::PoseIsoRT> joint_pose_isometries;
@@ -56,12 +59,13 @@ extern "C" {
 
 auto SolveFK(const real_T *joints, real_T pose[16], const robot_T *ptr_robot)
     -> int {
-  return SolveFkApi(joints, pose, nullptr, 0, true, ptr_robot);
+  return SolveFkApi(joints, pose, nullptr, 0, true, true, ptr_robot);
 }
 
 auto SolveFK_CAD(const real_T *joints, real_T pose[16], real_T *joint_poses,
                  int max_poses, const robot_T *ptr_robot) -> int {
-  return SolveFkApi(joints, pose, joint_poses, max_poses, false, ptr_robot);
+  return SolveFkApi(joints, pose, joint_poses, max_poses, false, true,
+                    ptr_robot);
 }
 
 auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
