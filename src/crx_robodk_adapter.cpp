@@ -1,5 +1,9 @@
 #include "crx_robodk_adapter.h"
 
+#include <algorithm>
+#include <cmath>
+#include <string>
+
 #include "crx_math_helpers.h"
 #include "crx_pose_helpers.h"
 #include "crx_vector_helpers.h"
@@ -7,23 +11,38 @@
 namespace {
 
 static constexpr int kRobotTableStride = 20;
+static constexpr int kRobotDofRow = 1;
+static constexpr int kRobotDofCol = 1;
+static constexpr int kRobotJointSensesRow = 3;
+static constexpr int kRobotJointSensesCol = 4;
 static constexpr int kRobotBaseXyzwprRow = 9;
+static constexpr int kRobotDhBaseRow = 10;
 static constexpr int kRobotToolXyzwprRow = 28;
 static constexpr int kRobotJointLowerLimitRow = 30;
 static constexpr int kRobotJointUpperLimitRow = 31;
-static constexpr int kRobotJointSensesRow = 3;
-static constexpr int kRobotJointSensesCol = 4;
-static constexpr int kRobotDhBaseRow = 10;
-static constexpr int kRobotDofRow = 1;
-static constexpr int kRobotDofCol = 1;
+static constexpr int kRobotNameRow = 90;
+static constexpr int kRobotNameSize = 59;
 
 static inline auto iRobot_At(const robot_T *r, int row, int col = 0)
     -> const real_T * {
   return reinterpret_cast<const real_T *>(r) + row * kRobotTableStride + col;
 }
 
+static inline auto iRobot_Dof(const robot_T *r) -> const real_T * {
+  return iRobot_At(r, kRobotDofRow, kRobotDofCol);
+}
+
+static inline auto iRobot_JointSenses(const robot_T *r) -> const real_T * {
+  return iRobot_At(r, kRobotJointSensesRow, kRobotJointSensesCol);
+}
+
 static inline auto iRobot_BaseXYZWPR(const robot_T *r) -> const real_T * {
   return iRobot_At(r, kRobotBaseXyzwprRow);
+}
+
+static inline auto iRobot_DhmJoint(const robot_T *r, int joint)
+    -> const real_T * {
+  return iRobot_At(r, kRobotDhBaseRow + joint);
 }
 
 static inline auto iRobot_ToolXYZWPR(const robot_T *r) -> const real_T * {
@@ -38,13 +57,29 @@ static inline auto iRobot_JointLimUpper(const robot_T *r) -> const real_T * {
   return iRobot_At(r, kRobotJointUpperLimitRow);
 }
 
-static inline auto iRobot_JointSenses(const robot_T *r) -> const real_T * {
-  return iRobot_At(r, kRobotJointSensesRow, kRobotJointSensesCol);
-}
+/*!
+ * \brief iRobot_Name returns the name of the robot
+ * \param r
+ * \return
+ */
+static auto iRobot_Name(const robot_T *r) -> std::string {
+  const real_T *name_buffer = iRobot_At(r, kRobotNameRow);
+  const real_T *name_end =
+      std::find(name_buffer, name_buffer + kRobotNameSize, 0.0);
 
-static inline auto iRobot_DhmJoint(const robot_T *r, int joint)
-    -> const real_T * {
-  return iRobot_At(r, kRobotDhBaseRow + joint);
+  std::string name;
+  name.reserve(static_cast<size_t>(name_end - name_buffer));
+
+  for (const real_T *it = name_buffer; it != name_end; ++it) {
+    if (!std::isfinite(*it) || std::trunc(*it) != *it || *it < 0.0 ||
+        *it > 127.0) {
+      break; // or return {}, or append '?', depending on policy
+    }
+
+    name.push_back(static_cast<char>(*it));
+  }
+
+  return name;
 }
 
 } // namespace
@@ -54,7 +89,7 @@ namespace crx {
 auto RoboDkDofCount(const robot_T *robot) -> int {
   if (robot == nullptr)
     return 0;
-  return static_cast<int>(*iRobot_At(robot, kRobotDofRow, kRobotDofCol));
+  return static_cast<int>(*iRobot_Dof(robot));
 }
 
 auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
