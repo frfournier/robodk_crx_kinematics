@@ -285,6 +285,9 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
+!.docker/.env.example
 .envrc
 .venv
 env/
@@ -350,3 +353,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Docker local secrets
+.docker/secrets/
