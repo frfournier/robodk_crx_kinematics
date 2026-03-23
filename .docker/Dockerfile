@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
 FROM ubuntu:24.04 AS base
 
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
 FROM base AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -23,12 +26,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/robodk-installer
-COPY .docker/installscript.qs ./installscript.qs
-
-RUN curl -fsSL https://cdn.robodk.com/downloads/Install-RoboDK.tar.gz -o Install-RoboDK.tar.gz \
+RUN mkdir -p /root/Desktop \
+    && apt-get update \
+    && curl -fsSL https://cdn.robodk.com/downloads/Install-RoboDK.tar.gz -o Install-RoboDK.tar.gz \
     && tar -xzf Install-RoboDK.tar.gz \
     && chmod +x Install-RoboDK \
-    && ./Install-RoboDK --platform minimal --verbose --script ./installscript.qs
+    && ./Install-RoboDK \
+        --platform minimal \
+        --root /opt/robodk \
+        --accept-licenses \
+        --default-answer \
+        --auto-answer OverwriteTargetDirectory=Yes \
+        --confirm-command \
+        --no-size-checking \
+        install
 
 WORKDIR /workspace
 COPY crxkinematics.pro ./crxkinematics.pro
@@ -40,7 +51,7 @@ RUN mkdir -p build \
     && cd build \
     && qmake ../crxkinematics.pro "CONFIG+=release" "ROBODK_DEPLOY=1" "ROBODK_ROOT=/opt/robodk/bin" \
     && make -j"$(nproc)" \
-    && test -f /opt/robodk/bin/robotextensions/libcrx_kinematics.so
+    && test -f /opt/robodk/bin/robotextensions/crx_kinematics.so
     
 FROM base AS final
 
@@ -63,6 +74,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /opt/robodk /opt/robodk
 COPY .docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
     && useradd -ms /bin/bash robodk \
     && mkdir -p /home/robodk/.config/RoboDK \
