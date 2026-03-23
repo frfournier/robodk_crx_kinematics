@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RDK_PORT="${RDK_PORT:-20501}"
-RDK_LIC="${RDK_LIC:-}"
+RDK_LIC_FILE="${RDK_LIC_FILE:-/run/secrets/robodk-license}"
+RDK_LIC=""
 
-cmd_args=(--platform minimal -SKIPINI -NOUI "-PORT=${RDK_PORT}")
+if [[ -f "${RDK_LIC_FILE}" ]]; then
+  RDK_LIC="$(tr -d '\r\n' < "${RDK_LIC_FILE}")"
+fi
+
+cmd_args=(--platform minimal -SKIPINI -NOUI "-PORT=20501")
 
 if [[ -n "${RDK_LIC}" ]]; then
   cmd_args+=("-LCMD=${RDK_LIC}")

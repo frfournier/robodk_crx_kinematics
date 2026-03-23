@@ -1,15 +1,13 @@
 # syntax=docker/dockerfile:1
 FROM ubuntu:24.04 AS base
 
-ENV LANG=C.UTF-8 \
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 
-FROM base AS builder
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM base AS robodk-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     ca-certificates \
     curl \
     libgl1 \
@@ -19,15 +17,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libqt5opengl5 \
     libqt5widgets5 \
     libqt5xml5 \
-    qtbase5-dev \
-    qtbase5-dev-tools \
-    qtchooser \
-    qt5-qmake \
+    libxcb-cursor0 \
+    libxcb-keysyms1 \
+    libxcb-xinerama0 \
+    libxkbcommon-x11-0 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/robodk-installer
 RUN mkdir -p /root/Desktop \
-    && apt-get update \
     && curl -fsSL https://cdn.robodk.com/downloads/Install-RoboDK.tar.gz -o Install-RoboDK.tar.gz \
     && tar -xzf Install-RoboDK.tar.gz \
     && chmod +x Install-RoboDK \
@@ -39,7 +37,19 @@ RUN mkdir -p /root/Desktop \
         --auto-answer OverwriteTargetDirectory=Yes \
         --confirm-command \
         --no-size-checking \
-        install
+        install \
+    && cd / \
+    && rm -rf /tmp/robodk-installer
+
+FROM robodk-base AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    qtbase5-dev \
+    qtbase5-dev-tools \
+    qtchooser \
+    qt5-qmake \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
 COPY crxkinematics.pro ./crxkinematics.pro
@@ -49,40 +59,21 @@ COPY third_party/eigen ./third_party/eigen
 
 RUN mkdir -p build \
     && cd build \
-    && qmake ../crxkinematics.pro "CONFIG+=release" "ROBODK_DEPLOY=1" "ROBODK_ROOT=/opt/robodk/bin" \
+    && qmake ../crxkinematics.pro "CONFIG+=release" \
     && make -j"$(nproc)" \
-    && test -f /opt/robodk/bin/robotextensions/crx_kinematics.so
-    
-FROM base AS final
+    && test -f /workspace/build/Release/libcrx_kinematics.so
 
-ENV DEBIAN_FRONTEND=noninteractive
+FROM robodk-base AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libxkbcommon-x11-0 \
-    libxcb-cursor0 \
-    libxcb-keysyms1 \
-    libxcb-xinerama0 \
-    libxrender1 \
-    libqt5core5a \
-    libqt5gui5 \
-    libqt5network5 \
-    libqt5opengl5 \
-    libqt5widgets5 \
-    libqt5xml5 \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /opt/robodk /opt/robodk
+COPY --from=builder /workspace/build/Release/libcrx_kinematics.so /opt/robodk/bin/robotextensions/libcrx_kinematics.so
 COPY .docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
     && useradd -ms /bin/bash robodk \
-    && mkdir -p /home/robodk/.config/RoboDK \
+    && mkdir -p /home/robodk/.config/RoboDK /opt/robodk/bin/robotextensions \
     && chown -R robodk:robodk /home/robodk /opt/robodk
 
-ENV RDK_PORT=20501 \
-    RDK_LIC="" \
-    LD_LIBRARY_PATH=/opt/robodk/bin/lib \
+ENV LD_LIBRARY_PATH=/opt/robodk/bin/lib \
     QT_PLUGIN_PATH=/opt/robodk/bin/plugins \
     QT_QPA_PLATFORM_PLUGIN_PATH=/opt/robodk/bin/plugins \
     QT_QPA_PLATFORM=offscreen
@@ -90,9 +81,5 @@ ENV RDK_PORT=20501 \
 EXPOSE 20501
 USER robodk
 WORKDIR /home/robodk
-
-ENV LD_LIBRARY_PATH="/opt/robodk/bin/lib"
-ENV QT_PLUGIN_PATH="/opt/robodk/bin/plugins/"
-ENV QT_QPA_PLATFORM_PLUGIN_PATH="/opt/robodk/bin/plugins"
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

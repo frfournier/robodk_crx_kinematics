@@ -1,24 +1,17 @@
-# Comments are provided throughout this file to help you get started.
-# If you need more help, visit the Docker Compose reference guide at
-# https://docs.docker.com/go/compose-spec-reference/
-
-# Here the instructions define your application as a service called "app".
-# This service is built from the Dockerfile in the current directory.
-# You can add other services your application may depend on here, such as a
-# database or a cache. For examples, see the Awesome Compose repository:
-# https://github.com/docker/awesome-compose
 services:
   robodk:
-    container_name: robodk
     image: robodk-local:latest
     build:
       context: ..
       dockerfile: .docker/Dockerfile
-      target: final
+      target: runtime
     ports:
-      - "${RDK_PORT:-20501}:20501"
-    environment:
-      RDK_PORT: "${RDK_PORT:-20501}"
-      RDK_LIC: "${RDK_LIC:-}"
+      - "${HOST_RDK_PORT:-20501}:20501"
+    secrets:
+      - source: robodk-license
+        target: robodk-license
     restart: unless-stopped
-    tty: true
+
+secrets:
+  robodk-license:
+    file: "${ROBODK_LICENSE_SECRET_FILE:-./secrets/robodk-license.txt}"
