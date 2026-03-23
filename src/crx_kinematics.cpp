@@ -13,9 +13,7 @@ static auto SolveFkApi(const real_T *joints,
                        real_T pose[crx::kPoseElementCount], real_T *joint_poses,
                        int max_poses, bool check_limits,
                        const robot_T *ptr_robot) -> int {
-  if (joints == nullptr || pose == nullptr || ptr_robot == nullptr)
-    return -1;
-  if (crx::RoboDkDofCount(ptr_robot) != crx::kDofCount)
+  if (joints == nullptr || pose == nullptr)
     return -1;
 
   crx::CrxModelData model;
@@ -69,9 +67,7 @@ auto SolveFK_CAD(const real_T *joints, real_T pose[16], real_T *joint_poses,
 auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
              int max_solutions, const real_T *joints_approx,
              const robot_T *ptr_robot) -> int {
-  if (pose == nullptr || joints == nullptr || ptr_robot == nullptr)
-    return -1;
-  if (crx::RoboDkDofCount(ptr_robot) != crx::kDofCount)
+  if (pose == nullptr || joints == nullptr)
     return -1;
   if (max_solutions <= 0)
     return 0;

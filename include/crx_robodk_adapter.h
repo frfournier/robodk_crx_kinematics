@@ -1,6 +1,10 @@
 #pragma once
 
+#include <string>
+
 #include "crx_types.h"
+
+auto iRobot_Name(const robot_T *robot) -> std::string;
 
 namespace crx {
 

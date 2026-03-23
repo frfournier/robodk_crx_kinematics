@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <string>
 
 #include "crx_math_helpers.h"
@@ -62,7 +63,12 @@ static inline auto iRobot_JointLimUpper(const robot_T *r) -> const real_T * {
  * \param r
  * \return
  */
-static auto iRobot_Name(const robot_T *r) -> std::string {
+} // namespace
+
+auto iRobot_Name(const robot_T *r) -> std::string {
+  if (r == nullptr)
+    return {};
+
   const real_T *name_buffer = iRobot_At(r, kRobotNameRow);
   const real_T *name_end =
       std::find(name_buffer, name_buffer + kRobotNameSize, 0.0);
@@ -82,6 +88,19 @@ static auto iRobot_Name(const robot_T *r) -> std::string {
   return name;
 }
 
+namespace {
+
+static auto LogRobotAdapterWarning(const robot_T *robot,
+                                   const std::string &message) -> void {
+  std::clog << "crx_robodk_adapter";
+  if (robot != nullptr) {
+    const std::string robot_name = iRobot_Name(robot);
+    if (!robot_name.empty())
+      std::clog << " [" << robot_name << "]";
+  }
+  std::clog << ": " << message << '\n';
+}
+
 } // namespace
 
 namespace crx {
@@ -94,10 +113,18 @@ auto RoboDkDofCount(const robot_T *robot) -> int {
 
 auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
     -> bool {
-  if (robot == nullptr)
+  if (robot == nullptr) {
+    LogRobotAdapterWarning(robot, "null robot pointer");
     return false;
-  if (RoboDkDofCount(robot) != kDofCount)
+  }
+
+  const int robot_dof = RoboDkDofCount(robot);
+  if (robot_dof != kDofCount) {
+    LogRobotAdapterWarning(robot, "expected " + std::to_string(kDofCount) +
+                                      " DOF but received " +
+                                      std::to_string(robot_dof));
     return false;
+  }
 
   model.base_transform = XYZWPR_ToIsometry(iRobot_BaseXYZWPR(robot));
   model.tool_transform = XYZWPR_ToIsometry(iRobot_ToolXYZWPR(robot));
