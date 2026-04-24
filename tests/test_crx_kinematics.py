@@ -6,6 +6,13 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pytest
+from crx_config import (
+    CRX_CONFIG_STRIDE,
+    CrxConfiguration,
+    CrxElbowConfig,
+    CrxShoulderConfig,
+    CrxWristConfig,
+)
 from robodk import robomath as rm
 
 import logging
@@ -18,6 +25,24 @@ POSE_POS_TOL_MM = 0.027  # mm
 POSE_ANG_TOL_DEG = 0.018  # deg
 JOINT_TOL_DEG = 0.009  # deg
 FUZZ_JOINT_TOL_DEG = JOINT_TOL_DEG  # deg
+CONFIG_UNKNOWN = int(CrxWristConfig.Unknown)
+KNOWN_INVALID_CONFIGS = {("ABBES-TABLE6", 4)}
+
+
+def _is_legal_fixture_config(config: Dict[str, str]) -> bool:
+    return CrxConfiguration.from_fixture(config).is_known()
+
+
+def _expected_robodk_config(config: Dict[str, str]) -> List[int]:
+    return CrxConfiguration.from_fixture(config).to_robodk_vector()
+
+
+def _fanuc_from_fixture_config(config: Dict[str, str]) -> str:
+    return CrxConfiguration.from_fixture(config).to_fanuc_string()
+
+
+def _fanuc_from_robodk_config(config: List[int]) -> str:
+    return CrxConfiguration.from_robodk_vector(config).to_fanuc_string()
 
 
 # -----------------------------
@@ -117,6 +142,49 @@ def _call_ik(
     return n, best_decoupled, all_solutions
 
 
+def _call_ik_config(
+    lib,
+    robot,
+    pose16_col_major: List[float],
+    *,
+    approx: List[float] | None = None,
+    max_solutions: int = 32,
+) -> Tuple[int, List[float], List[List[float]], List[List[int]]]:
+    pose_arr = _to_c_array(pose16_col_major)
+    joints_best = (ctypes.c_double * 6)()
+    joints_all = (ctypes.c_double * (12 * max_solutions))()
+    configs_all = (ctypes.c_int * (CRX_CONFIG_STRIDE * max_solutions))()
+    approx_arr = (
+        _to_c_array(_to_fk_api_joints_deg(approx)) if approx is not None else None
+    )
+
+    n = lib.SolveIK_Config(
+        pose_arr,
+        joints_best,
+        joints_all,
+        configs_all,
+        int(max_solutions),
+        approx_arr,
+        ctypes.byref(robot),
+    )
+
+    n = int(n)
+    all_solutions: List[List[float]] = []
+    all_configs: List[List[int]] = []
+    for idx in range(max(0, n)):
+        joints_off = idx * 12
+        config_off = idx * CRX_CONFIG_STRIDE
+        sol_coupled = [float(joints_all[joints_off + j]) for j in range(6)]
+        all_solutions.append(_from_fk_api_joints_deg(sol_coupled))
+        all_configs.append(
+            [int(configs_all[config_off + j]) for j in range(CRX_CONFIG_STRIDE)]
+        )
+
+    best_coupled = _from_c_array(joints_best, 6)
+    best_decoupled = _from_fk_api_joints_deg(best_coupled)
+    return n, best_decoupled, all_solutions, all_configs
+
+
 # -----------------------------
 # Pose utilities
 # -----------------------------
@@ -205,6 +273,10 @@ def _max_abs_wrapped_diff_deg(a: List[float], b: List[float]) -> float:
     return max(_wrapped_diff_deg(x, y) for x, y in zip(a, b))
 
 
+def _max_abs_direct_diff_deg(a: List[float], b: List[float]) -> float:
+    return max(abs(float(x) - float(y)) for x, y in zip(a, b))
+
+
 def _nearest_joint_match_wrapped(
     target: List[float], candidates: List[List[float]]
 ) -> Tuple[List[float] | None, float]:
@@ -275,6 +347,54 @@ _PARAMS = _load_params()
 
 WORKSPACE_LIMIT_CASES = ["MAX_X", "MIN_X", "MAX_Y", "MIN_Y", "MAX_Z", "MIN_Z"]
 SINGULAR_CASES = ["WRIST_SING", "WRIST_SING_NEAR_RG_LIMIT"]
+
+
+def test_fixture_config_letters_are_legal():
+    invalid = [
+        (p.values[0]["case_name"], p.values[0]["sol_id"], p.values[0]["config"])
+        for p in _PARAMS
+        if not _is_legal_fixture_config(p.values[0]["config"])
+    ]
+    if invalid == [("ABBES-TABLE6", 4, {"FB": "N", "UD": "B", "TB": "D"})]:
+        pytest.xfail("Known invalid ABBES-TABLE6 SOL4 fixture config anomaly")
+    assert invalid == []
+
+
+def test_python_config_enum_contract():
+    assert int(CrxWristConfig.Unknown) == CONFIG_UNKNOWN
+    assert int(CrxWristConfig.NonFlip) == 0
+    assert int(CrxWristConfig.Flip) == 1
+    assert int(CrxElbowConfig.Unknown) == CONFIG_UNKNOWN
+    assert int(CrxElbowConfig.Up) == 0
+    assert int(CrxElbowConfig.Down) == 1
+    assert int(CrxShoulderConfig.Unknown) == CONFIG_UNKNOWN
+    assert int(CrxShoulderConfig.Top) == 0
+    assert int(CrxShoulderConfig.Bottom) == 1
+
+
+def test_config_conversion_contract():
+    examples = [
+        ({"FB": "N", "UD": "U", "TB": "T"}, [0, 0, 0, 0, 0, 0], "NUT"),
+        ({"FB": "F", "UD": "D", "TB": "B"}, [1, 1, 1, 0, 0, 0], "FDB"),
+        ({"FB": "F", "UD": "U", "TB": "B"}, [1, 0, 1, 0, 0, 0], "FUB"),
+    ]
+    for fixture_config, robodk_config, fanuc_config in examples:
+        assert _expected_robodk_config(fixture_config) == robodk_config
+        assert _fanuc_from_robodk_config(robodk_config) == fanuc_config
+
+
+def test_crx_family_assets_available_for_configuration_smoke():
+    repo_root = Path(__file__).resolve().parents[1]
+    expected_assets = [
+        "Fanuc-CRX-5iA-Custom.robot",
+        "Fanuc-CRX-10iA-Custom.robot",
+        "Fanuc-CRX-10iA-L-Custom.robot",
+        "Fanuc-CRX-30iA-Custom.robot",
+    ]
+    missing = [
+        name for name in expected_assets if not (repo_root / "assets" / name).exists()
+    ]
+    assert missing == []
 
 
 def _fixture_case_pose_and_approx(case_name: str) -> Tuple[List[float], List[float]]:
@@ -437,6 +557,90 @@ def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
                 ]
             )
         )
+
+
+@pytest.mark.parametrize("p", _PARAMS)
+def test_inverse_kinematics_config(kinematics_lib, crx_10ia, p: Dict[str, Any]):
+    hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
+    config_key = (p["case_name"], p["sol_id"])
+    if not _is_legal_fixture_config(p["config"]):
+        if config_key in KNOWN_INVALID_CONFIGS:
+            pytest.xfail("Known invalid ABBES-TABLE6 SOL4 fixture config anomaly")
+        raise AssertionError(f"{hdr}: invalid fixture config={p['config']}")
+
+    approx = p["expected_best_joints"]
+    n, _, all_solutions, all_configs = _call_ik_config(
+        kinematics_lib,
+        crx_10ia,
+        p["target_pose16"],
+        approx=approx,
+        max_solutions=32,
+    )
+
+    assert n > 0, f"{hdr}: configured IK returned no solutions"
+    assert len(all_solutions) == len(all_configs) == n
+
+    expected_joints = p["joints_deg"]
+    match_idx = next(
+        (
+            idx
+            for idx, sol in enumerate(all_solutions)
+            if _max_abs_direct_diff_deg(sol, expected_joints) <= JOINT_TOL_DEG
+        ),
+        None,
+    )
+    if match_idx is None:
+        nearest, nearest_d = _nearest_joint_match_wrapped(
+            expected_joints, all_solutions
+        )
+        if nearest is not None and nearest_d <= JOINT_TOL_DEG:
+            pytest.xfail(
+                f"{hdr}: fixture solution only matches a wrapped turn "
+                "representative; turn-count parity is out of scope"
+            )
+        raise AssertionError(
+            "\n".join(
+                [
+                    f"{hdr}: configured IK missing expected solution",
+                    f"  expected_joints_deg: {_fmt_joints(expected_joints)}",
+                    f"  nearest_max_abs_diff_deg: {_fmt_f(nearest_d)}",
+                    f"  nearest_joints_deg: {_fmt_joints(nearest) if nearest else 'None'}",
+                    f"  returned_n: {n}",
+                ]
+            )
+        )
+
+    actual_config = all_configs[match_idx]
+    if CONFIG_UNKNOWN in actual_config[:3]:
+        pytest.xfail(f"{hdr}: solver reports unknown config near a branch boundary")
+
+    expected_config = _expected_robodk_config(p["config"])
+    assert actual_config == expected_config, "\n".join(
+        [
+            f"{hdr}: configuration mismatch",
+            f"  expected_fixture_config: {_fanuc_from_fixture_config(p['config'])}",
+            f"  expected_robodk_config: {expected_config}",
+            f"  actual_robodk_config: {actual_config}",
+            f"  actual_fanuc_config: {_fanuc_from_robodk_config(actual_config)}",
+            f"  matched_joints_deg: {_fmt_joints(all_solutions[match_idx])}",
+        ]
+    )
+
+
+def test_solveik_config_preserves_joint_output(kinematics_lib, crx_10ia):
+    pose16, approx = _fixture_case_pose_and_approx("ALL8")
+    n_plain, best_plain, all_plain = _call_ik(
+        kinematics_lib, crx_10ia, pose16, approx=approx, max_solutions=64
+    )
+    n_config, best_config, all_config, configs = _call_ik_config(
+        kinematics_lib, crx_10ia, pose16, approx=approx, max_solutions=64
+    )
+
+    assert n_config == n_plain
+    assert _joints_close(best_config, best_plain, JOINT_TOL_DEG)
+    assert len(configs) == n_config
+    for plain, configured in zip(all_plain, all_config):
+        assert _joints_close(configured, plain, JOINT_TOL_DEG)
 
 
 N_FUZZ_SEEDS = 1000
