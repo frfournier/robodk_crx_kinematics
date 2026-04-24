@@ -65,7 +65,7 @@ RUN mkdir -p build \
 
 FROM robodk-base AS runtime
 
-COPY --from=builder /workspace/build/Release/libcrx_kinematics.so /opt/robodk/bin/robotextensions/libcrx_kinematics.so
+
 COPY .docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
@@ -81,5 +81,8 @@ ENV LD_LIBRARY_PATH=/opt/robodk/bin/lib \
 EXPOSE 20501
 USER robodk
 WORKDIR /home/robodk
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+  CMD ["/bin/bash", "-lc", "exec 3<>/dev/tcp/127.0.0.1/20501"]
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

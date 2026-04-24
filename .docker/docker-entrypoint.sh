@@ -5,7 +5,8 @@ RDK_LIC_FILE="${RDK_LIC_FILE:-/run/secrets/robodk-license}"
 RDK_LIC=""
 
 if [[ -f "${RDK_LIC_FILE}" ]]; then
-  RDK_LIC="$(tr -d '\r\n' < "${RDK_LIC_FILE}")"
+  RDK_LIC="$(<"${RDK_LIC_FILE}")"
+  RDK_LIC="${RDK_LIC%$'\r'}"
 fi
 
 cmd_args=(--platform minimal -SKIPINI -NOUI "-PORT=20501")
