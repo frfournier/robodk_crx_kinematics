@@ -54,10 +54,30 @@ def _from_c_array(c_array, length):
     return [float(c_array[i]) for i in range(length)]
 
 
+def _to_fk_api_joints_deg(joints_deg: List[float]) -> List[float]:
+    joints = [float(v) for v in joints_deg]
+    joints[2] = joints[1] + joints[2]
+    return joints
+
+
+def _from_fk_api_joints_deg(joints_deg: List[float]) -> List[float]:
+    joints = [float(v) for v in joints_deg]
+    joints[2] = joints[2] - joints[1]
+    return joints
+
+
 def _call_fk(lib, robot, joints_deg: List[float]) -> Tuple[int, List[float]]:
-    joints = _to_c_array(joints_deg)
+    joints = _to_c_array(_to_fk_api_joints_deg(joints_deg))
     pose = (ctypes.c_double * 16)()
     status = lib.SolveFK(joints, pose, ctypes.byref(robot))
+    return int(status), _from_c_array(pose, 16)
+
+
+def _call_fk_cad(lib, robot, joints_deg: List[float]) -> Tuple[int, List[float]]:
+    joints = _to_c_array(_to_fk_api_joints_deg(joints_deg))
+    pose = (ctypes.c_double * 16)()
+    joint_poses = (ctypes.c_double * (16 * 7))()
+    status = lib.SolveFK_CAD(joints, pose, joint_poses, 7, ctypes.byref(robot))
     return int(status), _from_c_array(pose, 16)
 
 
@@ -72,7 +92,9 @@ def _call_ik(
     pose_arr = _to_c_array(pose16_col_major)
     joints_best = (ctypes.c_double * 6)()
     joints_all = (ctypes.c_double * (12 * max_solutions))()
-    approx_arr = _to_c_array(approx) if approx is not None else None
+    approx_arr = (
+        _to_c_array(_to_fk_api_joints_deg(approx)) if approx is not None else None
+    )
 
     n = lib.SolveIK(
         pose_arr,
@@ -87,9 +109,12 @@ def _call_ik(
     all_solutions: List[List[float]] = []
     for idx in range(max(0, n)):
         off = idx * 12
-        all_solutions.append([float(joints_all[off + j]) for j in range(6)])
+        sol_coupled = [float(joints_all[off + j]) for j in range(6)]
+        all_solutions.append(_from_fk_api_joints_deg(sol_coupled))
 
-    return n, _from_c_array(joints_best, 6), all_solutions
+    best_coupled = _from_c_array(joints_best, 6)
+    best_decoupled = _from_fk_api_joints_deg(best_coupled)
+    return n, best_decoupled, all_solutions
 
 
 # -----------------------------
@@ -334,6 +359,38 @@ def test_forward_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
             _fmt_pose16(p["target_pose16"]),
             "  fk_pose16:",
             _fmt_pose16(fk_pose),
+        ]
+    )
+
+
+@pytest.mark.parametrize("p", _PARAMS)
+def test_forward_kinematics_cad_matches_forward_kinematics(
+    kinematics_lib, crx_10ia, p: Dict[str, Any]
+):
+    status_fk, fk_pose = _call_fk(kinematics_lib, crx_10ia, p["joints_deg"])
+    status_fk_cad, fk_cad_pose = _call_fk_cad(kinematics_lib, crx_10ia, p["joints_deg"])
+    hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
+
+    assert status_fk == 1 and status_fk_cad == 1, "\n".join(
+        [
+            f"{hdr}: FK/FK_CAD status mismatch",
+            f"  fk_status: {status_fk}",
+            f"  fk_cad_status: {status_fk_cad}",
+            f"  joints_deg: {_fmt_joints(p['joints_deg'])}",
+        ]
+    )
+
+    pos_err, ang_err = _pose_err_pos_mm_ang_deg(fk_pose, fk_cad_pose)
+    assert pos_err <= 1e-6 and ang_err <= 1e-5, "\n".join(
+        [
+            f"{hdr}: FK and FK_CAD pose mismatch",
+            f"  pos_err_mm: {_fmt_f(pos_err, 12)}",
+            f"  ang_err_deg: {_fmt_f(ang_err, 12)}",
+            f"  joints_deg: {_fmt_joints(p['joints_deg'])}",
+            "  fk_pose16:",
+            _fmt_pose16(fk_pose),
+            "  fk_cad_pose16:",
+            _fmt_pose16(fk_cad_pose),
         ]
     )
 
