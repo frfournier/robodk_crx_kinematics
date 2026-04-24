@@ -15,6 +15,7 @@ inline constexpr int kPoseElementCount = kPoseRowCount * kPoseColCount;
 
 inline constexpr int kDofCount = 6;
 inline constexpr int kSolutionStride = 2 * kDofCount;
+inline constexpr int kRoboDkConfigStride = 6;
 
 inline constexpr int kJoint2Index = 1;
 inline constexpr int kJoint3Index = 2;
@@ -29,6 +30,35 @@ using Vec6 = Eigen::Matrix<double, kDofCount, 1>;
 using Vec6r = Eigen::Matrix<real_T, kDofCount, 1>;
 using Mat3 = Eigen::Matrix3d;
 using Vec3 = Eigen::Vector3d;
+
+enum class CrxWristConfig : int {
+  Unknown = -1,
+  NonFlip = 0,
+  Flip = 1,
+};
+
+enum class CrxElbowConfig : int {
+  Unknown = -1,
+  Up = 0,
+  Down = 1,
+};
+
+enum class CrxShoulderConfig : int {
+  Unknown = -1,
+  Top = 0,
+  Bottom = 1,
+};
+
+struct CrxConfiguration {
+  CrxWristConfig wrist = CrxWristConfig::Unknown;
+  CrxElbowConfig elbow = CrxElbowConfig::Unknown;
+  CrxShoulderConfig shoulder = CrxShoulderConfig::Unknown;
+};
+
+struct CrxIkSolution {
+  Vec6 user_joints_rad = Vec6::Zero();
+  CrxConfiguration config{};
+};
 
 struct DhRow {
   double alpha_rad = 0.0;

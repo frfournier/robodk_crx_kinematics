@@ -43,6 +43,9 @@
 typedef double real_T;
 typedef void robot_T;
 
+#define CRX_CONFIG_STRIDE 6
+#define CRX_CONFIG_UNKNOWN -1
+
 extern "C" {
 
 /*!
@@ -115,6 +118,20 @@ MYLIB_EXPORT int SolveFK_CAD(const real_T *joints, real_T pose[16],
 MYLIB_EXPORT int SolveIK(const real_T pose[16], real_T *joints,
                          real_T *joints_all, int max_solutions,
                          const real_T *joints_approx, const robot_T *ptr_robot);
+
+/*!
+ * \brief Calculate inverse kinematics and return RoboDK-style configuration
+ * vectors for each solution.
+ *
+ * The first three integers of each CRX_CONFIG_STRIDE slot are RoboDK's
+ * [REAR, LOWERARM, FLIP] flags. Remaining values are reserved for future
+ * turn-count support and are set to 0. Unknown flags use CRX_CONFIG_UNKNOWN.
+ */
+MYLIB_EXPORT int SolveIK_Config(const real_T pose[16], real_T *joints,
+                                real_T *joints_all, int *configs_all,
+                                int max_solutions,
+                                const real_T *joints_approx,
+                                const robot_T *ptr_robot);
 }
 
 #endif // CRXKINEMATICS_H
