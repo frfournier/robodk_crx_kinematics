@@ -71,6 +71,17 @@ def kinematics_lib():
     ]
     lib.SolveIK.restype = ctypes.c_int
 
+    lib.SolveIK_Config.argtypes = [
+        real_ptr,
+        real_ptr,
+        real_ptr,
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_int,
+        real_ptr,
+        robot_ptr,
+    ]
+    lib.SolveIK_Config.restype = ctypes.c_int
+
     return lib
 
 
