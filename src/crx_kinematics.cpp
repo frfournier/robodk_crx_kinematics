@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <vector>
 
 #include "crx_kinematics.h"
@@ -104,6 +105,64 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
               ranked_solutions_rad[solution_idx], solution_slot)) {
         return -1;
       }
+    }
+  }
+
+  return solution_count;
+}
+
+auto SolveIK_Config(const real_T pose[16], real_T *joints, real_T *joints_all,
+                    int *configs_all, int max_solutions,
+                    const real_T *joints_approx, const robot_T *ptr_robot)
+    -> int {
+  if (pose == nullptr || joints == nullptr)
+    return -1;
+  if (max_solutions <= 0)
+    return 0;
+
+  crx::CrxModelData model;
+  if (!crx::BuildModelFromRoboDkRobot(ptr_robot, model))
+    return -1;
+
+  const crx::PoseIsoRT target_pose = crx::PoseArrayToIsometry(pose);
+  crx::Vec6 approx_joints_rad = crx::Vec6::Zero();
+  const crx::Vec6 *approx_joints_ptr = nullptr;
+  if (joints_approx != nullptr) {
+    if (!crx::RoboDkJointsDegCoupledToUserRad(joints_approx, approx_joints_rad))
+      return -1;
+    crx::NormalizeVecKeepSignedPi(approx_joints_rad);
+    approx_joints_ptr = &approx_joints_rad;
+  }
+
+  std::vector<crx::CrxIkSolution> ranked_solutions;
+  const int solution_count = crx::SolveIkIsometryConfigured(
+      model, target_pose, approx_joints_ptr, max_solutions, ranked_solutions);
+  if (solution_count <= 0)
+    return solution_count;
+
+  if (!crx::UserJointsRadToRoboDkCoupledDeg(
+          ranked_solutions[0].user_joints_rad, joints))
+    return -1;
+
+  for (int solution_idx = 0; solution_idx < solution_count; ++solution_idx) {
+    const crx::CrxIkSolution &solution = ranked_solutions[solution_idx];
+
+    if (joints_all != nullptr) {
+      real_T *solution_slot = joints_all + crx::kSolutionStride * solution_idx;
+      std::fill(solution_slot, solution_slot + crx::kSolutionStride,
+                static_cast<real_T>(0.0));
+      if (!crx::UserJointsRadToRoboDkCoupledDeg(solution.user_joints_rad,
+                                                solution_slot)) {
+        return -1;
+      }
+    }
+
+    if (configs_all != nullptr) {
+      int *config_slot =
+          configs_all + crx::kRoboDkConfigStride * solution_idx;
+      const std::array<int, crx::kRoboDkConfigStride> config_vector =
+          crx::RoboDkConfigVector(solution.config);
+      std::copy(config_vector.begin(), config_vector.end(), config_slot);
     }
   }
 
