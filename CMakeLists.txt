@@ -192,8 +192,15 @@ if(CRXKIN_CLANG_FORMAT_EXECUTABLE)
 endif()
 
 if(CRXKIN_CLANG_TIDY_EXECUTABLE)
+  set(_CRXKIN_CLANG_TIDY_DRIVER_ARGS)
+  if(MSVC)
+    list(APPEND _CRXKIN_CLANG_TIDY_DRIVER_ARGS
+         "--extra-arg-before=--driver-mode=cl")
+  endif()
+
   add_custom_target(tidy
     COMMAND "${CRXKIN_CLANG_TIDY_EXECUTABLE}" -p "${CMAKE_BINARY_DIR}"
+            ${_CRXKIN_CLANG_TIDY_DRIVER_ARGS}
             ${CRXKIN_CPP_SOURCES}
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "Linting C++ sources with clang-tidy"
@@ -201,6 +208,7 @@ if(CRXKIN_CLANG_TIDY_EXECUTABLE)
   )
   add_custom_target(tidy-fix
     COMMAND "${CRXKIN_CLANG_TIDY_EXECUTABLE}" -p "${CMAKE_BINARY_DIR}" --fix
+            ${_CRXKIN_CLANG_TIDY_DRIVER_ARGS}
             ${CRXKIN_CPP_SOURCES}
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "Applying clang-tidy fixes"
