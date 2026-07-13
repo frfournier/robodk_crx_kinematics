@@ -14,6 +14,7 @@ from robodk.robolink import (
 )
 
 from test_crx_kinematics import (
+    CONFIG_FIXTURE_CASES,
     JOINT_TOL_DEG,
     POSE_ANG_TOL_DEG,
     POSE_POS_TOL_MM,
@@ -21,6 +22,7 @@ from test_crx_kinematics import (
     _fmt_f,
     _fmt_joints,
     _fmt_pose16,
+    _expected_robodk_config,
     _joints_close,
     _mat_to_pose16_col_major,
     _from_fk_api_joints_deg,
@@ -37,6 +39,7 @@ _ROBOLINK_FUZZ_SEEDS = 128
 _ROBOLINK_FUZZ_LIMIT_MARGIN_DEG = 2.0
 _ROBOLINK_FUZZ_POSE_POS_TOL_MM = POSE_POS_TOL_MM
 _ROBOLINK_FUZZ_POSE_ANG_TOL_DEG = POSE_ANG_TOL_DEG
+_MIN_ROBODK_VERSION = (6, 0, 6)
 
 
 def _sha256_file(path: Path) -> str:
@@ -137,7 +140,7 @@ def _sync_robolink_extension_or_skip() -> None:
         )
 
 
-def _sample_joints_in_limits(
+def _sample_crx_coupled_joints_in_limits(
     rng: np.random.Generator, lower_limits: list[float], upper_limits: list[float]
 ) -> list[float]:
     sampled: list[float] = []
@@ -149,10 +152,23 @@ def _sample_joints_in_limits(
             continue
         margin = min(_ROBOLINK_FUZZ_LIMIT_MARGIN_DEG, 0.45 * (hi - lo))
         sampled.append(float(rng.uniform(lo + margin, hi - margin)))
+
+    # RoboDK's CRX API exposes coupled J3, while the custom solver validates
+    # decoupled J3 = J3_api - J2 against the model's J3 limits. Sample from the
+    # intersection so FK cannot silently fall back to RoboDK's default solver.
+    j2_deg = sampled[1]
+    j3_api_lo = max(float(lower_limits[2]), float(lower_limits[2]) + j2_deg)
+    j3_api_hi = min(float(upper_limits[2]), float(upper_limits[2]) + j2_deg)
+    margin = min(
+        _ROBOLINK_FUZZ_LIMIT_MARGIN_DEG, 0.45 * (j3_api_hi - j3_api_lo)
+    )
+    sampled[2] = float(rng.uniform(j3_api_lo + margin, j3_api_hi - margin))
     return sampled
 
 
-def _fit_angle_to_limits(angle_deg: float, lower_deg: float, upper_deg: float) -> float | None:
+def _fit_angle_to_limits(
+    angle_deg: float, lower_deg: float, upper_deg: float
+) -> float | None:
     candidates = [
         angle_deg + 360.0 * turns
         for turns in range(-2, 3)
@@ -174,6 +190,7 @@ def _wrap_joints_to_limits(
         wrapped.append(float(fitted))
     return wrapped
 
+
 @pytest.fixture(scope="session")
 def robolink_crx_10ia():
     _sync_robolink_extension_or_skip()
@@ -185,6 +202,12 @@ def robolink_crx_10ia():
         rdk = Robolink(args=_ROBODK_ARGS, quit_on_close=True)
     except Exception as exc:
         pytest.skip(f"Unable to initialize RoboDK API session: {exc}")
+
+    version_text = str(rdk.Version())
+    version = tuple(int(part) for part in version_text.split(".")[:3])
+    assert version >= _MIN_ROBODK_VERSION, (
+        f"RoboDK {version_text} is unsupported; RoboDK 6.0.6 or newer is required"
+    )
 
     try:
         rdk.setWindowState(WINDOWSTATE_HIDDEN)
@@ -218,6 +241,34 @@ def robolink_crx_10ia():
             pass
 
 
+@pytest.mark.parametrize(
+    "asset_name",
+    [
+        "Fanuc-CRX-5iA-Custom.robot",
+        "Fanuc-CRX-10iA-Custom.robot",
+        "Fanuc-CRX-10iA-L-Custom.robot",
+        "Fanuc-CRX-30iA-Custom.robot",
+    ],
+)
+def test_robolink_crx_family_configuration(robolink_crx_10ia, asset_name: str):
+    rdk = robolink_crx_10ia.RDK()
+    asset_path = _ROBOT_ASSET.parent / asset_name
+    robot = (
+        robolink_crx_10ia
+        if asset_path == _ROBOT_ASSET
+        else rdk.AddFile(str(asset_path))
+    )
+    assert robot.Valid(), f"Failed to load RoboDK robot asset: {asset_path}"
+
+    try:
+        config = robot.JointsConfig([0.0] * 6)
+        config_values = config.list() if hasattr(config, "list") else list(config)
+        assert [int(value) for value in config_values[:3]] == [0, 0, 0]
+    finally:
+        if robot is not robolink_crx_10ia:
+            robot.Delete()
+
+
 @pytest.mark.parametrize("p", _PARAMS)
 def test_robolink_forward_kinematics(robolink_crx_10ia, p):
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
@@ -241,7 +292,12 @@ def test_robolink_forward_kinematics(robolink_crx_10ia, p):
     joints_config_vals = (
         joints_config.list() if hasattr(joints_config, "list") else list(joints_config)
     )
-    print(f"{hdr}: robolink_conf_rlf={joints_config_vals}")
+    if p["case_name"] in CONFIG_FIXTURE_CASES:
+        expected_config = _expected_robodk_config(p["config"])
+        assert [int(value) for value in joints_config_vals[:3]] == expected_config, (
+            f"{hdr}: RoboDK JointsConfig mismatch: "
+            f"expected={expected_config}, actual={joints_config_vals}"
+        )
 
     fk_pose16 = _mat_to_pose16_col_major(pose)
     pos_err, ang_err = _pose_err_pos_mm_ang_deg(p["target_pose16"], fk_pose16)
@@ -323,7 +379,9 @@ def test_robolink_inverse_kinematics(robolink_crx_10ia, p):
     )
 
 
-@pytest.mark.parametrize("seed", range(_ROBOLINK_FUZZ_SEEDS), ids=lambda s: f"seed_{s:03d}")
+@pytest.mark.parametrize(
+    "seed", range(_ROBOLINK_FUZZ_SEEDS), ids=lambda s: f"seed_{s:03d}"
+)
 def test_robolink_fuzz_fk_ik_roundtrip(robolink_crx_10ia, seed: int):
     lower_limits, upper_limits, _ = robolink_crx_10ia.JointLimits()
     lower_src = lower_limits.list() if hasattr(lower_limits, "list") else lower_limits
@@ -332,7 +390,7 @@ def test_robolink_fuzz_fk_ik_roundtrip(robolink_crx_10ia, seed: int):
     upper = [float(v) for v in upper_src]
     rng = np.random.default_rng(seed)
 
-    coupled_seed = _sample_joints_in_limits(rng, lower, upper)
+    coupled_seed = _sample_crx_coupled_joints_in_limits(rng, lower, upper)
     decoupled_seed = _from_fk_api_joints_deg(coupled_seed)
     hdr = f"FUZZ seed={seed:03d}"
 
