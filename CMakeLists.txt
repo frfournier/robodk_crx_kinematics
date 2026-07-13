@@ -165,6 +165,25 @@ target_include_directories(crx_kinematics PRIVATE
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
 
+# Release builds favor maximum host-specific performance. clang-cl requires
+# GNU-style optimization and architecture flags to pass through its CL driver.
+target_compile_definitions(crx_kinematics PRIVATE
+  "$<$<CONFIG:Release>:NDEBUG>"
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
+   (MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
+  target_compile_options(crx_kinematics PRIVATE
+    "$<$<CONFIG:Release>:/clang:-O3>"
+    "$<$<CONFIG:Release>:/clang:-march=native>"
+  )
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(crx_kinematics PRIVATE
+    "$<$<CONFIG:Release>:-O3>"
+    "$<$<CONFIG:Release>:-march=native>"
+  )
+endif()
+
 if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
   target_compile_options(crx_kinematics PRIVATE /W4 /permissive-)
 else()
