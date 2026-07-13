@@ -79,10 +79,4 @@ inline auto AngleDiffAbs(double a, double b) -> double {
   return std::abs(WrapRadPi(a - b));
 }
 
-inline auto NormalizeJointSense(real_T s) -> double {
-  if (!std::isfinite(s) || std::abs(s) <= kEpsilon)
-    return 1.0;
-  return (s >= 0.0) ? 1.0 : -1.0;
-}
-
 } // namespace crx

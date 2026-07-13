@@ -620,6 +620,19 @@ def test_joints_to_configuration_rejects_invalid_inputs(kinematics_lib, crx_10ia
     assert status == -1
     assert output == list(sentinel)
 
+    invalid_sense_robot = type(crx_10ia)()
+    ctypes.memmove(
+        ctypes.byref(invalid_sense_robot),
+        ctypes.byref(crx_10ia),
+        ctypes.sizeof(invalid_sense_robot),
+    )
+    invalid_sense_robot.data[3][4] = 0.0
+    status, output = _call_joints_config(
+        kinematics_lib, invalid_sense_robot, [0.0] * 6, sentinel
+    )
+    assert status == -1
+    assert output == list(sentinel)
+
     non_crx_robot = type(crx_10ia)()
     ctypes.memmove(
         ctypes.byref(non_crx_robot),

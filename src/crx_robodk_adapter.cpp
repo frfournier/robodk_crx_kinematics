@@ -6,9 +6,11 @@
 #include <iostream>
 #include <string>
 
+#include <Eigen/Geometry>
+
+#include "crx_kinematics.h"
 #include "crx_math_helpers.h"
-#include "crx_pose_helpers.h"
-#include "crx_vector_helpers.h"
+#include "crx_types.h"
 
 namespace {
 
@@ -24,6 +26,17 @@ static constexpr int kRobotJointLowerLimitRow = 30;
 static constexpr int kRobotJointUpperLimitRow = 31;
 static constexpr int kRobotNameRow = 90;
 static constexpr int kRobotNameSize = 59;
+
+static auto XYZWPRToCoreIsometry(const real_T xyzwpr[6]) -> crx::PoseIsoRT {
+  using AngleAxis = Eigen::AngleAxis<crx::Scalar>;
+  crx::PoseIsoRT transform = crx::PoseIsoRT::Identity();
+  transform.linear() = (AngleAxis(xyzwpr[5], crx::Vec3::UnitZ()) *
+                        AngleAxis(xyzwpr[4], crx::Vec3::UnitY()) *
+                        AngleAxis(xyzwpr[3], crx::Vec3::UnitX()))
+                           .toRotationMatrix();
+  transform.translation() << xyzwpr[0], xyzwpr[1], xyzwpr[2];
+  return transform;
+}
 
 static inline auto iRobot_At(const robot_T *r, int row, int col = 0)
     -> const real_T * {
@@ -129,8 +142,8 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
     return false;
   }
 
-  model.base_transform = XYZWPR_ToIsometry(iRobot_BaseXYZWPR(robot));
-  model.tool_transform = XYZWPR_ToIsometry(iRobot_ToolXYZWPR(robot));
+  model.base_transform = XYZWPRToCoreIsometry(iRobot_BaseXYZWPR(robot));
+  model.tool_transform = XYZWPRToCoreIsometry(iRobot_ToolXYZWPR(robot));
 
   const real_T *joint_senses = iRobot_JointSenses(robot);
   const real_T *lower_limits = iRobot_JointLimLower(robot);
@@ -140,8 +153,13 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
     const auto storage_index = static_cast<std::size_t>(joint_id);
     const auto eigen_index = static_cast<Eigen::Index>(joint_id);
-    model.joint_senses[storage_index] =
-        NormalizeJointSense(joint_senses[joint_id]);
+    const double joint_sense = static_cast<double>(joint_senses[joint_id]);
+    if (!std::isfinite(joint_sense) || std::abs(joint_sense) != 1.0) {
+      LogRobotAdapterWarning(robot, "invalid joint sense at index " +
+                                        std::to_string(joint_id));
+      return false;
+    }
+    model.joint_senses[storage_index] = joint_sense;
     model.lower_limits_rad[eigen_index] =
         static_cast<double>(lower_limits[joint_id]) * deg_to_rad;
     model.upper_limits_rad[eigen_index] =
@@ -159,16 +177,34 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
   return true;
 }
 
+auto RoboDkPoseToCore(const real_T *pose, PoseIsoRT &pose_out) -> bool {
+  if (pose == nullptr) {
+    return false;
+  }
+  pose_out.matrix() = Eigen::Map<const PoseMatRT>(pose);
+  return pose_out.matrix().allFinite();
+}
+
+auto CorePoseToRoboDk(const PoseIsoRT &pose, real_T *pose_out) -> bool {
+  if (pose_out == nullptr || !pose.matrix().allFinite()) {
+    return false;
+  }
+  Eigen::Map<PoseMatRT> pose_map(pose_out);
+  pose_map = pose.matrix();
+  return true;
+}
+
 auto RoboDkJointsDegCoupledToUserRad(const real_T *joints_deg,
                                      Vec6 &joints_user_rad) -> bool {
   if (joints_deg == nullptr)
     return false;
 
   // RoboDK API boundary convention for CRX uses coupled J3 (J2 + J3_decoupled).
-  // Internal solver convention uses decoupled J3.
-  DegArrayToRadVec(joints_deg, joints_user_rad);
-  ConvertJ23CoupledToDecoupled(joints_user_rad);
-  return true;
+  // The canonical internal CRX joint vector uses decoupled J3 in radians.
+  joints_user_rad =
+      Eigen::Map<const Vec6>(joints_deg) * angle_conv::DegToRad(1.0);
+  joints_user_rad[kJoint3Index] -= joints_user_rad[kJoint2Index];
+  return joints_user_rad.allFinite();
 }
 
 auto UserJointsRadToRoboDkCoupledDeg(const Vec6 &joints_user_rad,
@@ -178,8 +214,12 @@ auto UserJointsRadToRoboDkCoupledDeg(const Vec6 &joints_user_rad,
 
   // Convert back to RoboDK CRX API convention before returning solutions.
   Vec6 joints_api_rad = joints_user_rad;
-  ConvertJ23DecoupledToCoupled(joints_api_rad);
-  RadVecToDegArray(joints_api_rad, joints_deg);
+  if (!joints_api_rad.allFinite()) {
+    return false;
+  }
+  joints_api_rad[kJoint3Index] += joints_api_rad[kJoint2Index];
+  Eigen::Map<Vec6> joints_map(joints_deg);
+  joints_map = joints_api_rad * angle_conv::RadToDeg(1.0);
   return true;
 }
 

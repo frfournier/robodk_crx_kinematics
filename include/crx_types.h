@@ -5,31 +5,34 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include "crx_kinematics.h"
-
 namespace crx {
+
+using Scalar = double;
 
 inline constexpr int kPoseRowCount = 4;
 inline constexpr int kPoseColCount = 4;
 inline constexpr int kPoseElementCount = kPoseRowCount * kPoseColCount;
 
 inline constexpr int kDofCount = 6;
-inline constexpr int kSolutionStride = 2 * kDofCount;
-inline constexpr int kRoboDkConfigCount = 3;
 
 inline constexpr int kJoint2Index = 1;
 inline constexpr int kJoint3Index = 2;
 
 using PoseMatRT =
-    Eigen::Matrix<real_T, kPoseRowCount, kPoseColCount, Eigen::ColMajor>;
-using PoseIsoRT = Eigen::Transform<real_T, 3, Eigen::Isometry>;
+    Eigen::Matrix<Scalar, kPoseRowCount, kPoseColCount, Eigen::ColMajor>;
+using PoseIsoRT = Eigen::Transform<Scalar, 3, Eigen::Isometry>;
 using PoseMapConstRT = Eigen::Map<const PoseMatRT>;
 using PoseMapRT = Eigen::Map<PoseMatRT>;
 
-using Vec6 = Eigen::Matrix<double, kDofCount, 1>;
-using Vec6r = Eigen::Matrix<real_T, kDofCount, 1>;
+using Vec6 = Eigen::Matrix<Scalar, kDofCount, 1>;
 using Mat3 = Eigen::Matrix3d;
 using Vec3 = Eigen::Vector3d;
+
+struct ArmPosture {
+  bool rear = false;
+  bool lower_arm = false;
+  bool flip = false;
+};
 
 struct DhRow {
   double alpha_rad = 0.0;

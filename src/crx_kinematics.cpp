@@ -1,16 +1,18 @@
 #include <algorithm>
-#include <array>
 #include <cstddef>
+#include <type_traits>
 #include <vector>
 
 #include "crx_kinematics.h"
-#include "crx_pose_helpers.h"
 #include "crx_robodk_adapter.h"
 #include "crx_solver.h"
 #include "crx_types.h"
-#include "crx_vector_helpers.h"
 
 namespace {
+
+static_assert(std::is_same_v<real_T, crx::Scalar>);
+
+static constexpr int kRoboDkSolutionStride = 2 * crx::kDofCount;
 
 static auto SolveFkApi(const real_T *joints,
                        real_T pose[crx::kPoseElementCount], real_T *joint_poses,
@@ -43,14 +45,17 @@ static auto SolveFkApi(const real_T *joints,
   if (status != 1)
     return status;
 
-  crx::IsometryToPoseArray(fk_pose, pose);
+  if (!crx::CorePoseToRoboDk(fk_pose, pose))
+    return -1;
   if (joint_poses != nullptr) {
     const auto joint_pose_count = static_cast<std::size_t>(crx::kDofCount) + 1U;
     for (std::size_t pose_idx = 0; pose_idx < joint_pose_count; ++pose_idx) {
       const auto pose_offset =
           static_cast<std::ptrdiff_t>(pose_idx) * crx::kPoseElementCount;
-      crx::IsometryToPoseArray((*joint_pose_ptr)[pose_idx],
-                               joint_poses + pose_offset);
+      if (!crx::CorePoseToRoboDk((*joint_pose_ptr)[pose_idx],
+                                 joint_poses + pose_offset)) {
+        return -1;
+      }
     }
   }
   return 1;
@@ -82,7 +87,9 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
   if (!crx::BuildModelFromRoboDkRobot(ptr_robot, model))
     return -1;
 
-  const crx::PoseIsoRT target_pose = crx::PoseArrayToIsometry(pose);
+  crx::PoseIsoRT target_pose = crx::PoseIsoRT::Identity();
+  if (!crx::RoboDkPoseToCore(pose, target_pose))
+    return -1;
   crx::Vec6 approx_joints_rad = crx::Vec6::Zero();
   const crx::Vec6 *approx_joints_ptr = nullptr;
   if (joints_approx != nullptr) {
@@ -105,9 +112,9 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
     for (std::size_t solution_idx = 0; solution_idx < solution_count_size;
          ++solution_idx) {
       const auto solution_offset =
-          static_cast<std::ptrdiff_t>(solution_idx) * crx::kSolutionStride;
+          static_cast<std::ptrdiff_t>(solution_idx) * kRoboDkSolutionStride;
       real_T *solution_slot = joints_all + solution_offset;
-      std::fill(solution_slot, solution_slot + crx::kSolutionStride,
+      std::fill(solution_slot, solution_slot + kRoboDkSolutionStride,
                 static_cast<real_T>(0.0));
       if (!crx::UserJointsRadToRoboDkCoupledDeg(
               ranked_solutions_rad[solution_idx], solution_slot)) {
@@ -137,12 +144,14 @@ auto Joints2Config(const real_T *joints, real_T config[3],
     return -1;
   }
 
-  std::array<real_T, crx::kRoboDkConfigCount> classified_config{};
-  if (!crx::JointsToRoboDkConfig(model, user_joints_rad, classified_config)) {
+  crx::ArmPosture posture;
+  if (!crx::ClassifyArmPosture(model, user_joints_rad, posture)) {
     return -1;
   }
 
-  std::copy(classified_config.begin(), classified_config.end(), config);
+  config[0] = posture.rear ? 1.0 : 0.0;
+  config[1] = posture.lower_arm ? 1.0 : 0.0;
+  config[2] = posture.flip ? 1.0 : 0.0;
   return 1;
 }
 

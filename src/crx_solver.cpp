@@ -53,20 +53,41 @@ static constexpr double kTriangleShellRelativeTolerance =
 
 static constexpr std::size_t kMaxIkSolutions = 32;
 
+static auto IsModelDataValid(const CrxModelData &model) -> bool {
+  if (!model.base_transform.matrix().allFinite() ||
+      !model.tool_transform.matrix().allFinite() ||
+      !model.lower_limits_rad.allFinite() ||
+      !model.upper_limits_rad.allFinite() ||
+      (model.lower_limits_rad.array() > model.upper_limits_rad.array()).any()) {
+    return false;
+  }
+
+  for (std::size_t joint_index = 0; joint_index < model.dh_rows.size();
+       ++joint_index) {
+    const DhRow &row = model.dh_rows[joint_index];
+    if (!std::isfinite(row.alpha_rad) || !std::isfinite(row.a) ||
+        !std::isfinite(row.theta0_rad) || !std::isfinite(row.d) ||
+        std::abs(model.joint_senses[joint_index]) != 1.0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static inline void BuildJointPoseInputRad(const DhRow &dh_row,
                                           double joint_motion_rad,
-                                          real_T dh_pose_args[kDhArgCount]) {
+                                          Scalar dh_pose_args[kDhArgCount]) {
   dh_pose_args[0] =
-      static_cast<real_T>(SnapToRightAngleFamily(dh_row.alpha_rad));
-  dh_pose_args[1] = static_cast<real_T>(dh_row.a);
+      static_cast<Scalar>(SnapToRightAngleFamily(dh_row.alpha_rad));
+  dh_pose_args[1] = static_cast<Scalar>(dh_row.a);
   dh_pose_args[kDhThetaIndex] =
-      static_cast<real_T>(SnapToRightAngleFamily(dh_row.theta0_rad));
-  dh_pose_args[kDhDIndex] = static_cast<real_T>(dh_row.d);
+      static_cast<Scalar>(SnapToRightAngleFamily(dh_row.theta0_rad));
+  dh_pose_args[kDhDIndex] = static_cast<Scalar>(dh_row.d);
 
   if (!dh_row.is_prismatic)
-    dh_pose_args[kDhThetaIndex] += static_cast<real_T>(joint_motion_rad);
+    dh_pose_args[kDhThetaIndex] += static_cast<Scalar>(joint_motion_rad);
   else
-    dh_pose_args[kDhDIndex] += static_cast<real_T>(joint_motion_rad);
+    dh_pose_args[kDhDIndex] += static_cast<Scalar>(joint_motion_rad);
 }
 
 static auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
@@ -103,7 +124,7 @@ static auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
     if (joint_id == kJoint3Index)
       joint_model_rad = -sensed_joint2_rad + sensed_joint_rad;
 
-    real_T dh_pose_args[kDhArgCount];
+    Scalar dh_pose_args[kDhArgCount];
     BuildJointPoseInputRad(model.dh_rows[storage_index], joint_model_rad,
                            dh_pose_args);
 
@@ -208,12 +229,12 @@ static auto ReadCrxParams(const CrxModelData &model, CrxParams &params)
   return true;
 }
 
-static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &params,
-                                                  double &base_z_shift_mm)
+static auto NormalizeProductionDhForAnalyticIk(CrxParams &params,
+                                               double &base_z_shift_mm)
     -> bool {
-  // RoboDK stores the production FK model convention. The geometric IK in
-  // Sec. 2.6 assumes a normalized internal convention; this adapter validates
-  // expected CRX DH signatures and remaps only if they match exactly.
+  // The geometric IK in Sec. 2.6 assumes a normalized internal convention.
+  // Validate the production CRX DH signature and remap it only when every
+  // structural assumption matches.
   base_z_shift_mm = 0.0;
   const double tol = kDhConventionToleranceRad;
 
@@ -241,14 +262,12 @@ static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &params,
                     params.d[4] <= -kEpsilon && // Pass-1 Fix #2
                     params.d[5] > 0.0;
 
-  // Fail closed when a model differs from the CRX assumptions:
-  // returning -1 asks RoboDK to use its generic numerical IK.
+  // Fail closed when a model differs from the CRX assumptions.
   if (!(alpha_ok && theta_ok && a_ok && d_ok))
     return false;
 
-  // The next remaps align RoboDK FK convention with the paper's internal frame
-  // setup. base_z_shift_mm is undone on T06 in SolveIK to keep external
-  // behavior unchanged.
+  // These remaps align the production FK convention with the paper's internal
+  // frame setup. base_z_shift_mm is undone on T06 by the IK facade.
   base_z_shift_mm = params.d[0];
   params.d[0] = 0.0;
   params.alpha_rad[2] = angle_conv::kPi;
@@ -340,10 +359,10 @@ static inline auto JointTransformRad(const CrxParams &params,
                                      std::size_t joint_index,
                                      double joint_angle_rad) -> PoseIsoRT {
   return DHM_FromRad(
-      static_cast<real_T>(params.alpha_rad[joint_index]),
-      static_cast<real_T>(params.a[joint_index]),
-      static_cast<real_T>(params.theta0_rad[joint_index] + joint_angle_rad),
-      static_cast<real_T>(params.d[joint_index]));
+      static_cast<Scalar>(params.alpha_rad[joint_index]),
+      static_cast<Scalar>(params.a[joint_index]),
+      static_cast<Scalar>(params.theta0_rad[joint_index] + joint_angle_rad),
+      static_cast<Scalar>(params.d[joint_index]));
 }
 
 static auto
@@ -386,9 +405,9 @@ DetermineJointValues(const Vec3 &o3_point, const Vec3 &o4_point,
       JointTransformRad(params, 2, J2 + J3).inverse();
   const PoseIsoRT transform_l3_from_l0 =
       transform_l3_from_l2 * transform_l2_from_l1 *
-      PoseIsoRT(rotation_l1_from_l0.cast<real_T>());
+      PoseIsoRT(rotation_l1_from_l0.cast<Scalar>());
 
-  const Vec3 o5_in_l3 = (transform_l3_from_l0 * o5_point.cast<real_T>())
+  const Vec3 o5_in_l3 = (transform_l3_from_l0 * o5_point.cast<Scalar>())
                             .template head<3>()
                             .cast<double>();
   const double J4 = std::atan2(o5_in_l3.x(), o5_in_l3.z());
@@ -396,7 +415,7 @@ DetermineJointValues(const Vec3 &o3_point, const Vec3 &o4_point,
   const PoseIsoRT transform_l4_from_l0 =
       JointTransformRad(params, 3, J4).inverse() * transform_l3_from_l0;
 
-  const Vec3 o6_in_l4 = (transform_l4_from_l0 * o6_point.cast<real_T>())
+  const Vec3 o6_in_l4 = (transform_l4_from_l0 * o6_point.cast<Scalar>())
                             .template head<3>()
                             .cast<double>();
   const double J5 = std::atan2(o6_in_l4.x(), -o6_in_l4.z());
@@ -1041,8 +1060,8 @@ auto BuildArmClassificationGeometry(const CrxModelData &model,
   }
 
   double convention_base_z_shift_mm = 0.0;
-  if (!ConvertRoboDkDhToAnalyticIkConvention(crx_params,
-                                             convention_base_z_shift_mm)) {
+  if (!NormalizeProductionDhForAnalyticIk(crx_params,
+                                          convention_base_z_shift_mm)) {
     return false;
   }
 
@@ -1069,15 +1088,16 @@ auto BuildArmClassificationGeometry(const CrxModelData &model,
 auto SolveFkIsometry(const CrxModelData &model, const Vec6 &user_joints_rad,
                      PoseIsoRT &pose_out, std::vector<PoseIsoRT> *joint_poses,
                      bool check_limits) -> int {
+  if (!IsModelDataValid(model) || !user_joints_rad.allFinite()) {
+    return -1;
+  }
   return SolveFKCore(user_joints_rad, pose_out, joint_poses, check_limits,
                      model);
 }
 
-auto JointsToRoboDkConfig(const CrxModelData &model,
-                          const Vec6 &user_joints_rad,
-                          std::array<real_T, kRoboDkConfigCount> &config_out)
-    -> bool {
-  if (!user_joints_rad.allFinite()) {
+auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &user_joints_rad,
+                        ArmPosture &posture_out) -> bool {
+  if (!IsModelDataValid(model) || !user_joints_rad.allFinite()) {
     return false;
   }
 
@@ -1112,7 +1132,7 @@ auto JointsToRoboDkConfig(const CrxModelData &model,
   constexpr double kWristZeroToleranceRad = angle_conv::DegToRad(0.01);
   const bool flip = user_joints_rad[4] > kWristZeroToleranceRad;
 
-  config_out = {rear ? 1.0 : 0.0, lower_arm ? 1.0 : 0.0, flip ? 1.0 : 0.0};
+  posture_out = ArmPosture{rear, lower_arm, flip};
   return true;
 }
 
@@ -1122,6 +1142,10 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   solutions_out.clear();
   if (max_solutions <= 0)
     return 0;
+  if (!IsModelDataValid(model) || !target_pose.matrix().allFinite() ||
+      (approx_joints_rad != nullptr && !approx_joints_rad->allFinite())) {
+    return -1;
+  }
 
   CrxParams crx_params;
   if (!ReadCrxParams(model, crx_params))
@@ -1135,8 +1159,8 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
                                        model.tool_transform.inverse();
 
   double convention_base_z_shift_mm = 0.0;
-  if (!ConvertRoboDkDhToAnalyticIkConvention(crx_params,
-                                             convention_base_z_shift_mm))
+  if (!NormalizeProductionDhForAnalyticIk(crx_params,
+                                          convention_base_z_shift_mm))
     return -1;
 
   PoseIsoRT target_pose_06 = target_pose_06_raw;
