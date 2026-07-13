@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <vector>
 
 #include "crx_kinematics.h"
@@ -44,9 +45,12 @@ static auto SolveFkApi(const real_T *joints,
 
   crx::IsometryToPoseArray(fk_pose, pose);
   if (joint_poses != nullptr) {
-    for (int pose_idx = 0; pose_idx < crx::kDofCount + 1; ++pose_idx) {
+    const auto joint_pose_count = static_cast<std::size_t>(crx::kDofCount) + 1U;
+    for (std::size_t pose_idx = 0; pose_idx < joint_pose_count; ++pose_idx) {
+      const auto pose_offset =
+          static_cast<std::ptrdiff_t>(pose_idx) * crx::kPoseElementCount;
       crx::IsometryToPoseArray((*joint_pose_ptr)[pose_idx],
-                               joint_poses + pose_idx * crx::kPoseElementCount);
+                               joint_poses + pose_offset);
     }
   }
   return 1;
@@ -97,8 +101,12 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
   if (!crx::UserJointsRadToRoboDkCoupledDeg(ranked_solutions_rad[0], joints))
     return -1;
   if (joints_all != nullptr) {
-    for (int solution_idx = 0; solution_idx < solution_count; ++solution_idx) {
-      real_T *solution_slot = joints_all + crx::kSolutionStride * solution_idx;
+    const auto solution_count_size = static_cast<std::size_t>(solution_count);
+    for (std::size_t solution_idx = 0; solution_idx < solution_count_size;
+         ++solution_idx) {
+      const auto solution_offset =
+          static_cast<std::ptrdiff_t>(solution_idx) * crx::kSolutionStride;
+      real_T *solution_slot = joints_all + solution_offset;
       std::fill(solution_slot, solution_slot + crx::kSolutionStride,
                 static_cast<real_T>(0.0));
       if (!crx::UserJointsRadToRoboDkCoupledDeg(

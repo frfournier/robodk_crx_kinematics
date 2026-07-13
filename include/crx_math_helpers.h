@@ -1,26 +1,13 @@
 #pragma once
 
-#define _USE_MATH_DEFINES
 #include <array>
 #include <cmath>
 
 #include "crx_types.h"
 
-#ifndef M_PI
-#define M_PI 3.141592653589793238462643383279502884
-#endif
-
-#ifndef M_PI_2
-#define M_PI_2 (0.5 * M_PI)
-#endif
-
-#ifndef M_2PI
-#define M_2PI (2.0 * M_PI)
-#endif
-
 namespace angle_conv {
 
-inline constexpr double kPi = M_PI;
+inline constexpr double kPi = 3.141592653589793238462643383279502884;
 inline constexpr double kRadPerDeg = kPi / 180.0;
 inline constexpr double kDegPerRad = 180.0 / kPi;
 
@@ -32,8 +19,8 @@ inline constexpr double RadToDeg(double rad) { return rad * kDegPerRad; }
 
 namespace crx {
 
-inline constexpr double kTwoPi = M_2PI;
-inline constexpr double kHalfPi = M_PI_2;
+inline constexpr double kTwoPi = 2.0 * angle_conv::kPi;
+inline constexpr double kHalfPi = 0.5 * angle_conv::kPi;
 inline constexpr double kEpsilon = 1e-12;
 inline constexpr double kCosineClampTolerance = 1.0e-9;
 inline constexpr double kRightAngleSnapToleranceRad = 1e-5;
@@ -56,9 +43,9 @@ inline auto WrapRad2Pi(double a) -> double {
 
 inline auto NormalizeRadKeepSignedPi(double a) -> double {
   double w = std::fmod(a, kTwoPi);
-  if (w > M_PI)
+  if (w > angle_conv::kPi)
     w -= kTwoPi;
-  else if (w < -M_PI)
+  else if (w < -angle_conv::kPi)
     w += kTwoPi;
   return w;
 }
@@ -80,8 +67,8 @@ inline auto ClampCosineNearUnit(double value) -> double {
 inline auto SnapToRightAngleFamily(double a,
                                    double tol = kRightAngleSnapToleranceRad)
     -> double {
-  static const std::array<double, 5> refs = {-M_PI, -kHalfPi, 0.0, kHalfPi,
-                                             M_PI};
+  static const std::array<double, 5> refs = {-angle_conv::kPi, -kHalfPi, 0.0,
+                                             kHalfPi, angle_conv::kPi};
   for (const double r : refs)
     if (std::abs(WrapRadPi(a - r)) <= tol)
       return r;

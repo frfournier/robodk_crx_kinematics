@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <iostream>
 #include <string>
 
@@ -26,7 +27,9 @@ static constexpr int kRobotNameSize = 59;
 
 static inline auto iRobot_At(const robot_T *r, int row, int col = 0)
     -> const real_T * {
-  return reinterpret_cast<const real_T *>(r) + row * kRobotTableStride + col;
+  const auto offset = static_cast<std::ptrdiff_t>(row) * kRobotTableStride +
+                      static_cast<std::ptrdiff_t>(col);
+  return reinterpret_cast<const real_T *>(r) + offset;
 }
 
 static inline auto iRobot_Dof(const robot_T *r) -> const real_T * {
@@ -135,10 +138,13 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
   const double deg_to_rad = angle_conv::DegToRad(1.0);
 
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
-    model.joint_senses[joint_id] = NormalizeJointSense(joint_senses[joint_id]);
-    model.lower_limits_rad[joint_id] =
+    const auto storage_index = static_cast<std::size_t>(joint_id);
+    const auto eigen_index = static_cast<Eigen::Index>(joint_id);
+    model.joint_senses[storage_index] =
+        NormalizeJointSense(joint_senses[joint_id]);
+    model.lower_limits_rad[eigen_index] =
         static_cast<double>(lower_limits[joint_id]) * deg_to_rad;
-    model.upper_limits_rad[joint_id] =
+    model.upper_limits_rad[eigen_index] =
         static_cast<double>(upper_limits[joint_id]) * deg_to_rad;
 
     const real_T *dh_row = iRobot_DhmJoint(robot, joint_id);
@@ -148,7 +154,7 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
     row.theta0_rad = static_cast<double>(dh_row[2]);
     row.d = static_cast<double>(dh_row[3]);
     row.is_prismatic = (dh_row[4] != 0.0);
-    model.dh_rows[joint_id] = row;
+    model.dh_rows[storage_index] = row;
   }
   return true;
 }

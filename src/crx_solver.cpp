@@ -1,5 +1,3 @@
-#define _USE_MATH_DEFINES
-
 #include "crx_solver.h"
 
 #include <algorithm>
@@ -75,7 +73,7 @@ static auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
                         std::vector<PoseIsoRT> *joint_poses_out,
                         bool check_limits, const CrxModelData &model) -> int {
   if (joint_poses_out != nullptr &&
-      joint_poses_out->size() < static_cast<std::size_t>(kDofCount + 1))
+      joint_poses_out->size() < static_cast<std::size_t>(kDofCount) + 1U)
     return -1;
 
   PoseIsoRT accumulated_pose = model.base_transform;
@@ -86,15 +84,17 @@ static auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
       user_joints_rad[kJoint2Index] * model.joint_senses[kJoint2Index];
 
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
+    const auto eigen_index = static_cast<Eigen::Index>(joint_id);
+    const auto storage_index = static_cast<std::size_t>(joint_id);
     const double sensed_joint_rad =
-        user_joints_rad[joint_id] * model.joint_senses[joint_id];
+        user_joints_rad[eigen_index] * model.joint_senses[storage_index];
 
     if (check_limits) {
-      const double user_joint_rad = user_joints_rad[joint_id];
+      const double user_joint_rad = user_joints_rad[eigen_index];
       if (user_joint_rad <
-              (model.lower_limits_rad[joint_id] - kJointLimitToleranceRad) ||
+              (model.lower_limits_rad[eigen_index] - kJointLimitToleranceRad) ||
           user_joint_rad >
-              (model.upper_limits_rad[joint_id] + kJointLimitToleranceRad)) {
+              (model.upper_limits_rad[eigen_index] + kJointLimitToleranceRad)) {
         return -2;
       }
     }
@@ -104,7 +104,7 @@ static auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
       joint_model_rad = -sensed_joint2_rad + sensed_joint_rad;
 
     real_T dh_pose_args[kDhArgCount];
-    BuildJointPoseInputRad(model.dh_rows[joint_id], joint_model_rad,
+    BuildJointPoseInputRad(model.dh_rows[storage_index], joint_model_rad,
                            dh_pose_args);
 
     accumulated_pose =
@@ -112,7 +112,7 @@ static auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
                                        dh_pose_args[2], dh_pose_args[3]);
 
     if (joint_poses_out != nullptr)
-      (*joint_poses_out)[joint_id + 1] = accumulated_pose;
+      (*joint_poses_out)[storage_index + 1U] = accumulated_pose;
   }
 
   pose_out =
@@ -191,13 +191,15 @@ static inline auto BuildIkTolerancePack(const CrxParams &params)
 static auto ReadCrxParams(const CrxModelData &model, CrxParams &params)
     -> bool {
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
-    const DhRow &dh_row = model.dh_rows[joint_id];
+    const auto storage_index = static_cast<std::size_t>(joint_id);
+    const DhRow &dh_row = model.dh_rows[storage_index];
     if (dh_row.is_prismatic)
       return false; // prismatic not supported
-    params.alpha_rad[joint_id] = SnapToRightAngleFamily(dh_row.alpha_rad);
-    params.a[joint_id] = dh_row.a;
-    params.theta0_rad[joint_id] = SnapToRightAngleFamily(dh_row.theta0_rad);
-    params.d[joint_id] = dh_row.d;
+    params.alpha_rad[storage_index] = SnapToRightAngleFamily(dh_row.alpha_rad);
+    params.a[storage_index] = dh_row.a;
+    params.theta0_rad[storage_index] =
+        SnapToRightAngleFamily(dh_row.theta0_rad);
+    params.d[storage_index] = dh_row.d;
   }
   params.a2 = params.a[2];
   params.r4 = params.d[3];
@@ -249,7 +251,7 @@ static auto ConvertRoboDkDhToAnalyticIkConvention(CrxParams &params,
   // behavior unchanged.
   base_z_shift_mm = params.d[0];
   params.d[0] = 0.0;
-  params.alpha_rad[2] = M_PI;
+  params.alpha_rad[2] = angle_conv::kPi;
   params.d[3] = -params.d[3];
   params.d[4] = -params.d[4];
   params.d[5] = -params.d[5];
@@ -334,13 +336,14 @@ static inline auto FindThirdTriangleCorner(double side_ab, double side_ac,
   return true;
 }
 
-static inline auto JointTransformRad(const CrxParams &params, int joint_id,
+static inline auto JointTransformRad(const CrxParams &params,
+                                     std::size_t joint_index,
                                      double joint_angle_rad) -> PoseIsoRT {
   return DHM_FromRad(
-      static_cast<real_T>(params.alpha_rad[joint_id]),
-      static_cast<real_T>(params.a[joint_id]),
-      static_cast<real_T>(params.theta0_rad[joint_id] + joint_angle_rad),
-      static_cast<real_T>(params.d[joint_id]));
+      static_cast<real_T>(params.alpha_rad[joint_index]),
+      static_cast<real_T>(params.a[joint_index]),
+      static_cast<real_T>(params.theta0_rad[joint_index] + joint_angle_rad),
+      static_cast<real_T>(params.d[joint_index]));
 }
 
 static auto
@@ -675,10 +678,10 @@ static void DualSolutionRad(const Vec6 &source_solution,
   // Eq. (23) dual map (paper Sec. 2.6, Step 7), expressed in radians:
   // [J1-PI, -J2, PI-J3, J4-PI, J5, J6].
   dual_solution_out = source_solution;
-  dual_solution_out[0] = source_solution[0] - M_PI;
+  dual_solution_out[0] = source_solution[0] - angle_conv::kPi;
   dual_solution_out[1] = -source_solution[1];
-  dual_solution_out[2] = M_PI - source_solution[2];
-  dual_solution_out[3] = source_solution[3] - M_PI;
+  dual_solution_out[2] = angle_conv::kPi - source_solution[2];
+  dual_solution_out[3] = source_solution[3] - angle_conv::kPi;
   dual_solution_out[4] = source_solution[4];
   dual_solution_out[5] = source_solution[5];
   NormalizeUserSolutionDomains(dual_solution_out);
@@ -692,7 +695,8 @@ static auto ForEachSignedPiVariant(const Vec6 &base_solution, EmitFn emit)
   std::vector<int> pi_flip_joint_ids;
   pi_flip_joint_ids.reserve(kDofCount);
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id)
-    if (std::abs(std::abs(base_solution[joint_id]) - M_PI) <= kPiFlipTol)
+    if (std::abs(std::abs(base_solution[joint_id]) - angle_conv::kPi) <=
+        kPiFlipTol)
       pi_flip_joint_ids.push_back(joint_id);
 
   // +PI and -PI represent the same physical angle but can map to different
@@ -707,7 +711,7 @@ static auto ForEachSignedPiVariant(const Vec6 &base_solution, EmitFn emit)
         continue;
       const int joint_id = pi_flip_joint_ids[bit];
       variant_solution[joint_id] =
-          (base_solution[joint_id] >= 0.0) ? -M_PI : M_PI;
+          (base_solution[joint_id] >= 0.0) ? -angle_conv::kPi : angle_conv::kPi;
     }
     if (!emit(variant_solution))
       return false;
