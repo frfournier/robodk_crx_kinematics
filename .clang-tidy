@@ -1,0 +1,20 @@
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  modernize-*,
+  readability-*,
+  cppcoreguidelines-*,
+  clang-analyzer-*
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*[\\/](src|include|tests)[\\/].*'
+ExcludeHeaderFilterRegex: '.*[\\/]third_party[\\/].*'
+FormatStyle: file
+
+CheckOptions:
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.FunctionCase: lower_case
+  readability-identifier-naming.VariableCase: lower_case
+  modernize-use-nullptr.NullMacros: 'NULL'

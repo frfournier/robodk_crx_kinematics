@@ -8,6 +8,8 @@ project(crx_kinematics LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL
+    "Generate compile_commands.json for C++ tooling" FORCE)
 
 # ------------------------------------------------------------------------------
 # Options
@@ -15,6 +17,61 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(ROBODK_DEPLOY "Copy built library to RoboDK robotextensions after build" OFF)
 set(ROBODK_ROOT "" CACHE PATH "RoboDK root path (e.g. C:/RoboDK). If empty, will attempt discovery on Windows.")
 option(CRXKIN_USE_VENDORED_EIGEN "Prefer vendored Eigen in third_party/eigen if present" ON)
+option(CRXKIN_ENABLE_CLANG_TIDY "Run clang-tidy while compiling crx_kinematics" OFF)
+
+# ------------------------------------------------------------------------------
+# C++ quality tools
+# - Prefer the LLVM tools bundled with Visual Studio, discovered through vswhere.
+# - Fall back to PATH so the same targets remain useful outside Visual Studio.
+# ------------------------------------------------------------------------------
+set(_CRXKIN_VS_LLVM_BIN "")
+if(WIN32)
+  find_program(CRXKIN_VSWHERE_EXECUTABLE
+    NAMES vswhere
+    HINTS
+      "C:/Program Files (x86)/Microsoft Visual Studio/Installer"
+      "$ENV{ProgramFiles}/Microsoft Visual Studio/Installer"
+    DOC "Visual Studio installation locator"
+  )
+
+  if(CRXKIN_VSWHERE_EXECUTABLE)
+    execute_process(
+      COMMAND "${CRXKIN_VSWHERE_EXECUTABLE}"
+              -latest -products *
+              -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang
+              -property installationPath
+      OUTPUT_VARIABLE _CRXKIN_VS_INSTALL_PATH
+      RESULT_VARIABLE _CRXKIN_VSWHERE_RESULT
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(_CRXKIN_VSWHERE_RESULT EQUAL 0 AND _CRXKIN_VS_INSTALL_PATH)
+      file(TO_CMAKE_PATH "${_CRXKIN_VS_INSTALL_PATH}/VC/Tools/Llvm/x64/bin"
+           _CRXKIN_VS_LLVM_BIN)
+      message(STATUS "Visual Studio LLVM tools: ${_CRXKIN_VS_LLVM_BIN}")
+    endif()
+  endif()
+endif()
+
+find_program(CRXKIN_CLANG_TIDY_EXECUTABLE
+  NAMES clang-tidy
+  HINTS "${_CRXKIN_VS_LLVM_BIN}"
+  DOC "clang-tidy executable"
+)
+find_program(CRXKIN_CLANG_FORMAT_EXECUTABLE
+  NAMES clang-format
+  HINTS "${_CRXKIN_VS_LLVM_BIN}"
+  DOC "clang-format executable"
+)
+
+if(CRXKIN_ENABLE_CLANG_TIDY)
+  if(NOT CRXKIN_CLANG_TIDY_EXECUTABLE)
+    message(FATAL_ERROR
+      "CRXKIN_ENABLE_CLANG_TIDY=ON, but clang-tidy was not found. "
+      "Install the Visual Studio C++ Clang tools component or put clang-tidy on PATH.")
+  endif()
+  set(CMAKE_CXX_CLANG_TIDY "${CRXKIN_CLANG_TIDY_EXECUTABLE}")
+  message(STATUS "clang-tidy enabled: ${CRXKIN_CLANG_TIDY_EXECUTABLE}")
+endif()
 
 # ------------------------------------------------------------------------------
 # Output dirs (MSVC-like): <repo>/build/{Debug,Release}
@@ -80,11 +137,22 @@ endif()
 # ------------------------------------------------------------------------------
 # Library target (src/)
 # ------------------------------------------------------------------------------
-add_library(crx_kinematics SHARED
+set(CRXKIN_CPP_SOURCES
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_robodk_adapter.cpp"
 )
+
+file(GLOB CRXKIN_FORMAT_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/src/*.cpp"
+  "${CMAKE_SOURCE_DIR}/include/*.h"
+  "${CMAKE_SOURCE_DIR}/include/*.hpp"
+  "${CMAKE_SOURCE_DIR}/tests/*.cpp"
+  "${CMAKE_SOURCE_DIR}/tests/*.h"
+  "${CMAKE_SOURCE_DIR}/tests/*.hpp"
+)
+
+add_library(crx_kinematics SHARED ${CRXKIN_CPP_SOURCES})
 
 set_target_properties(crx_kinematics PROPERTIES
   OUTPUT_NAME "crx_kinematics"
@@ -97,8 +165,47 @@ target_include_directories(crx_kinematics PRIVATE
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
 
-if(NOT MSVC)
+if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  target_compile_options(crx_kinematics PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(crx_kinematics PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(NOT WIN32)
   target_compile_options(crx_kinematics PRIVATE -fvisibility=hidden)
+endif()
+
+if(CRXKIN_CLANG_FORMAT_EXECUTABLE)
+  add_custom_target(format
+    COMMAND "${CRXKIN_CLANG_FORMAT_EXECUTABLE}" -i ${CRXKIN_FORMAT_SOURCES}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Formatting C++ sources with clang-format"
+    VERBATIM
+  )
+  add_custom_target(format-check
+    COMMAND "${CRXKIN_CLANG_FORMAT_EXECUTABLE}" --dry-run --Werror
+            ${CRXKIN_FORMAT_SOURCES}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Checking C++ formatting with clang-format"
+    VERBATIM
+  )
+endif()
+
+if(CRXKIN_CLANG_TIDY_EXECUTABLE)
+  add_custom_target(tidy
+    COMMAND "${CRXKIN_CLANG_TIDY_EXECUTABLE}" -p "${CMAKE_BINARY_DIR}"
+            ${CRXKIN_CPP_SOURCES}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Linting C++ sources with clang-tidy"
+    VERBATIM
+  )
+  add_custom_target(tidy-fix
+    COMMAND "${CRXKIN_CLANG_TIDY_EXECUTABLE}" -p "${CMAKE_BINARY_DIR}" --fix
+            ${CRXKIN_CPP_SOURCES}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Applying clang-tidy fixes"
+    VERBATIM
+  )
 endif()
 
 # ------------------------------------------------------------------------------
