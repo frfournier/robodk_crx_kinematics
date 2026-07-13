@@ -1,20 +1,99 @@
+---
 Checks: >
   -*,
+  clang-diagnostic-*,
+  clang-analyzer-*,
   bugprone-*,
+  cert-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  misc-*,
   performance-*,
   portability-*,
-  modernize-*,
   readability-*,
-  cppcoreguidelines-*,
-  clang-analyzer-*
+  modernize-*,
+  -modernize-use-auto,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length
 
-WarningsAsErrors: ''
-HeaderFilterRegex: '.*[\\/](src|include|tests)[\\/].*'
-ExcludeHeaderFilterRegex: '.*[\\/]third_party[\\/].*'
+WarningsAsErrors: '*'
+
+HeaderFilterRegex: '(^|/)(src|include)/'
+ExcludeHeaderFilterRegex: '(^|/)(third_party|external|generated|build)/'
+SystemHeaders: false
 FormatStyle: file
 
+ExtraArgs:
+  - '-Wall'
+  - '-Wextra'
+  - '-Wpedantic'
+  - '-Wconversion'
+  - '-Wsign-conversion'
+  - '-Wshadow-all'
+  - '-Wcast-align'
+  - '-Wcast-qual'
+  - '-Wdouble-promotion'
+  - '-Wformat=2'
+  - '-Wimplicit-fallthrough'
+  - '-Wmissing-declarations'
+  - '-Wnon-virtual-dtor'
+  - '-Wold-style-cast'
+  - '-Woverloaded-virtual'
+  - '-Wreserved-identifier'
+  - '-Wswitch-enum'
+  - '-Wundef'
+  - '-Wunreachable-code-aggressive'
+  - '-Wzero-as-null-pointer-constant'
+
 CheckOptions:
-  readability-identifier-naming.ClassCase: CamelCase
-  readability-identifier-naming.FunctionCase: lower_case
-  readability-identifier-naming.VariableCase: lower_case
-  modernize-use-nullptr.NullMacros: 'NULL'
+  # Diagnose narrowing even inside template instantiations.
+  bugprone-narrowing-conversions.WarnWithinTemplateInstantiation: 'true'
+  bugprone-narrowing-conversions.PedanticMode: 'true'
+  bugprone-narrowing-conversions.WarnOnIntegerNarrowingConversion: 'true'
+  bugprone-narrowing-conversions.WarnOnIntegerToFloatingPointNarrowingConversion: 'true'
+  bugprone-narrowing-conversions.WarnOnFloatingPointNarrowingConversion: 'true'
+  bugprone-narrowing-conversions.WarnOnEquivalentBitWidth: 'true'
+
+  # Treat potentially interchangeable parameters as an API defect.
+  bugprone-easily-swappable-parameters.MinimumLength: '2'
+  bugprone-easily-swappable-parameters.QualifiersMix: 'true'
+  bugprone-easily-swappable-parameters.ModelImplicitConversions: 'true'
+  bugprone-easily-swappable-parameters.SuppressParametersUsedTogether: 'false'
+  bugprone-easily-swappable-parameters.NamePrefixSuffixSilenceDissimilarityThreshold: '0'
+
+  # Ignoring a result requires a deliberate wrapper or suppression.
+  bugprone-unused-return-value.AllowCastToVoid: 'false'
+  cert-err33-c.AllowCastToVoid: 'false'
+
+  # Strict rule-of-five interpretation.
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: 'false'
+  cppcoreguidelines-special-member-functions.AllowMissingMoveFunctions: 'false'
+  cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted: 'false'
+  cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove: 'false'
+
+  # No implicit integer/pointer-as-boolean constructs.
+  readability-implicit-bool-conversion.AllowIntegerConditions: 'false'
+  readability-implicit-bool-conversion.AllowPointerConditions: 'false'
+  readability-implicit-bool-conversion.AllowLogicalOperatorConversion: 'false'
+  readability-implicit-bool-conversion.UseUpperCaseLiteralSuffix: 'true'
+
+  # Project metrics. These are policy thresholds, not MISRA-prescribed values.
+  readability-function-cognitive-complexity.Threshold: '15'
+  readability-function-cognitive-complexity.DescribeBasicIncrements: 'true'
+
+  readability-function-size.LineThreshold: '80'
+  readability-function-size.StatementThreshold: '50'
+  readability-function-size.BranchThreshold: '10'
+  readability-function-size.ParameterThreshold: '5'
+  readability-function-size.NestingThreshold: '4'
+  readability-function-size.VariableThreshold: '12'
+
+  # Very strict symbolic-constant policy.
+  readability-magic-numbers.IgnoredIntegerValues: '0;1;2'
+  readability-magic-numbers.IgnorePowersOf2IntegerValues: 'false'
+  readability-magic-numbers.IgnoredFloatingPointValues: '0.0;1.0'
+  readability-magic-numbers.IgnoreAllFloatingPointValues: 'false'
+  readability-magic-numbers.IgnoreBitFieldsWidths: 'false'
+  readability-magic-numbers.IgnoreTypeAliases: 'false'
+  readability-magic-numbers.IgnoreUserDefinedLiterals: 'false'
+...
