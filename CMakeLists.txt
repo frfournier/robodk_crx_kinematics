@@ -5,6 +5,8 @@ cmake_minimum_required(VERSION 3.20)
 # ------------------------------------------------------------------------------
 project(crx_kinematics LANGUAGES CXX)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -233,6 +235,40 @@ if(CRXKIN_CLANG_TIDY_EXECUTABLE)
     COMMENT "Applying clang-tidy fixes"
     VERBATIM
   )
+endif()
+
+# ------------------------------------------------------------------------------
+# Tests and verification utility
+# ------------------------------------------------------------------------------
+if(BUILD_TESTING)
+  find_program(CRXKIN_UV_EXECUTABLE
+    NAMES uv
+    DOC "uv executable used to run the Python regression suite"
+  )
+
+  if(CRXKIN_UV_EXECUTABLE)
+    add_test(
+      NAME crx.python-regression
+      COMMAND "${CRXKIN_UV_EXECUTABLE}" run pytest
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    set_tests_properties(crx.python-regression PROPERTIES
+      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>"
+    )
+
+    add_custom_target(check
+      COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
+              --output-on-failure
+      DEPENDS crx_kinematics
+      COMMENT "Running CMake/CTest regression checks"
+      USES_TERMINAL
+      VERBATIM
+    )
+  else()
+    message(WARNING
+      "BUILD_TESTING=ON, but uv was not found. CTest integration is disabled."
+    )
+  endif()
 endif()
 
 # ------------------------------------------------------------------------------

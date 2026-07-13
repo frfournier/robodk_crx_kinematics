@@ -21,6 +21,10 @@ def _set_row(robot: RobotT, row: int, values, col: int = 0) -> None:
 
 
 def _library_path(repo_root: Path = None) -> Path:
+    configured_path = os.environ.get("CRXKIN_LIBRARY_PATH")
+    if configured_path:
+        return Path(configured_path).expanduser().resolve()
+
     # Standard CMake structure: <repo>/build/Release/crx_kinematics.dll
     if repo_root is None:
         repo_root = Path(__file__).resolve().parents[1]

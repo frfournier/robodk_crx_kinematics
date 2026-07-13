@@ -1,0 +1,68 @@
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.useVsDeveloperEnvironment": "auto",
+  "cmake.configureOnOpen": true,
+  "cmake.configureOnEdit": true,
+  "cmake.automaticReconfigure": true,
+  "cmake.buildBeforeRun": true,
+  "cmake.buildTask": true,
+  "cmake.exportCompileCommandsFile": true,
+  "cmake.loadCompileCommands": true,
+  "cmake.parseBuildDiagnostics": true,
+  "cmake.ctest.testExplorerIntegrationEnabled": true,
+  "cmake.ctest.allowParallelJobs": false,
+  "cmake.options.statusBarVisibility": "visible",
+  "cmake.revealLog": "error",
+  "cmake.loggingLevel": "info",
+  "cmake.pinnedCommands": [
+    "cmake.selectConfigurePreset",
+    "cmake.selectBuildPreset",
+    "cmake.selectTestPreset",
+    "cmake.configure",
+    "cmake.build",
+    "cmake.ctest",
+    "cmake.workflow"
+  ],
+  "cmake.additionalBuildProblemMatchers": [
+    {
+      "name": "clang-tidy",
+      "regexp": "^(.+?):(\\d+):(\\d+):\\s+(warning|error|note):\\s+(.+?)\\s*(?:\\[(.+)\\])?$",
+      "file": 1,
+      "line": 2,
+      "column": 3,
+      "severity": 4,
+      "message": 5,
+      "code": 6
+    }
+  ],
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.clang_format_style": "file",
+  "C_Cpp.errorSquiggles": "enabled",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "files.exclude": {
+    "**/.pytest_cache": true,
+    "**/__pycache__": true,
+    "build/vscode": true
+  },
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/.venv/**": true
+  },
+  "search.exclude": {
+    "**/build/**": true,
+    "**/.venv/**": true,
+    "**/third_party/**": true
+  },
+  "[cpp]": {
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "editor.formatOnSave": true
+  },
+  "[cmake]": {
+    "editor.formatOnSave": true
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  }
+}

@@ -1,0 +1,217 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-clang-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/vscode/${presetName}",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "CRXKIN_USE_VENDORED_EIGEN": true,
+        "CRXKIN_ENABLE_CLANG_TIDY": false,
+        "BUILD_TESTING": true,
+        "ROBODK_DEPLOY": false
+      }
+    },
+    {
+      "name": "windows-clang-debug",
+      "displayName": "Windows clang-cl Debug",
+      "description": "Debug DLL with symbols and assertions",
+      "inherits": "windows-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "windows-clang-relwithdebinfo",
+      "displayName": "Windows clang-cl RelWithDebInfo",
+      "description": "Optimized DLL with debug information",
+      "inherits": "windows-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "windows-clang-release",
+      "displayName": "Windows clang-cl Release",
+      "description": "Native -O3 Release DLL",
+      "inherits": "windows-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-clang-minsizerel",
+      "displayName": "Windows clang-cl MinSizeRel",
+      "description": "Size-optimized DLL",
+      "inherits": "windows-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel"
+      }
+    },
+    {
+      "name": "windows-clang-release-tidy",
+      "displayName": "Windows clang-cl Release + clang-tidy",
+      "description": "Native Release build with clang-tidy enabled during compilation",
+      "inherits": "windows-clang-release",
+      "cacheVariables": {
+        "CRXKIN_ENABLE_CLANG_TIDY": true
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-clang-debug",
+      "displayName": "Build Debug",
+      "configurePreset": "windows-clang-debug"
+    },
+    {
+      "name": "windows-clang-relwithdebinfo",
+      "displayName": "Build RelWithDebInfo",
+      "configurePreset": "windows-clang-relwithdebinfo"
+    },
+    {
+      "name": "windows-clang-release",
+      "displayName": "Build Release",
+      "configurePreset": "windows-clang-release"
+    },
+    {
+      "name": "windows-clang-minsizerel",
+      "displayName": "Build MinSizeRel",
+      "configurePreset": "windows-clang-minsizerel"
+    },
+    {
+      "name": "windows-clang-release-tidy",
+      "displayName": "Build Release + clang-tidy",
+      "configurePreset": "windows-clang-release-tidy"
+    },
+    {
+      "name": "windows-clang-format-check",
+      "displayName": "Check C++ formatting",
+      "configurePreset": "windows-clang-release-tidy",
+      "targets": ["format-check"]
+    },
+    {
+      "name": "windows-clang-format",
+      "displayName": "Format C++ sources",
+      "configurePreset": "windows-clang-release-tidy",
+      "targets": ["format"]
+    },
+    {
+      "name": "windows-clang-tidy",
+      "displayName": "Run clang-tidy",
+      "configurePreset": "windows-clang-release-tidy",
+      "targets": ["tidy"]
+    },
+    {
+      "name": "windows-clang-tidy-fix",
+      "displayName": "Apply clang-tidy fixes",
+      "configurePreset": "windows-clang-release-tidy",
+      "targets": ["tidy-fix"]
+    },
+    {
+      "name": "windows-clang-check",
+      "displayName": "Build and run CTest",
+      "configurePreset": "windows-clang-release-tidy",
+      "targets": ["check"]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-clang-debug",
+      "displayName": "Test Debug",
+      "configurePreset": "windows-clang-debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "windows-clang-relwithdebinfo",
+      "displayName": "Test RelWithDebInfo",
+      "configurePreset": "windows-clang-relwithdebinfo",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "windows-clang-release",
+      "displayName": "Test Release",
+      "configurePreset": "windows-clang-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "windows-clang-minsizerel",
+      "displayName": "Test MinSizeRel",
+      "configurePreset": "windows-clang-minsizerel",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "windows-clang-release-tidy",
+      "displayName": "Test Release + clang-tidy",
+      "configurePreset": "windows-clang-release-tidy",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "windows-clang-debug-verify",
+      "displayName": "Configure, build, and test Debug",
+      "steps": [
+        {"type": "configure", "name": "windows-clang-debug"},
+        {"type": "build", "name": "windows-clang-debug"},
+        {"type": "test", "name": "windows-clang-debug"}
+      ]
+    },
+    {
+      "name": "windows-clang-release-verify",
+      "displayName": "Format-check, build, lint, and test Release",
+      "steps": [
+        {"type": "configure", "name": "windows-clang-release-tidy"},
+        {"type": "build", "name": "windows-clang-format-check"},
+        {"type": "build", "name": "windows-clang-release-tidy"},
+        {"type": "test", "name": "windows-clang-release-tidy"}
+      ]
+    }
+  ]
+}

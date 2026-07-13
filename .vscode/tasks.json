@@ -1,0 +1,153 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "cmake",
+      "label": "CMake: Configure (active preset)",
+      "command": "configure",
+      "preset": "${command:cmake.activeConfigurePresetName}",
+      "problemMatcher": [],
+      "detail": "Configure using the active CMake Tools preset"
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Build (active preset)",
+      "command": "build",
+      "preset": "${command:cmake.activeBuildPresetName}",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$msCompile"],
+      "detail": "Build using the active CMake Tools preset"
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Test (active preset)",
+      "command": "test",
+      "preset": "${command:cmake.activeTestPresetName}",
+      "group": "test",
+      "problemMatcher": [],
+      "detail": "Run CTest using the active CMake Tools preset"
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Verify Release",
+      "command": "workflow",
+      "preset": "windows-clang-release-verify",
+      "group": "test",
+      "problemMatcher": ["$msCompile"],
+      "detail": "Configure, format-check, build with clang-tidy, and test Release"
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Clean Rebuild (active preset)",
+      "command": "cleanRebuild",
+      "preset": "${command:cmake.activeBuildPresetName}",
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Configure Debug",
+      "command": "configure",
+      "preset": "windows-clang-debug",
+      "problemMatcher": []
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Configure Release",
+      "command": "configure",
+      "preset": "windows-clang-release",
+      "problemMatcher": []
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Configure Release utilities",
+      "command": "configure",
+      "preset": "windows-clang-release-tidy",
+      "problemMatcher": []
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Build Debug for debugger",
+      "command": "build",
+      "preset": "windows-clang-debug",
+      "dependsOn": "CMake: Configure Debug",
+      "dependsOrder": "sequence",
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Build Release for debugger",
+      "command": "build",
+      "preset": "windows-clang-release",
+      "dependsOn": "CMake: Configure Release",
+      "dependsOrder": "sequence",
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Format Check",
+      "command": "build",
+      "preset": "windows-clang-format-check",
+      "dependsOn": "CMake: Configure Release utilities",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Format Sources",
+      "command": "build",
+      "preset": "windows-clang-format",
+      "dependsOn": "CMake: Configure Release utilities",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Clang-Tidy",
+      "command": "build",
+      "preset": "windows-clang-tidy",
+      "dependsOn": "CMake: Configure Release utilities",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Clang-Tidy Fix",
+      "command": "build",
+      "preset": "windows-clang-tidy-fix",
+      "dependsOn": "CMake: Configure Release utilities",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "type": "cmake",
+      "label": "CMake: Check",
+      "command": "build",
+      "preset": "windows-clang-check",
+      "dependsOn": "CMake: Configure Release utilities",
+      "dependsOrder": "sequence",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Build RoboDK image",
+      "type": "shell",
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f",
+        ".docker/compose.yaml",
+        "build",
+        "--pull",
+        "robodk"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "Build the existing RoboDK development image"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C++: Debug core pytest through Debug DLL",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_crx_kinematics.py",
+        "-x",
+        "-v"
+      ],
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "CRXKIN_LIBRARY_PATH",
+          "value": "${workspaceFolder}/build/Debug/crx_kinematics.dll"
+        }
+      ],
+      "preLaunchTask": "CMake: Build Debug for debugger",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Python: Debug pytest with Release DLL",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests", "-x", "-v"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "CRXKIN_LIBRARY_PATH": "${workspaceFolder}/build/Release/crx_kinematics.dll"
+      },
+      "preLaunchTask": "CMake: Build Release for debugger",
+      "console": "integratedTerminal"
+    }
+  ]
+}

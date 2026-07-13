@@ -167,6 +167,31 @@ scripts\build_crx_kinematics_msvc.bat
 - **Build artifacts**: `build\Release\` and `build\Debug\`
 - **Compilation database**: `build\cmake-msvc\compile_commands.json`
 
+#### Visual Studio Code and CMake Tools
+
+Open the repository root in VS Code and install the workspace's recommended
+extensions. CMake Tools uses the checked-in `CMakePresets.json`; kits and CMake
+variants are intentionally not used.
+
+Select a configure preset from the CMake Project Status view or run
+`CMake: Select Configure Preset`. The available x64 clang-cl configurations are
+Debug, RelWithDebInfo, Release, MinSizeRel, and Release with clang-tidy. Matching
+build and test presets are selected automatically by CMake Tools.
+
+The workspace also provides commands under `Terminal > Run Task`:
+
+- `CMake: Build (active preset)` (`Ctrl+Shift+B`)
+- `CMake: Test (active preset)`
+- `CMake: Verify Release` (format-check, clang-tidy build, and CTest)
+- `CMake: Format Check` / `CMake: Format Sources`
+- `CMake: Clang-Tidy` / `CMake: Clang-Tidy Fix`
+- `CMake: Check` (build followed by the full pytest suite through CTest)
+
+CTest results appear in VS Code's Test Explorer. The launch configurations can
+debug the native DLL through the Python pytest host or debug the Python test
+code itself. If Visual Studio's bundled Ninja or clang-cl is not detected on
+first use, run `CMake: Scan for Compilers` once and select a preset again.
+
 #### C++ Linting and Formatting
 
 The CMake build exposes Ruff-like quality targets backed by Visual Studio's
