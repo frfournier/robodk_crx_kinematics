@@ -1,9 +1,9 @@
 [project]
 name = "test-crx-kinematics"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tester for Fanuc CRX kinematics solver for RoboDK"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "hypothesis>=6.151.9",
     "numpy>=2.4.2",
