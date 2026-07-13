@@ -13,6 +13,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL
     "Generate compile_commands.json for C++ tooling" FORCE)
 
+# Reject Eigen modules that are not available under MPL 2.0. This definition
+# must be active before any Eigen header is parsed.
+add_compile_definitions(EIGEN_MPL2_ONLY)
+
 # ------------------------------------------------------------------------------
 # Options
 # ------------------------------------------------------------------------------
@@ -115,6 +119,7 @@ set(_VENDORED_EIGEN_DIR "${CMAKE_SOURCE_DIR}/third_party/eigen")
 
 if(CRXKIN_USE_VENDORED_EIGEN AND EXISTS "${_VENDORED_EIGEN_DIR}/Eigen/Core")
   message(STATUS "Using vendored Eigen include path: ${_VENDORED_EIGEN_DIR}")
+  set(_CRXKIN_EIGEN_SOURCE_DIR "${_VENDORED_EIGEN_DIR}")
   add_library(Eigen3::Eigen INTERFACE IMPORTED)
   target_include_directories(Eigen3::Eigen INTERFACE "${_VENDORED_EIGEN_DIR}")
 else()
@@ -134,7 +139,29 @@ else()
     GIT_PROGRESS   TRUE
   )
   FetchContent_MakeAvailable(Eigen)
+  set(_CRXKIN_EIGEN_SOURCE_DIR "${eigen_SOURCE_DIR}")
 endif()
+
+set(_CRXKIN_EIGEN_LICENSE "${_CRXKIN_EIGEN_SOURCE_DIR}/LICENSE")
+set(_CRXKIN_EIGEN_LEGAL_FILES
+  COPYING.APACHE
+  COPYING.BSD
+  COPYING.MINPACK
+  COPYING.MPL2
+  COPYING.README
+  LICENSE
+)
+set(_CRXKIN_THIRD_PARTY_NOTICES "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md")
+set(_CRXKIN_REQUIRED_LEGAL_FILES "${_CRXKIN_THIRD_PARTY_NOTICES}")
+foreach(_EIGEN_LEGAL_FILE IN LISTS _CRXKIN_EIGEN_LEGAL_FILES)
+  list(APPEND _CRXKIN_REQUIRED_LEGAL_FILES
+       "${_CRXKIN_EIGEN_SOURCE_DIR}/${_EIGEN_LEGAL_FILE}")
+endforeach()
+foreach(_LEGAL_FILE IN LISTS _CRXKIN_REQUIRED_LEGAL_FILES)
+  if(NOT EXISTS "${_LEGAL_FILE}")
+    message(FATAL_ERROR "Required third-party legal file not found: ${_LEGAL_FILE}")
+  endif()
+endforeach()
 
 # ------------------------------------------------------------------------------
 # Library target (src/)
@@ -185,6 +212,32 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     "$<$<CONFIG:Release>:-march=native>"
   )
 endif()
+
+# Keep the notice, exact Eigen header source, and licensing files beside every
+# binary. The vendored tree may contain local changes, so an upstream URL alone
+# is not sufficient corresponding-source access.
+add_custom_command(TARGET crx_kinematics POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+          "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${_CRXKIN_THIRD_PARTY_NOTICES}"
+          "$<TARGET_FILE_DIR:crx_kinematics>/THIRD_PARTY_NOTICES.md"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${_CRXKIN_EIGEN_LICENSE}"
+          "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen/LICENSE"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.APACHE"
+          "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.BSD"
+          "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.MINPACK"
+          "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.MPL2"
+          "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.README"
+          "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          "${_CRXKIN_EIGEN_SOURCE_DIR}/Eigen"
+          "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen/source/Eigen"
+  COMMENT "Copying Eigen source, licenses, and third-party notices"
+  VERBATIM
+)
 
 if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
   target_compile_options(crx_kinematics PRIVATE /W4 /permissive-)
@@ -349,10 +402,28 @@ if(ROBODK_DEPLOY)
 
     add_custom_command(TARGET crx_kinematics POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E make_directory "${_RDK_DST}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${_RDK_DST}/licenses/Eigen"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "$<TARGET_FILE:crx_kinematics>"
               "${_RDK_DST}/$<TARGET_FILE_NAME:crx_kinematics>"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${_CRXKIN_THIRD_PARTY_NOTICES}"
+              "${_RDK_DST}/THIRD_PARTY_NOTICES.md"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${_CRXKIN_EIGEN_LICENSE}"
+              "${_RDK_DST}/licenses/Eigen/LICENSE"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.APACHE"
+              "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.BSD"
+              "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.MINPACK"
+              "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.MPL2"
+              "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.README"
+              "${_RDK_DST}/licenses/Eigen"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${_CRXKIN_EIGEN_SOURCE_DIR}/Eigen"
+              "${_RDK_DST}/licenses/Eigen/source/Eigen"
       COMMENT "Deploying crx_kinematics to RoboDK robotextensions"
+      VERBATIM
     )
   endif()
 endif()

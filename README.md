@@ -434,6 +434,10 @@ uv run pytest
 ## Additional Resources
 
 - **Eigen Library**: https://eigen.tuxfamily.org/
+- **Eigen upstream reference**: https://gitlab.com/libeigen/eigen/-/tree/5.0.1
+- **Third-party notices**: See `THIRD_PARTY_NOTICES.md`. Builds place this
+  notice, Eigen's licenses, and the exact vendored Eigen header source beside
+  the generated library.
 - **RoboDK**: https://robodk.com/
 - **Pytest Docs**: https://docs.pytest.org/
 - **Astral uv Docs**: https://docs.astral.sh/uv/

@@ -7,6 +7,9 @@ CONFIG  += c++17
 CONFIG  -= qt
 QT      -= core gui
 
+# Reject Eigen modules that are not available under MPL 2.0.
+DEFINES += EIGEN_MPL2_ONLY
+
 # Make sure we actually build a shared library on all platforms
 CONFIG  += shared
 
@@ -65,6 +68,24 @@ DESTDIR        = $$BUILD_OUT_ROOT/$$cfgDirName()
 message("Build output (DESTDIR):")
 message($$DESTDIR)
 
+# Keep the notice, exact Eigen header source, and licensing files beside every
+# binary. The vendored tree may contain local changes, so an upstream URL alone
+# is not sufficient corresponding-source access.
+EIGEN_LEGAL_DIR = $$DESTDIR/licenses/Eigen
+win32 {
+    QMAKE_POST_LINK += $$quote(cmd /c if not exist "$$EIGEN_LEGAL_DIR" mkdir "$$EIGEN_LEGAL_DIR") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cmd /c copy /Y "$$PWD/THIRD_PARTY_NOTICES.md" "$$DESTDIR/THIRD_PARTY_NOTICES.md") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cmd /c xcopy /Y /I "$$EIGEN3_INCLUDE_DIR\\LICENSE" "$$EIGEN_LEGAL_DIR\\") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cmd /c xcopy /Y /I "$$EIGEN3_INCLUDE_DIR\\COPYING.*" "$$EIGEN_LEGAL_DIR\\") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cmd /c xcopy /E /I /Y "$$EIGEN3_INCLUDE_DIR\\Eigen" "$$EIGEN_LEGAL_DIR\\source\\Eigen") $$escape_expand(\\n\\t)
+} else {
+    QMAKE_POST_LINK += $$quote(mkdir -p "$$EIGEN_LEGAL_DIR") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cp -f "$$PWD/THIRD_PARTY_NOTICES.md" "$$DESTDIR/THIRD_PARTY_NOTICES.md") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cp -f "$$EIGEN3_INCLUDE_DIR/LICENSE" $$EIGEN3_INCLUDE_DIR/COPYING.* "$$EIGEN_LEGAL_DIR/") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(mkdir -p "$$EIGEN_LEGAL_DIR/source") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cp -R "$$EIGEN3_INCLUDE_DIR/Eigen" "$$EIGEN_LEGAL_DIR/source/Eigen") $$escape_expand(\\n\\t)
+}
+
 # -----------------------------------
 # Optional RoboDK deployment (post-link copy)
 # Override:
@@ -112,13 +133,22 @@ contains(ROBODK_DEPLOY, 1) {
     # QMAKE_POST_LINK runs in the build folder context; use $$DESTDIR for source.
     win32 {
         QMAKE_POST_LINK += $$quote(cmd /c if not exist "$$DESTDIR_ROBOTEXTENSIONS" mkdir "$$DESTDIR_ROBOTEXTENSIONS") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(cmd /c if not exist "$$DESTDIR_ROBOTEXTENSIONS/licenses/Eigen" mkdir "$$DESTDIR_ROBOTEXTENSIONS/licenses/Eigen") $$escape_expand(\\n\\t)
         QMAKE_POST_LINK += $$quote(cmd /c copy /Y "$$DESTDIR\\$${TARGET}.dll" "$$DESTDIR_ROBOTEXTENSIONS\\$${TARGET}.dll") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(cmd /c copy /Y "$$PWD/THIRD_PARTY_NOTICES.md" "$$DESTDIR_ROBOTEXTENSIONS/THIRD_PARTY_NOTICES.md") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(cmd /c xcopy /E /I /Y "$$EIGEN_LEGAL_DIR" "$$DESTDIR_ROBOTEXTENSIONS/licenses/Eigen") $$escape_expand(\\n\\t)
     } else:macx {
         QMAKE_POST_LINK += $$quote(mkdir -p "$$DESTDIR_ROBOTEXTENSIONS") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(mkdir -p "$$DESTDIR_ROBOTEXTENSIONS/licenses/Eigen") $$escape_expand(\\n\\t)
         QMAKE_POST_LINK += $$quote(cp -f "$$DESTDIR/lib$${TARGET}.dylib" "$$DESTDIR_ROBOTEXTENSIONS/") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(cp -f "$$PWD/THIRD_PARTY_NOTICES.md" "$$DESTDIR_ROBOTEXTENSIONS/THIRD_PARTY_NOTICES.md") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(cp -R "$$EIGEN_LEGAL_DIR/." "$$DESTDIR_ROBOTEXTENSIONS/licenses/Eigen/") $$escape_expand(\\n\\t)
     } else:linux {
         QMAKE_POST_LINK += $$quote(mkdir -p "$$DESTDIR_ROBOTEXTENSIONS") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(mkdir -p "$$DESTDIR_ROBOTEXTENSIONS/licenses/Eigen") $$escape_expand(\\n\\t)
         QMAKE_POST_LINK += $$quote(cp -f "$$DESTDIR/lib$${TARGET}.so" "$$DESTDIR_ROBOTEXTENSIONS/") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(cp -f "$$PWD/THIRD_PARTY_NOTICES.md" "$$DESTDIR_ROBOTEXTENSIONS/THIRD_PARTY_NOTICES.md") $$escape_expand(\\n\\t)
+        QMAKE_POST_LINK += $$quote(cp -R "$$EIGEN_LEGAL_DIR/." "$$DESTDIR_ROBOTEXTENSIONS/licenses/Eigen/") $$escape_expand(\\n\\t)
     }
 } else {
     message("RoboDK deploy disabled (set ROBODK_DEPLOY=1 to enable)")
