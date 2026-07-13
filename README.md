@@ -2,7 +2,29 @@
 
 ## Overview
 
-This repository provides a deterministic inverse-kinematics (IK) solver for the FANUC CRX collaborative robot family (6R serial arm with a **non-spherical wrist**). The solver is compiled as a RoboDK custom kinematics library, following the Plug-In-Interface "robotextensions/samplekinematics" contract with `SolveFK`/`SolveIK` entry points and RoboDK's `robot_T` parameter layout.
+This repository provides a deterministic inverse-kinematics (IK) solver for the FANUC CRX collaborative robot family (6R serial arm with a **non-spherical wrist**). The solver is compiled as a RoboDK custom kinematics library using RoboDK's current `robotextensions/samplekinematics` contract and `robot_T` parameter layout.
+
+## RoboDK Compatibility and ABI
+
+> **RoboDK 6.0.6 is required.** This library targets the current RoboDK
+> 6.0.6.26901 custom-kinematics ABI exclusively. RoboDK 6.0.5 and earlier are
+> unsupported. Future RoboDK releases must be revalidated against their latest
+> ABI before being considered supported.
+
+The DLL intentionally exports only the four callbacks used by RoboDK 6.0.6:
+
+| Export | Purpose |
+|--------|---------|
+| `SolveFK` | Forward kinematics with joint-limit validation |
+| `SolveFK_CAD` | Forward kinematics and intermediate CAD joint poses |
+| `SolveIK` | Ranked inverse-kinematics solutions |
+| `Joints2Config` | RoboDK `[REAR, LOWERARM, FLIP]` flags for supplied joints |
+
+`Joints2Config` returns `1` after writing three `0`/`1` values, or `-1` when
+RoboDK should calculate its default values because the input is invalid,
+unsupported, or geometrically ambiguous. The former project-specific
+`SolveIK_Config` interface has been removed intentionally; no compatibility
+alias or fallback ABI is provided.
 
 ## Algorithmic Basis
 
@@ -65,11 +87,13 @@ This document provides step-by-step instructions for installing, building, and t
 
 - **Windows** (x64)
 - **Git** with Git LFS support
-- **Visual Studio** (Community, Professional, or Enterprise) with C++ build tools
+- **RoboDK 6.0.6** (6.0.5 and earlier are unsupported)
+- **Visual Studio** (Community, Professional, or Enterprise) with C++ build
+  tools, C++ Clang tools for Windows, and CMake/Ninja components
 - **Python 3.13+**
 - One of the following build systems:
   - **QMake** (Qt 5.x or later)
-  - **CMake** (3.16 or later)
+  - **CMake** (3.20 or later)
 
 ## Installation
 
@@ -132,14 +156,42 @@ scripts\build_crx_kinematics_msvc.bat
 1. **Auto-detects Visual Studio** using `vswhere.exe`
 2. **Initializes MSVC environment** via `vcvars64.bat`
 3. **Discovers CMake** from PATH or common installation locations
-4. **Configures the build** using Visual Studio 17 2022 generator (x64)
-5. **Builds in Release mode**
-6. **Verifies output**: Checks that `build\Release\crx_kinematics.dll` was created
+4. **Discovers Visual Studio's bundled LLVM tools** (`clang-cl`, `clang-tidy`, and `clang-format`)
+5. **Configures Ninja with clang-cl**, compiler warnings, and `compile_commands.json`
+6. **Builds in Release mode with clang-tidy enabled**
+7. **Verifies output**: Checks that `build\Release\crx_kinematics.dll` was created
 
 #### Output
 
 - **DLL**: `build\Release\crx_kinematics.dll`
 - **Build artifacts**: `build\Release\` and `build\Debug\`
+- **Compilation database**: `build\cmake-msvc\compile_commands.json`
+
+#### C++ Linting and Formatting
+
+The CMake build exposes Ruff-like quality targets backed by Visual Studio's
+bundled LLVM tools:
+
+```powershell
+# Check or apply deterministic formatting
+cmake --build build\cmake-msvc --target format-check
+cmake --build build\cmake-msvc --target format
+
+# Run clang-tidy explicitly, or apply its automatic fixes
+cmake --build build\cmake-msvc --target tidy
+cmake --build build\cmake-msvc --target tidy-fix
+```
+
+The normal CMake build also runs `clang-tidy` while compiling. CMake discovers
+the Visual Studio LLVM installation through `vswhere`; a standalone LLVM install
+on `PATH` remains a fallback when configuring manually.
+
+#### Deploying to RoboDK
+
+Close all RoboDK instances, copy `build\Release\crx_kinematics.dll` to
+`<RoboDK>\bin\robotextensions`, and restart RoboDK. RoboDK loads robot-extension
+DLLs at process startup, so replacing the file while RoboDK is running does not
+activate the new ABI implementation.
 
 ### Option B: QMake Build
 
@@ -241,6 +293,10 @@ The `tests/fixtures/CRX10iA-solutions.xlsx` file contains:
 | `J1–J6` | Joint angles (degrees) for each solution |
 | `SOLUTION ID` | Sequential ID within each test case |
 | `FB, UD, TB` | Robot configuration (Front/Back, Up/Down, Tool/Base elbow) |
+
+The fixture configuration columns map directly to RoboDK's current callback:
+`[TB, UD, FB]` corresponds to `[REAR, LOWERARM, FLIP]`, with `T/U/N` represented
+as `0` and `B/D/F` represented as `1`.
 
 #### JSON Structure
 
