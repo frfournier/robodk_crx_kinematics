@@ -6,6 +6,7 @@
 #include "crx_pose_helpers.h"
 #include "crx_robodk_adapter.h"
 #include "crx_solver.h"
+#include "crx_types.h"
 #include "crx_vector_helpers.h"
 
 namespace {
@@ -83,7 +84,6 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
   if (joints_approx != nullptr) {
     if (!crx::RoboDkJointsDegCoupledToUserRad(joints_approx, approx_joints_rad))
       return -1;
-    crx::NormalizeVecKeepSignedPi(approx_joints_rad);
     approx_joints_ptr = &approx_joints_rad;
   }
 
@@ -111,62 +111,31 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
   return solution_count;
 }
 
-auto SolveIK_Config(const real_T pose[16], real_T *joints, real_T *joints_all,
-                    int *configs_all, int max_solutions,
-                    const real_T *joints_approx, const robot_T *ptr_robot)
-    -> int {
-  if (pose == nullptr || joints == nullptr)
+// The parameter order and three-element C array are fixed by RoboDK's ABI.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters,readability-magic-numbers)
+auto Joints2Config(const real_T *joints, real_T config[3],
+                   const robot_T *ptr_robot) -> int {
+  if (joints == nullptr || config == nullptr) {
     return -1;
-  if (max_solutions <= 0)
-    return 0;
+  }
 
   crx::CrxModelData model;
-  if (!crx::BuildModelFromRoboDkRobot(ptr_robot, model))
+  if (!crx::BuildModelFromRoboDkRobot(ptr_robot, model)) {
     return -1;
-
-  const crx::PoseIsoRT target_pose = crx::PoseArrayToIsometry(pose);
-  crx::Vec6 approx_joints_rad = crx::Vec6::Zero();
-  const crx::Vec6 *approx_joints_ptr = nullptr;
-  if (joints_approx != nullptr) {
-    if (!crx::RoboDkJointsDegCoupledToUserRad(joints_approx, approx_joints_rad))
-      return -1;
-    crx::NormalizeVecKeepSignedPi(approx_joints_rad);
-    approx_joints_ptr = &approx_joints_rad;
   }
 
-  std::vector<crx::CrxIkSolution> ranked_solutions;
-  const int solution_count = crx::SolveIkIsometryConfigured(
-      model, target_pose, approx_joints_ptr, max_solutions, ranked_solutions);
-  if (solution_count <= 0)
-    return solution_count;
-
-  if (!crx::UserJointsRadToRoboDkCoupledDeg(
-          ranked_solutions[0].user_joints_rad, joints))
+  crx::Vec6 user_joints_rad = crx::Vec6::Zero();
+  if (!crx::RoboDkJointsDegCoupledToUserRad(joints, user_joints_rad)) {
     return -1;
-
-  for (int solution_idx = 0; solution_idx < solution_count; ++solution_idx) {
-    const crx::CrxIkSolution &solution = ranked_solutions[solution_idx];
-
-    if (joints_all != nullptr) {
-      real_T *solution_slot = joints_all + crx::kSolutionStride * solution_idx;
-      std::fill(solution_slot, solution_slot + crx::kSolutionStride,
-                static_cast<real_T>(0.0));
-      if (!crx::UserJointsRadToRoboDkCoupledDeg(solution.user_joints_rad,
-                                                solution_slot)) {
-        return -1;
-      }
-    }
-
-    if (configs_all != nullptr) {
-      int *config_slot =
-          configs_all + crx::kRoboDkConfigStride * solution_idx;
-      const std::array<int, crx::kRoboDkConfigStride> config_vector =
-          crx::RoboDkConfigVector(solution.config);
-      std::copy(config_vector.begin(), config_vector.end(), config_slot);
-    }
   }
 
-  return solution_count;
+  std::array<real_T, crx::kRoboDkConfigCount> classified_config{};
+  if (!crx::JointsToRoboDkConfig(model, user_joints_rad, classified_config)) {
+    return -1;
+  }
+
+  std::copy(classified_config.begin(), classified_config.end(), config);
+  return 1;
 }
 
 } // extern "C"
