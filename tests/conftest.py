@@ -20,7 +20,7 @@ def _set_row(robot: RobotT, row: int, values, col: int = 0) -> None:
         robot.data[row][col + idx] = float(value)
 
 
-def _library_path(repo_root: Path = None) -> Path:
+def _library_path(repo_root: Path | None = None) -> Path:
     configured_path = os.environ.get("CRXKIN_LIBRARY_PATH")
     if configured_path:
         return Path(configured_path).expanduser().resolve()

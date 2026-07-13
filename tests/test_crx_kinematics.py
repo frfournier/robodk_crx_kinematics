@@ -520,7 +520,8 @@ def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
                     f"  tol_deg: {JOINT_TOL_DEG}",
                     f"  expected_joints_deg: {_fmt_joints(expected)}",
                     f"  nearest_max_abs_diff_deg: {_fmt_f(nearest_d)}",
-                    f"  nearest_joints_deg: {_fmt_joints(nearest)}",
+                    "  nearest_joints_deg: "
+                    + (_fmt_joints(nearest) if nearest is not None else "None"),
                     f"  returned_n: {n}",
                     f"  best_joints_deg: {_fmt_joints(best)}",
                 ]
@@ -537,9 +538,7 @@ def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
     ],
 )
 def test_joints_to_configuration(kinematics_lib, crx_10ia, p: Dict[str, Any]):
-    status, actual = _call_joints_config(
-        kinematics_lib, crx_10ia, p["joints_deg"]
-    )
+    status, actual = _call_joints_config(kinematics_lib, crx_10ia, p["joints_deg"])
     expected = _expected_robodk_config(p["config"])
     assert status == 1
     assert actual == expected, "\n".join(
@@ -560,9 +559,7 @@ def test_latest_robodk_export_contract(kinematics_lib):
     assert not hasattr(kinematics_lib, "SolveIK_Config")
 
 
-def test_joints_to_configuration_is_base_transform_invariant(
-    kinematics_lib, crx_10ia
-):
+def test_joints_to_configuration_is_base_transform_invariant(kinematics_lib, crx_10ia):
     joints = [-53.304, -41.707, -3.066, 94.105, -36.806, 84.878]
     status_reference, config_reference = _call_joints_config(
         kinematics_lib, crx_10ia, joints
@@ -598,9 +595,7 @@ def test_joints_to_configuration_flip_threshold(
     assert config[2] == expected_flip
 
 
-def test_joints_to_configuration_rejects_invalid_inputs(
-    kinematics_lib, crx_10ia
-):
+def test_joints_to_configuration_rejects_invalid_inputs(kinematics_lib, crx_10ia):
     sentinel = (-9.0, -8.0, -7.0)
     config = (ctypes.c_double * 3)(*sentinel)
     status = kinematics_lib.Joints2Config(None, config, ctypes.byref(crx_10ia))
@@ -652,9 +647,7 @@ def test_joints_to_configuration_rejects_invalid_inputs(
     assert output == list(sentinel)
 
 
-def test_joints_to_configuration_rejects_shoulder_singularity(
-    kinematics_lib, crx_10ia
-):
+def test_joints_to_configuration_rejects_shoulder_singularity(kinematics_lib, crx_10ia):
     sentinel = (-9.0, -8.0, -7.0)
     status, output = _call_joints_config(
         kinematics_lib,

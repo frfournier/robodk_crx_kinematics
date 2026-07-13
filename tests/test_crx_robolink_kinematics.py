@@ -159,9 +159,7 @@ def _sample_crx_coupled_joints_in_limits(
     j2_deg = sampled[1]
     j3_api_lo = max(float(lower_limits[2]), float(lower_limits[2]) + j2_deg)
     j3_api_hi = min(float(upper_limits[2]), float(upper_limits[2]) + j2_deg)
-    margin = min(
-        _ROBOLINK_FUZZ_LIMIT_MARGIN_DEG, 0.45 * (j3_api_hi - j3_api_lo)
-    )
+    margin = min(_ROBOLINK_FUZZ_LIMIT_MARGIN_DEG, 0.45 * (j3_api_hi - j3_api_lo))
     sampled[2] = float(rng.uniform(j3_api_lo + margin, j3_api_hi - margin))
     return sampled
 

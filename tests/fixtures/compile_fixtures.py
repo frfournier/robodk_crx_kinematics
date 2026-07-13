@@ -55,7 +55,7 @@ def test_cases_to_json(csv_path: str | Path, json_path: str | Path) -> None:
 
         test_cases.append(
             {
-                "id": int(tc),
+                "id": int(str(tc)),
                 "name": str(first["TEST NAME"]),
                 "target": target,
                 "solutions": solutions,
