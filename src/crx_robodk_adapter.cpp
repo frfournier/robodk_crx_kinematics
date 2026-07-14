@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 
+#include <Eigen/Core>
 #include <Eigen/Geometry>
 
 #include "crx_kinematics.h"
@@ -14,20 +15,20 @@
 
 namespace {
 
-static constexpr int kRobotTableStride = 20;
-static constexpr int kRobotDofRow = 1;
-static constexpr int kRobotDofCol = 1;
-static constexpr int kRobotJointSensesRow = 3;
-static constexpr int kRobotJointSensesCol = 4;
-static constexpr int kRobotBaseXyzwprRow = 9;
-static constexpr int kRobotDhBaseRow = 10;
-static constexpr int kRobotToolXyzwprRow = 28;
-static constexpr int kRobotJointLowerLimitRow = 30;
-static constexpr int kRobotJointUpperLimitRow = 31;
-static constexpr int kRobotNameRow = 90;
-static constexpr int kRobotNameSize = 59;
+constexpr int kRobotTableStride = 20;
+constexpr int kRobotDofRow = 1;
+constexpr int kRobotDofCol = 1;
+constexpr int kRobotJointSensesRow = 3;
+constexpr int kRobotJointSensesCol = 4;
+constexpr int kRobotBaseXyzwprRow = 9;
+constexpr int kRobotDhBaseRow = 10;
+constexpr int kRobotToolXyzwprRow = 28;
+constexpr int kRobotJointLowerLimitRow = 30;
+constexpr int kRobotJointUpperLimitRow = 31;
+constexpr int kRobotNameRow = 90;
+constexpr int kRobotNameSize = 59;
 
-static auto XYZWPRToCoreIsometry(const real_T xyzwpr[6]) -> crx::PoseIsoRT {
+auto XYZWPRToCoreIsometry(const real_T xyzwpr[6]) -> crx::PoseIsoRT {
   using AngleAxis = Eigen::AngleAxis<crx::Scalar>;
   crx::PoseIsoRT transform = crx::PoseIsoRT::Identity();
   transform.linear() = (AngleAxis(xyzwpr[5], crx::Vec3::UnitZ()) *
@@ -38,39 +39,38 @@ static auto XYZWPRToCoreIsometry(const real_T xyzwpr[6]) -> crx::PoseIsoRT {
   return transform;
 }
 
-static inline auto iRobot_At(const robot_T *r, int row, int col = 0)
+inline auto iRobot_At(const robot_T *r, int row, int col = 0)
     -> const real_T * {
-  const auto offset = static_cast<std::ptrdiff_t>(row) * kRobotTableStride +
+  const auto offset = (static_cast<std::ptrdiff_t>(row) * kRobotTableStride) +
                       static_cast<std::ptrdiff_t>(col);
   return reinterpret_cast<const real_T *>(r) + offset;
 }
 
-static inline auto iRobot_Dof(const robot_T *r) -> const real_T * {
+inline auto iRobot_Dof(const robot_T *r) -> const real_T * {
   return iRobot_At(r, kRobotDofRow, kRobotDofCol);
 }
 
-static inline auto iRobot_JointSenses(const robot_T *r) -> const real_T * {
+inline auto iRobot_JointSenses(const robot_T *r) -> const real_T * {
   return iRobot_At(r, kRobotJointSensesRow, kRobotJointSensesCol);
 }
 
-static inline auto iRobot_BaseXYZWPR(const robot_T *r) -> const real_T * {
+inline auto iRobot_BaseXYZWPR(const robot_T *r) -> const real_T * {
   return iRobot_At(r, kRobotBaseXyzwprRow);
 }
 
-static inline auto iRobot_DhmJoint(const robot_T *r, int joint)
-    -> const real_T * {
+inline auto iRobot_DhmJoint(const robot_T *r, int joint) -> const real_T * {
   return iRobot_At(r, kRobotDhBaseRow + joint);
 }
 
-static inline auto iRobot_ToolXYZWPR(const robot_T *r) -> const real_T * {
+inline auto iRobot_ToolXYZWPR(const robot_T *r) -> const real_T * {
   return iRobot_At(r, kRobotToolXyzwprRow);
 }
 
-static inline auto iRobot_JointLimLower(const robot_T *r) -> const real_T * {
+inline auto iRobot_JointLimLower(const robot_T *r) -> const real_T * {
   return iRobot_At(r, kRobotJointLowerLimitRow);
 }
 
-static inline auto iRobot_JointLimUpper(const robot_T *r) -> const real_T * {
+inline auto iRobot_JointLimUpper(const robot_T *r) -> const real_T * {
   return iRobot_At(r, kRobotJointUpperLimitRow);
 }
 
@@ -82,8 +82,9 @@ static inline auto iRobot_JointLimUpper(const robot_T *r) -> const real_T * {
 } // namespace
 
 auto iRobot_Name(const robot_T *r) -> std::string {
-  if (r == nullptr)
+  if (r == nullptr) {
     return {};
+  }
 
   const real_T *name_buffer = iRobot_At(r, kRobotNameRow);
   const real_T *name_end =
@@ -106,13 +107,14 @@ auto iRobot_Name(const robot_T *r) -> std::string {
 
 namespace {
 
-static auto LogRobotAdapterWarning(const robot_T *robot,
-                                   const std::string &message) -> void {
+auto LogRobotAdapterWarning(const robot_T *robot, const std::string &message)
+    -> void {
   std::clog << "crx_robodk_adapter";
   if (robot != nullptr) {
     const std::string robot_name = iRobot_Name(robot);
-    if (!robot_name.empty())
+    if (!robot_name.empty()) {
       std::clog << " [" << robot_name << "]";
+    }
   }
   std::clog << ": " << message << '\n';
 }
@@ -122,8 +124,9 @@ static auto LogRobotAdapterWarning(const robot_T *robot,
 namespace crx {
 
 auto RoboDkDofCount(const robot_T *robot) -> int {
-  if (robot == nullptr)
+  if (robot == nullptr) {
     return 0;
+  }
   return static_cast<int>(*iRobot_Dof(robot));
 }
 
@@ -153,7 +156,7 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
     const auto storage_index = static_cast<std::size_t>(joint_id);
     const auto eigen_index = static_cast<Eigen::Index>(joint_id);
-    const double joint_sense = static_cast<double>(joint_senses[joint_id]);
+    const auto joint_sense = static_cast<double>(joint_senses[joint_id]);
     if (!std::isfinite(joint_sense) || std::abs(joint_sense) != 1.0) {
       LogRobotAdapterWarning(robot, "invalid joint sense at index " +
                                         std::to_string(joint_id));
@@ -196,8 +199,9 @@ auto CorePoseToRoboDk(const PoseIsoRT &pose, real_T *pose_out) -> bool {
 
 auto RoboDkJointsDegCoupledToUserRad(const real_T *joints_deg,
                                      Vec6 &joints_user_rad) -> bool {
-  if (joints_deg == nullptr)
+  if (joints_deg == nullptr) {
     return false;
+  }
 
   // RoboDK API boundary convention for CRX uses coupled J3 (J2 + J3_decoupled).
   // The canonical internal CRX joint vector uses decoupled J3 in radians.
@@ -209,8 +213,9 @@ auto RoboDkJointsDegCoupledToUserRad(const real_T *joints_deg,
 
 auto UserJointsRadToRoboDkCoupledDeg(const Vec6 &joints_user_rad,
                                      real_T *joints_deg) -> bool {
-  if (joints_deg == nullptr)
+  if (joints_deg == nullptr) {
     return false;
+  }
 
   // Convert back to RoboDK CRX API convention before returning solutions.
   Vec6 joints_api_rad = joints_user_rad;

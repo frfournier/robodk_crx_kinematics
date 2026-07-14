@@ -12,6 +12,7 @@ Checks: >
   portability-*,
   readability-*,
   modernize-*,
+  -bugprone-easily-swappable-parameters,
   -modernize-use-auto,
   -modernize-use-trailing-return-type,
   -readability-identifier-length
@@ -56,13 +57,6 @@ CheckOptions:
   bugprone-narrowing-conversions.WarnOnIntegerToFloatingPointNarrowingConversion: 'true'
   bugprone-narrowing-conversions.WarnOnFloatingPointNarrowingConversion: 'true'
   bugprone-narrowing-conversions.WarnOnEquivalentBitWidth: 'true'
-
-  # Treat potentially interchangeable parameters as an API defect.
-  bugprone-easily-swappable-parameters.MinimumLength: '2'
-  bugprone-easily-swappable-parameters.QualifiersMix: 'true'
-  bugprone-easily-swappable-parameters.ModelImplicitConversions: 'true'
-  bugprone-easily-swappable-parameters.SuppressParametersUsedTogether: 'false'
-  bugprone-easily-swappable-parameters.NamePrefixSuffixSilenceDissimilarityThreshold: '0'
 
   # Ignoring a result requires a deliberate wrapper or suppression.
   bugprone-unused-return-value.AllowCastToVoid: 'false'

@@ -2,6 +2,8 @@ BasedOnStyle: LLVM
 Standard: c++17
 IndentWidth: 2
 ColumnLimit: 80
+MaxEmptyLinesToKeep: 1
+SeparateDefinitionBlocks: Always
 DerivePointerAlignment: false
 PointerAlignment: Right
 SortIncludes: CaseSensitive
