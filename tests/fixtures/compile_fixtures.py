@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Convert CRX10iA-KIN.xlsx -> grouped JSON
+Convert CRX10iA-solutions.csv to grouped JSON.
 
 - Group by TEST CASE
 - Keep shared target pose once per test case
