@@ -8,4 +8,3 @@ services:
       args:
         CRX_KINEMATICS_VERSION: "${CRX_KINEMATICS_VERSION:-0.3.1}"
         ROBODK_ACCEPT_EULA: "${ROBODK_ACCEPT_EULA:?Set ROBODK_ACCEPT_EULA=yes after reviewing the RoboDK EULA}"
-        ROBODK_VERSION: "${ROBODK_VERSION:-6.0.6}"

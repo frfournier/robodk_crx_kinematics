@@ -4,8 +4,6 @@ set -Eeuo pipefail
 readonly license_file="${RDK_LIC_FILE:-/run/secrets/robodk-license}"
 license=""
 
-echo "Starting RoboDK version ${ROBODK_VERSION:-unknown}"
-
 mkdir -p "${XDG_CACHE_HOME}" "${XDG_RUNTIME_DIR}"
 chmod 0700 "${XDG_CACHE_HOME}" "${XDG_RUNTIME_DIR}"
 

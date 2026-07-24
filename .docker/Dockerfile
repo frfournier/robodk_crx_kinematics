@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
 
 ARG UBUNTU_IMAGE=ubuntu:24.04
-ARG ROBODK_VERSION=6.0.6
 ARG CRX_KINEMATICS_VERSION=0.3.1
 
 FROM ${UBUNTU_IMAGE} AS base
@@ -27,8 +26,6 @@ FROM base AS build
 
 ARG TARGETARCH
 ARG ROBODK_ACCEPT_EULA
-ARG ROBODK_DOWNLOAD_SHA256=0d965236db076d35f9337a93b3ee79dc75a361383f63ca230f33bd2658b55701
-ARG ROBODK_DOWNLOAD_URL=https://cdn.robodk.com/downloads/Install-RoboDK.tar.gz
 
 RUN test "${TARGETARCH}" = "amd64" \
     && test "${ROBODK_ACCEPT_EULA}" = "yes" \
@@ -37,15 +34,13 @@ RUN test "${TARGETARCH}" = "amd64" \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
-        curl \
         qt5-qmake \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/robodk-installer
+ADD https://cdn.robodk.com/downloads/Install-RoboDK.tar.gz Install-RoboDK.tar.gz
 
 RUN mkdir -p /root/Desktop \
-    && curl -fsSL --retry 3 -o Install-RoboDK.tar.gz "${ROBODK_DOWNLOAD_URL}" \
-    && echo "${ROBODK_DOWNLOAD_SHA256}  Install-RoboDK.tar.gz" | sha256sum --check --strict \
     && tar -xzf Install-RoboDK.tar.gz \
     && chmod +x Install-RoboDK \
     && ./Install-RoboDK \
@@ -73,15 +68,13 @@ RUN qmake .. "CONFIG+=release" \
 FROM base AS runtime
 
 ARG CRX_KINEMATICS_VERSION
-ARG ROBODK_VERSION
 ARG UID=10001
 ARG GID=10001
 
 LABEL org.opencontainers.image.title="RoboDK CRX kinematics" \
       org.opencontainers.image.description="Headless RoboDK API server with CRX custom kinematics" \
       org.opencontainers.image.version="${CRX_KINEMATICS_VERSION}" \
-      org.opencontainers.image.licenses="LicenseRef-RoboDK-Proprietary" \
-      com.robodk.version="${ROBODK_VERSION}"
+      org.opencontainers.image.licenses="LicenseRef-RoboDK-Proprietary"
 
 COPY --from=build /opt/robodk/ /opt/robodk/
 COPY --from=build /workspace/build/Release/ /opt/robodk/bin/robotextensions/
@@ -103,7 +96,6 @@ RUN groupadd --gid "${GID}" robodk \
 ENV HOME=/home/robodk \
     LANG=C.UTF-8 \
     LD_LIBRARY_PATH=/opt/robodk/bin/lib \
-    ROBODK_VERSION="${ROBODK_VERSION}" \
     QT_PLUGIN_PATH=/opt/robodk/bin/plugins \
     QT_QPA_PLATFORM_PLUGIN_PATH=/opt/robodk/bin/plugins \
     QT_QPA_PLATFORM=offscreen \

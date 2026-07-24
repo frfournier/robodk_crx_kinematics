@@ -6,7 +6,7 @@ not tagged, so abbreviated commit references are provided for traceability.
 ## 0.3.1
 
 - Modernized the development container from the newer RoboDK Docker interface,
-  including a pinned RoboDK installer.
+  using the latest upstream RoboDK Linux installer at build time.
 - Migrated the Python integration and test environment to the RoboDK API 6.0.1
   package while retaining RoboDK 6.0.6.26901 as the minimum supported native
   custom-kinematics host.
