@@ -1,17 +1,36 @@
+name: robodk-crx-kinematics
+
 services:
   robodk:
-    image: robodk-local:latest
-    build:
-      context: ..
-      dockerfile: .docker/Dockerfile
-      target: runtime
+    image: "${ROBODK_IMAGE:-robodk-crx-kinematics:local}"
+    platform: linux/amd64
+    pull_policy: missing
     ports:
-      - "${HOST_RDK_PORT:-20501}:20501"
-    secrets:
-      - source: robodk-license
-        target: robodk-license
+      - name: api
+        target: 20501
+        published: "${ROBODK_PORT:-20501}"
+        host_ip: "${ROBODK_BIND_ADDRESS:-127.0.0.1}"
+        protocol: tcp
+        app_protocol: robodk-api
+    volumes:
+      - type: volume
+        source: robodk-config
+        target: /home/robodk/.config
+      - type: bind
+        source: "${ROBODK_DATA_DIR:-./data}"
+        target: /data
+        bind:
+          create_host_path: true
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
+    stop_grace_period: 30s
 
-secrets:
-  robodk-license:
-    file: "${ROBODK_LICENSE_SECRET_FILE:-./secrets/robodk-license.txt}"
+volumes:
+  robodk-config:

@@ -1,32 +1,51 @@
 # syntax=docker/dockerfile:1
-FROM ubuntu:24.04 AS base
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+ARG UBUNTU_IMAGE=ubuntu:24.04
+ARG ROBODK_VERSION=6.0.6
+ARG CRX_KINEMATICS_VERSION=0.3.1
 
-FROM base AS robodk-base
+FROM ${UBUNTU_IMAGE} AS base
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    libgl1 \
-    libqt5core5a \
-    libqt5gui5 \
-    libqt5network5 \
-    libqt5opengl5 \
-    libqt5widgets5 \
-    libqt5xml5 \
-    libxcb-cursor0 \
-    libxcb-keysyms1 \
-    libxcb-xinerama0 \
-    libxkbcommon-x11-0 \
-    libxrender1 \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libgl1 \
+        libqt5core5a \
+        libqt5gui5 \
+        libqt5network5 \
+        libqt5opengl5 \
+        libqt5widgets5 \
+        libqt5xml5 \
+        libxcb-cursor0 \
+        libxcb-keysyms1 \
+        libxcb-xinerama0 \
+        libxkbcommon-x11-0 \
+        libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM base AS build
+
+ARG TARGETARCH
+ARG ROBODK_ACCEPT_EULA
+ARG ROBODK_DOWNLOAD_SHA256=0d965236db076d35f9337a93b3ee79dc75a361383f63ca230f33bd2658b55701
+ARG ROBODK_DOWNLOAD_URL=https://cdn.robodk.com/downloads/Install-RoboDK.tar.gz
+
+RUN test "${TARGETARCH}" = "amd64" \
+    && test "${ROBODK_ACCEPT_EULA}" = "yes" \
+    || (echo >&2 "RoboDK requires linux/amd64 and ROBODK_ACCEPT_EULA=yes"; exit 1)
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        qt5-qmake \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/robodk-installer
+
 RUN mkdir -p /root/Desktop \
-    && curl -fsSL https://cdn.robodk.com/downloads/Install-RoboDK.tar.gz -o Install-RoboDK.tar.gz \
+    && curl -fsSL --retry 3 -o Install-RoboDK.tar.gz "${ROBODK_DOWNLOAD_URL}" \
+    && echo "${ROBODK_DOWNLOAD_SHA256}  Install-RoboDK.tar.gz" | sha256sum --check --strict \
     && tar -xzf Install-RoboDK.tar.gz \
     && chmod +x Install-RoboDK \
     && ./Install-RoboDK \
@@ -38,51 +57,65 @@ RUN mkdir -p /root/Desktop \
         --confirm-command \
         --no-size-checking \
         install \
-    && cd / \
-    && rm -rf /tmp/robodk-installer
-
-FROM robodk-base AS builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    qtbase5-dev \
-    qtbase5-dev-tools \
-    qtchooser \
-    qt5-qmake \
-    && rm -rf /var/lib/apt/lists/*
+    && chmod -R a+rX /opt/robodk
 
 WORKDIR /workspace
-COPY crxkinematics.pro ./crxkinematics.pro
-COPY include ./include
-COPY src ./src
-COPY third_party/eigen ./third_party/eigen
+COPY crxkinematics.pro LICENSE THIRD_PARTY_NOTICES.md ./
+COPY include/ include/
+COPY src/ src/
+COPY third_party/eigen/ third_party/eigen/
 
-RUN mkdir -p build \
-    && cd build \
-    && qmake ../crxkinematics.pro "CONFIG+=release" \
+WORKDIR /workspace/build
+RUN qmake .. "CONFIG+=release" \
     && make -j"$(nproc)" \
-    && test -f /workspace/build/Release/libcrx_kinematics.so
+    && test -f Release/libcrx_kinematics.so
 
-FROM robodk-base AS runtime
+FROM base AS runtime
 
+ARG CRX_KINEMATICS_VERSION
+ARG ROBODK_VERSION
+ARG UID=10001
+ARG GID=10001
 
-COPY .docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+LABEL org.opencontainers.image.title="RoboDK CRX kinematics" \
+      org.opencontainers.image.description="Headless RoboDK API server with CRX custom kinematics" \
+      org.opencontainers.image.version="${CRX_KINEMATICS_VERSION}" \
+      org.opencontainers.image.licenses="LicenseRef-RoboDK-Proprietary" \
+      com.robodk.version="${ROBODK_VERSION}"
 
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
-    && useradd -ms /bin/bash robodk \
-    && mkdir -p /home/robodk/.config/RoboDK /opt/robodk/bin/robotextensions \
-    && chown -R robodk:robodk /home/robodk /opt/robodk
+COPY --from=build /opt/robodk/ /opt/robodk/
+COPY --from=build /workspace/build/Release/ /opt/robodk/bin/robotextensions/
+COPY --chmod=0555 .docker/docker-entrypoint.sh .docker/healthcheck.sh /usr/local/bin/
 
-ENV LD_LIBRARY_PATH=/opt/robodk/bin/lib \
+RUN groupadd --gid "${GID}" robodk \
+    && useradd \
+        --uid "${UID}" \
+        --gid "${GID}" \
+        --create-home \
+        --home-dir /home/robodk \
+        --shell /usr/sbin/nologin \
+        --no-log-init \
+        robodk \
+    && install -d -o robodk -g robodk \
+        /data \
+        /home/robodk/.config/RoboDK
+
+ENV HOME=/home/robodk \
+    LANG=C.UTF-8 \
+    LD_LIBRARY_PATH=/opt/robodk/bin/lib \
+    ROBODK_VERSION="${ROBODK_VERSION}" \
     QT_PLUGIN_PATH=/opt/robodk/bin/plugins \
     QT_QPA_PLATFORM_PLUGIN_PATH=/opt/robodk/bin/plugins \
-    QT_QPA_PLATFORM=offscreen
+    QT_QPA_PLATFORM=offscreen \
+    XDG_CACHE_HOME=/tmp/robodk-cache \
+    XDG_RUNTIME_DIR=/tmp/robodk-runtime
 
 EXPOSE 20501
-USER robodk
-WORKDIR /home/robodk
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD ["/bin/bash", "-lc", "exec 3<>/dev/tcp/127.0.0.1/20501"]
+USER robodk
+WORKDIR /data
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
+    CMD ["/usr/local/bin/healthcheck.sh"]
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

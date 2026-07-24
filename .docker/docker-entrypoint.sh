@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-RDK_LIC_FILE="${RDK_LIC_FILE:-/run/secrets/robodk-license}"
-RDK_LIC=""
+readonly license_file="${RDK_LIC_FILE:-/run/secrets/robodk-license}"
+license=""
 
-if [[ -f "${RDK_LIC_FILE}" ]]; then
-  RDK_LIC="$(<"${RDK_LIC_FILE}")"
-  RDK_LIC="${RDK_LIC%$'\r'}"
+echo "Starting RoboDK version ${ROBODK_VERSION:-unknown}"
+
+mkdir -p "${XDG_CACHE_HOME}" "${XDG_RUNTIME_DIR}"
+chmod 0700 "${XDG_CACHE_HOME}" "${XDG_RUNTIME_DIR}"
+
+if [[ -f "${license_file}" ]]; then
+    license="$(<"${license_file}")"
+    license="${license//$'\r'/}"
+    license="${license//$'\n'/}"
 fi
 
-cmd_args=(--platform minimal -SKIPINI -NOUI "-PORT=20501")
+args=(
+    --platform minimal
+    -SKIPINI
+    -SKIPMAINT
+    -NOUI
+    -PORT=20501
+)
 
-if [[ -n "${RDK_LIC}" ]]; then
-  cmd_args+=("-LCMD=${RDK_LIC}")
+if [[ -n "${license}" ]]; then
+    args+=("-LCMD=${license}")
 fi
 
-exec /opt/robodk/bin/RoboDK "${cmd_args[@]}" "$@"
+exec /opt/robodk/bin/RoboDK "${args[@]}" "$@"

@@ -34,7 +34,7 @@
 **/secrets.dev.yaml
 **/values.dev.yaml
 .docker/secrets
+.docker/data
 assets
 tests
-LICENSE
 README.md

@@ -1,0 +1,12 @@
+services:
+  robodk:
+    secrets:
+      - source: robodk-license
+        target: robodk-license
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+
+secrets:
+  robodk-license:
+    file: "${ROBODK_LICENSE_FILE:-./secrets/robodk-license.txt}"
