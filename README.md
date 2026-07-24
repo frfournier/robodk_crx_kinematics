@@ -1,474 +1,183 @@
-# Fanuc CRX — Custom Inverse Kinematics for RoboDK
+# FANUC CRX custom kinematics for RoboDK
 
 **Current release:** `0.3.0` ([release history](CHANGELOG.md))
 
-## Overview
+This project adds deterministic forward and inverse kinematics for FANUC CRX
+robots in RoboDK. It is intended for RoboDK users who need reliable posture
+enumeration for the CRX non-spherical wrist.
 
-This repository provides a deterministic inverse-kinematics (IK) solver for the FANUC CRX collaborative robot family (6R serial arm with a **non-spherical wrist**). The solver is compiled as a RoboDK custom kinematics library using RoboDK's current `robotextensions/samplekinematics` contract and `robot_T` parameter layout.
+## Requirements
 
-## RoboDK Compatibility and ABI
+- RoboDK **6.0.6.26901**
+- A matching 64-bit library for your operating system:
+  - Windows: `crx_kinematics.dll`
+  - Linux: `libcrx_kinematics.so`
 
-> **RoboDK 6.0.6 is required.** This library targets the current RoboDK
-> 6.0.6.26901 custom-kinematics ABI exclusively. RoboDK 6.0.5 and earlier are
-> unsupported. Future RoboDK releases must be revalidated against their latest
-> ABI before being considered supported.
+RoboDK 6.0.5 and earlier use a different custom-kinematics interface and are
+not supported. Windows x64 is the primary validated platform.
 
-The DLL intentionally exports only the four callbacks used by RoboDK 6.0.6:
+## Install in RoboDK
 
-| Export | Purpose |
-|--------|---------|
-| `SolveFK` | Forward kinematics with joint-limit validation |
-| `SolveFK_CAD` | Forward kinematics and intermediate CAD joint poses |
-| `SolveIK` | Ranked inverse-kinematics solutions |
-| `Joints2Config` | RoboDK `[REAR, LOWERARM, FLIP]` flags for supplied joints |
+1. Close every RoboDK instance.
+2. Build the library for your platform using the instructions below.
+3. Copy the library into RoboDK's `bin/robotextensions` directory:
+   - Windows: `<RoboDK>\bin\robotextensions\crx_kinematics.dll`
+   - Linux: `<RoboDK>/bin/robotextensions/libcrx_kinematics.so`
+4. Restart RoboDK. Robot-extension libraries are loaded at startup.
+5. Open the custom robot model for your CRX from [`assets`](assets):
+   - `Fanuc-CRX-5iA-Custom.robot`
+   - `Fanuc-CRX-10iA-Custom.robot`
+   - `Fanuc-CRX-10iA-L-Custom.robot`
+   - `Fanuc-CRX-30iA-Custom.robot`
 
-`Joints2Config` returns `1` after writing three `0`/`1` values, or `-1` when
-RoboDK should calculate its default values because the input is invalid,
-unsupported, or geometrically ambiguous. The former project-specific
-`SolveIK_Config` interface has been removed intentionally; no compatibility
-alias or fallback ABI is provided.
+The included `assets/crx10ia-test-station.rdk` station can be used for a quick
+CRX-10iA check.
 
-## Algorithmic Basis
+> Custom kinematics affect robot motion and program generation. Validate
+> generated programs in RoboDK and on the real controller using your normal
+> safety process.
 
-The IK method follows the fully geometric approach described by:
+## Compile on Windows
 
-> **M. Abbes, G. Poisson**, "Geometric Approach for Inverse Kinematics of the FANUC CRX Collaborative Robot", **Robotics 13(6):91, 2024**.  
-> DOI: https://doi.org/10.3390/robotics13060091
+### Prerequisites
 
-**Key insight:** The solver reduces the 6-DoF IK to a 1-D root-finding problem over a scalar function derived from geometric constraints of the CRX architecture. It enumerates all valid postures (typically 8/12/16 solutions when they exist) and remains robust near singularities by validating candidate solutions against forward-kinematics (FK) consistency checks.
+- Git with Git LFS
+- Visual Studio 2022 with:
+  - Desktop development with C++
+  - C++ Clang tools for Windows
+  - CMake and Ninja
 
-## Reference Implementation & Provenance
+Clone the repository and initialize Eigen:
 
-This RoboDK-oriented implementation is inspired by the open-source CRX FK/IK package by Daniel Cranston (MIT):
-
-- **Original CRX Kinematics Package**: https://github.com/danielcranston/crx_kinematics
-
-**RoboDK Integration Target**:
-
-- **RoboDK Custom Kinematics Sample**: https://github.com/RoboDK/Plug-In-Interface/tree/master/robotextensions/samplekinematics
-
-## Conventions & Units (RoboDK Integration Notes)
-
-- **Pose representation**: 4×4 homogeneous transform matrices (row-major in the RoboDK C API); position in millimeters
-- **Joint angles**: Revolute joints; angles interpreted/returned per RoboDK's expected custom kinematics units (typically degrees at the interface boundary; internal computation uses radians — conversions are explicit)
-- **Base and Tool adaptation**:
-  - RoboDK provides a *robot base adaptor* and a *tool flange adaptor* through `robot_T`
-  - These must be applied consistently:
-    ```
-    world_T_tcp = world_T_base × base_T_robot × FK(DH, q) × robot_T_flange × flange_T_tcp
-    ```
-  - IK inverts this relationship accordingly
-- **DH parameters**: Read from `robot_T` (configured in the `.robot` model)
-  - Must match the convention assumed by the solver
-  - Pay attention to RoboDK-specific coupling/remapping (e.g., CRX J2/J3 coupling)
-  - Account for any "analytic IK convention" conversions used in the derivation
-
-## Numerical Behavior & Validation
-
-- **Solution enumeration**: The solver scans/solves the 1-D constraint and back-substitutes remaining joints
-- **Candidate validation**: Each candidate is validated by FK reconstruction:
-  - `pose_error(position, orientation) ≤ tolerance`
-  - Rejects spurious roots and handles near-singular cases safely
-- **Deduplication**: Solutions can be deduplicated by an angular threshold to remove numerical duplicates created by root-finding tolerances
-
-## Safety & Legal
-
-- This implementation is provided **"AS IS"**, without warranty of any kind
-- FANUC® and RoboDK® are trademarks of their respective owners
-- This project is **not affiliated with or endorsed** by FANUC or RoboDK
-
----
-
-## Development
-
-# Development Guide: robodk_crx_kinematics
-
-This document provides step-by-step instructions for installing, building, and testing the CRX kinematics solver.
-
-## Prerequisites
-
-- **Windows** (x64)
-- **Git** with Git LFS support
-- **RoboDK 6.0.6** (6.0.5 and earlier are unsupported)
-- **Visual Studio** (Community, Professional, or Enterprise) with C++ build
-  tools, C++ Clang tools for Windows, and CMake/Ninja components
-- **Python 3.13+**
-- One of the following build systems:
-  - **QMake** (Qt 5.x or later)
-  - **CMake** (3.20 or later)
-
-## Installation
-
-The installation process sets up Git LFS for tracking RoboDK assets and pulls the Eigen 5.0.1 library as a git submodule.
-
-### Step 1: Run the Install Script
-
-From the repository root, execute:
-
-```bash
-scripts\install.bat
+```powershell
+git clone --recurse-submodules https://github.com/frfournier/robodk_crx_kinematics.git
+cd robodk_crx_kinematics
+git lfs pull
 ```
 
-This script performs the following actions:
+Build the Release DLL:
 
-1. **Initializes Git LFS**: Sets up Git Large File Storage tracking for `*.rdk`, `*.sld`, and `*.robot` files
-2. **Commits LFS configuration**: Records the `.gitattributes` file
-3. **Adds Eigen submodule**: Clones Eigen 5.0.1 from the official GitLab repository into `third_party/eigen`
-4. **Pins the Eigen version**: Checks out and records Eigen 5.0.1 commit
-5. **Commits submodule pin**: Records the submodule configuration in git
-
-**What gets created:**
-- `.gitattributes` – LFS configuration
-- `.gitmodules` – Submodule manifest
-- `third_party/eigen/` – Eigen library source (linked as submodule)
-
-### Step 2: Verify Installation
-
-Confirm the following directories and files exist:
-
-```
-third_party/eigen/
-  ├── Eigen/
-  ├── CMakeLists.txt
-  ├── README.md
-  └── signature_of_eigen3_matrix_library
-
-.gitattributes
-.gitmodules
-```
-
-## Building
-
-Choose one of the two build approaches below. Both require Visual Studio to be installed.
-
-### Option A: CMake Build (Recommended)
-
-CMake is the modern build system and integrates seamlessly with Visual Studio.
-
-#### Step 1: Run the CMake Build Script
-
-From the repository root:
-
-```bash
+```powershell
 scripts\build_crx_kinematics_msvc.bat
 ```
 
-#### What This Does
+Output:
 
-1. **Auto-detects Visual Studio** using `vswhere.exe`
-2. **Initializes MSVC environment** via `vcvars64.bat`
-3. **Discovers CMake** from PATH or common installation locations
-4. **Discovers Visual Studio's bundled LLVM tools** (`clang-cl`, `clang-tidy`, and `clang-format`)
-5. **Configures Ninja with clang-cl**, compiler warnings, and `compile_commands.json`
-6. **Builds in Release mode with clang-tidy enabled**
-7. **Verifies output**: Checks that `build\Release\crx_kinematics.dll` was created
+```text
+build\Release\crx_kinematics.dll
+```
 
-#### Output
+The script finds Visual Studio, initializes its x64 environment, and builds
+with `clang-cl`, CMake, and Ninja.
 
-- **DLL**: `build\Release\crx_kinematics.dll`
-- **Build artifacts**: `build\Release\` and `build\Debug\`
-- **Compilation database**: `build\cmake-msvc\compile_commands.json`
-
-#### Visual Studio Code and CMake Tools
-
-Open the repository root in VS Code and install the workspace's recommended
-extensions. CMake Tools uses the checked-in `CMakePresets.json`; kits and CMake
-variants are intentionally not used.
-
-Select a configure preset from the CMake Project Status view or run
-`CMake: Select Configure Preset`. The available x64 clang-cl configurations are
-Debug, RelWithDebInfo, Release, MinSizeRel, and Release with clang-tidy. Matching
-build and test presets are selected automatically by CMake Tools.
-
-The workspace also provides commands under `Terminal > Run Task`:
-
-- `CMake: Build (active preset)` (`Ctrl+Shift+B`)
-- `CMake: Test (active preset)`
-- `CMake: Verify Release` (format-check, clang-tidy build, and CTest)
-- `CMake: Format Check` / `CMake: Format Sources`
-- `CMake: Clang-Tidy` / `CMake: Clang-Tidy Fix`
-- `CMake: Check` (build followed by the full pytest suite through CTest)
-
-CTest results appear in VS Code's Test Explorer. The launch configurations can
-debug the native DLL through the Python pytest host or debug the Python test
-code itself. If Visual Studio's bundled Ninja or clang-cl is not detected on
-first use, run `CMake: Scan for Compilers` once and select a preset again.
-
-#### C++ Linting and Formatting
-
-The CMake build exposes Ruff-like quality targets backed by Visual Studio's
-bundled LLVM tools:
+If the repository was cloned without submodules, run this first:
 
 ```powershell
-# Check or apply deterministic formatting
-cmake --build build\cmake-msvc --target format-check
-cmake --build build\cmake-msvc --target format
-
-# Run clang-tidy explicitly, or apply its automatic fixes
-cmake --build build\cmake-msvc --target tidy
-cmake --build build\cmake-msvc --target tidy-fix
+git submodule update --init --recursive
 ```
 
-The normal CMake build also runs `clang-tidy` while compiling. CMake discovers
-the Visual Studio LLVM installation through `vswhere`; a standalone LLVM install
-on `PATH` remains a fallback when configuring manually.
+## Compile on Linux
 
-#### Deploying to RoboDK
+### Prerequisites
 
-Close all RoboDK instances, copy `build\Release\crx_kinematics.dll` to
-`<RoboDK>\bin\robotextensions`, and restart RoboDK. RoboDK loads robot-extension
-DLLs at process startup, so replacing the file while RoboDK is running does not
-activate the new ABI implementation.
+- A 64-bit Linux system
+- Git with Git LFS
+- A C++17 compiler, qmake, and make
 
-### Option B: QMake Build
-
-QMake uses Qt's build system with nmake.
-
-#### Step 1: Run the QMake Build Script
-
-From the repository root:
+On Ubuntu or Debian:
 
 ```bash
-scripts\build_crx_kinematics_qmake.bat
+sudo apt update
+sudo apt install --yes build-essential git git-lfs qt5-qmake qtbase5-dev
 ```
 
-#### What This Does
-
-1. **Auto-detects Visual Studio** using `vswhere.exe`
-2. **Initializes MSVC environment** via `vcvars64.bat`
-3. **Discovers qmake** from:
-   - Existing QMAKE_EXE environment variable
-   - PATH
-   - Conda installation: `%USERPROFILE%\AppData\Local\miniconda3\Library\bin\qmake.exe`
-   - Qt standard installation directories
-4. **Runs qmake** with Release configuration
-5. **Compiles using nmake**
-6. **Verifies output**: Checks that `build\Release\crx_kinematics.dll` was created
-
-#### Output
-
-- **DLL**: `build\Release\crx_kinematics.dll`
-- **Build artifacts**: Created by qmake in `build\`
-
-#### QMake Discovery
-
-If qmake is not found automatically, set the environment variable before running the script:
+Clone and build:
 
 ```bash
-set QMAKE_EXE=C:\Path\To\Qt\bin\qmake.exe
-scripts\build_crx_kinematics_qmake.bat
+git clone --recurse-submodules https://github.com/frfournier/robodk_crx_kinematics.git
+cd robodk_crx_kinematics
+git lfs pull
+mkdir -p build/linux-release
+cd build/linux-release
+qmake ../../crxkinematics.pro "CONFIG+=release"
+make -j"$(nproc)"
 ```
 
-### Troubleshooting Builds
+Output:
 
-| Issue | Solution |
-|-------|----------|
-| `vswhere.exe not found` | Install Visual Studio Community/Professional with C++ workload |
-| `CMake not found` | Install CMake or add it to PATH |
-| `qmake.exe not found` | Install Qt or set `QMAKE_EXE` environment variable |
-| `vcvars64.bat not found` | Install Visual Studio C++ build tools |
-| DLL not found after build | Verify `.pro` file (for QMake) or `CMakeLists.txt` generates correct output name |
-
-## Testing
-
-Testing uses **Astral uv** as the Python environment and package manager, with **pytest** as the test runner.
-
-### Prerequisites for Testing
-
-1. **Python 3.13+** installed on your system
-2. **Astral uv** installed globally
-
-Install uv if not already installed:
-
-```bash
-pip install uv
+```text
+build/Release/libcrx_kinematics.so
 ```
 
-Or using Astral's installer: https://docs.astral.sh/uv/getting-started/installation/
+The Linux container uses the same qmake build path. Windows x64 currently
+receives the project's full regression coverage.
 
-### Test Data: Excel to JSON Compilation
+## Developer verification
 
-The test suite uses **parametrized test cases** based on ground truth data compiled from two authoritative sources:
+Tests use [uv](https://docs.astral.sh/uv/) and Python 3.12 or newer.
+See the [test documentation](tests/README.md) for suite organization, fixture
+provenance, and fixture regeneration instructions.
 
-1. **RoboGuide** — FANUC's official robot simulation software
-2. **Abbes & Poisson (2024)** — The academic paper describing the geometric IK approach
+### Windows release gate
 
-#### Data Flow
+Run these commands from an x64 Visual Studio Developer PowerShell:
 
-```
-CRX10iA-solutions.xlsx (RoboGuide + Paper ground truth)
-            ↓
-       compile_fixtures.py (conversion script)
-            ↓
-    CRX10iA-solutions.json (pytest parametrization source)
-            ↓
-    pytest loads JSON → generates test cases
-            ↓
-    Tests validate IK/FK against ground truth
+```powershell
+git submodule update --init --recursive
+uv sync
+cmake --workflow --preset windows-clang-release-verify
 ```
 
-#### Excel Structure
+### Linux tests
 
-The `tests/fixtures/CRX10iA-solutions.xlsx` file contains:
-
-| Column | Description |
-|--------|-------------|
-| `TEST CASE` | Test case ID (grouped by target pose) |
-| `TEST NAME` | Human-readable test description |
-| `X, Y, Z` | Target TCP position (mm) |
-| `W, P, R` | Target TCP orientation — Roll, Pitch, Yaw (degrees) |
-| `J1–J6` | Joint angles (degrees) for each solution |
-| `SOLUTION ID` | Sequential ID within each test case |
-| `FB, UD, TB` | Robot configuration (Front/Back, Up/Down, Tool/Base elbow) |
-
-The fixture configuration columns map directly to RoboDK's current callback:
-`[TB, UD, FB]` corresponds to `[REAR, LOWERARM, FLIP]`, with `T/U/N` represented
-as `0` and `B/D/F` represented as `1`.
-
-#### JSON Structure
-
-The compiled `tests/fixtures/CRX10iA-solutions.json` groups solutions by test case:
-
-```json
-{
-  "meta": {
-    "robot_model": "CRX10iA",
-    "units": {
-      "position": "mm",
-      "orientation": "deg",
-      "joints": "deg"
-    }
-  },
-  "test_cases": [
-    {
-      "id": 1,
-      "name": "Home position",
-      "target": {
-        "xyz_mm": [x, y, z],
-        "wpr_deg": [w, p, r]
-      },
-      "solutions": [
-        {
-          "id": 1,
-          "joints_deg": [j1, j2, j3, j4, j5, j6],
-          "config": {"FB": "F", "UD": "U", "TB": "T"}
-        },
-        ...
-      ]
-    },
-    ...
-  ]
-}
-```
-
-#### Compilation & Test Parametrization
-
-To compile the Excel file to JSON:
-
-```bash
-python tests/fixtures/compile_fixtures.py
-```
-
-The pytest suite then:
-1. **Loads** `CRX10iA-solutions.json`
-2. **Parametrizes** test functions with each test case
-3. **Validates** IK solutions against the ground truth data
-4. **Checks** that FK evaluates to the target pose within tolerance
-
-This ensures the solver is tested against **real robot data** from both simulation and mathematical derivation.
-
-### Step 1: Install Test Dependencies
-
-From the repository root:
+After building the Linux library and installing `uv`, run from the repository
+root:
 
 ```bash
 uv sync
+CRXKIN_LIBRARY_PATH="$PWD/build/Release/libcrx_kinematics.so" \
+  uv run pytest
 ```
 
-### Step 2: Run Tests
+Do not run `scripts/install.bat` for a normal build. It is a repository
+bootstrap script that modifies Git configuration and creates commits.
 
-Execute the test suite:
+## How it works
 
-```bash
-uv run pytest
-```
+The solver implements the geometric method described by M. Abbes and
+G. Poisson in
+[“Geometric Approach for Inverse Kinematics of the FANUC CRX Collaborative Robot”](https://doi.org/10.3390/robotics13060091).
+It reduces the six-axis inverse-kinematics problem to one-dimensional root
+finding, enumerates valid postures, and verifies candidates through forward
+kinematics.
 
-Or with verbose output:
+The library implements RoboDK's current custom-kinematics callbacks:
 
-```bash
-uv run pytest -v
-```
+| Callback | Purpose |
+| --- | --- |
+| `SolveFK` | Forward kinematics with joint-limit validation |
+| `SolveFK_CAD` | Forward kinematics and intermediate CAD joint poses |
+| `SolveIK` | Ranked inverse-kinematics solutions |
+| `Joints2Config` | RoboDK `[REAR, LOWERARM, FLIP]` configuration flags |
 
-Or run a specific test file:
-
-```bash
-uv run pytest tests/test_crx_kinematics.py -v
-```
-
-### Test Configuration
-
-Test behavior is configured in `pyproject.toml` under `[tool.pytest.ini_options]`:
-
-- **Test discovery**: `tests/` directory
-- **Logging**: INFO level to console
-- **Output**: Quiet mode (`-q` flag)
-
-## Complete Workflow
-
-Here's the complete sequence to set up, build, and test:
-
-```bash
-# 1. Install dependencies and Eigen submodule
-scripts\install.bat
-
-# 2. Build the kinematics library (choose one)
-scripts\build_crx_kinematics_msvc.bat      # CMake-based build
-# OR
-scripts\build_crx_kinematics_qmake.bat     # QMake-based build
-
-# 3. Install Python test dependencies
-uv sync
-
-# 4. Run tests
-uv run pytest
-```
-
-## Additional Resources
-
-- **Eigen Library**: https://eigen.tuxfamily.org/
-- **Eigen upstream reference**: https://gitlab.com/libeigen/eigen/-/tree/5.0.1
-- **Third-party notices**: See `THIRD_PARTY_NOTICES.md`. Builds place this
-  notice, Eigen's licenses, and the exact vendored Eigen header source beside
-  the generated library.
-- **RoboDK**: https://robodk.com/
-- **Pytest Docs**: https://docs.pytest.org/
-- **Astral uv Docs**: https://docs.astral.sh/uv/
-- **Qt/QMake Docs**: https://doc.qt.io/qt-5/qmake-manual.html (if using QMake)
-- **CMake Docs**: https://cmake.org/documentation/ (if using CMake)
-
-## Project Structure
-
-```
-robodk_crx_kinematics/
-├── include/                           # C++ headers
-├── src/                               # C++ source
-├── third_party/                       # External dependencies
-│   └── eigen/                         # Eigen 5.0.1 (git submodule)
-├── tests/                             # Python tests
-│   ├── test_crx_kinematics.py
-│   ├── conftest.py
-│   └── fixtures/
-├── scripts/                           # Build and install scripts
-│   ├── install.bat # Local deploy of configuration and vendoring
-│   ├── build_crx_kinematics_msvc.bat
-│   └── build_crx_kinematics_qmake.bat
-├── build/                             # Build output (generated - not git checked)
-├── CMakeLists.txt                     # CMake configuration
-├── crxkinematics.pro                  # QMake project file
-└── pyproject.toml                     # Python project metadata
-```
+The implementation is based in part on Daniel Cranston's
+[CRX kinematics package](https://github.com/danielcranston/crx_kinematics)
+and RoboDK's
+[custom kinematics sample](https://github.com/RoboDK/Plug-In-Interface/tree/master/robotextensions/samplekinematics).
 
 ## License
 
 This project is licensed under the
 [Apache License 2.0](LICENSE).
+
+## Notes
+
+- RoboDK interface positions use millimetres and joint angles use degrees.
+- Internal calculations use radians.
+- Robot geometry, base/tool adapters, joint limits, and joint coupling are read
+  from the RoboDK robot model.
+- The project license, third-party notices, and Eigen licensing files are copied
+  beside every build; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+- FANUC and RoboDK are trademarks of their respective owners. This project is
+  not affiliated with or endorsed by FANUC or RoboDK.
+- The software is provided “AS IS”, without warranty of any kind.
