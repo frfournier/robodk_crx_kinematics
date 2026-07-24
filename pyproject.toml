@@ -1,6 +1,6 @@
 [project]
 name = "test-crx-kinematics"
-version = "0.3.0"
+version = "0.3.1"
 description = "Tester for Fanuc CRX kinematics solver for RoboDK"
 readme = "README.md"
 license = "Apache-2.0"
@@ -10,7 +10,7 @@ dependencies = [
     "numpy>=2.4.2",
     "pandas>=3.0.1",
     "pytest>=9.0.2",
-    "robodk>=5.9.4",
+    "robodk>=6.0.1",
 ]
 
 [tool.pytest.ini_options]

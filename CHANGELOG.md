@@ -3,6 +3,16 @@
 Release details are derived from the repository's commit history. Releases are
 not tagged, so abbreviated commit references are provided for traceability.
 
+## 0.3.1
+
+- Modernized the development container from the newer RoboDK Docker interface,
+  including a pinned RoboDK installer.
+- Migrated the Python integration and test environment to the RoboDK API 6.0.1
+  package while retaining RoboDK 6.0.6.26901 as the minimum supported native
+  custom-kinematics host.
+- Adopted the Apache License 2.0 and included the project license, third-party
+  notices, and Eigen licensing materials beside packaged libraries.
+
 ## 0.3.0
 
 - Added computation of the RoboDK kinematic configuration flags from a joint

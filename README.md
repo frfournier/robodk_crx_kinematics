@@ -1,6 +1,6 @@
 # FANUC CRX custom kinematics for RoboDK
 
-**Current release:** `0.3.0` ([release history](CHANGELOG.md))
+**Current release:** `0.3.1` ([release history](CHANGELOG.md))
 
 This project adds deterministic forward and inverse kinematics for FANUC CRX
 robots in RoboDK. It is intended for RoboDK users who need reliable posture
