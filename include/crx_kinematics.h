@@ -31,6 +31,11 @@
 #ifndef CRXKINEMATICS_H
 #define CRXKINEMATICS_H
 
+#define CRX_KINEMATICS_VERSION_MAJOR 0
+#define CRX_KINEMATICS_VERSION_MINOR 3
+#define CRX_KINEMATICS_VERSION_PATCH 0
+#define CRX_KINEMATICS_VERSION_STRING "0.3.0"
+
 #if defined(_WIN32)
 #define MYLIB_EXPORT __declspec(dllexport)
 #define MYLIB_IMPORT __declspec(dllimport)

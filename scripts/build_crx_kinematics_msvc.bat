@@ -103,12 +103,12 @@ echo [1/3] Configure (Ninja + Visual Studio clang-cl, x64)...
   -DCRXKIN_ENABLE_CLANG_TIDY=ON ^
   -DCRXKIN_CLANG_TIDY_EXECUTABLE="%CLANG_TIDY_EXE%" ^
   -DCRXKIN_CLANG_FORMAT_EXECUTABLE="%CLANG_FORMAT_EXE%"
-if errorlevel 1 goto :fail
+if not "%ERRORLEVEL%"=="0" goto :fail
 
 REM ---- Build
 echo [2/3] Build (Release)...
 "%CMAKE_EXE%" --build "%BUILD_DIR%" --config Release
-if errorlevel 1 goto :fail
+if not "%ERRORLEVEL%"=="0" goto :fail
 
 REM ---- Verify output
 echo [3/3] Verify output...

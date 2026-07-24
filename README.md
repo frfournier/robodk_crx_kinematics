@@ -1,5 +1,7 @@
 # Fanuc CRX — Custom Inverse Kinematics for RoboDK
 
+**Current release:** `0.3.0` ([release history](CHANGELOG.md))
+
 ## Overview
 
 This repository provides a deterministic inverse-kinematics (IK) solver for the FANUC CRX collaborative robot family (6R serial arm with a **non-spherical wrist**). The solver is compiled as a RoboDK custom kinematics library using RoboDK's current `robotextensions/samplekinematics` contract and `robot_T` parameter layout.

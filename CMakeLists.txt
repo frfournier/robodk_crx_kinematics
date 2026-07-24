@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # ------------------------------------------------------------------------------
 # Project
 # ------------------------------------------------------------------------------
-project(crx_kinematics LANGUAGES CXX)
+project(crx_kinematics VERSION 0.3.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -168,6 +168,7 @@ endforeach()
 # ------------------------------------------------------------------------------
 set(CRXKIN_CPP_SOURCES
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_robodk_adapter.cpp"
 )
@@ -185,6 +186,7 @@ add_library(crx_kinematics SHARED ${CRXKIN_CPP_SOURCES})
 
 set_target_properties(crx_kinematics PROPERTIES
   OUTPUT_NAME "crx_kinematics"
+  VERSION "${PROJECT_VERSION}"
 )
 
 target_include_directories(crx_kinematics PRIVATE
@@ -194,19 +196,23 @@ target_include_directories(crx_kinematics PRIVATE
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
 
-# Release builds favor maximum host-specific performance. clang-cl requires
-# GNU-style optimization and architecture flags to pass through its CL driver.
+# CMake supplies the platform-appropriate Release optimization flags.
 target_compile_definitions(crx_kinematics PRIVATE
   "$<$<CONFIG:Release>:NDEBUG>"
 )
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
-   (MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
-  target_compile_options(crx_kinematics PRIVATE
-    "$<$<CONFIG:Release>:/clang:-O3>"
-    "$<$<CONFIG:Release>:/clang:-march=native>"
+if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  # LLVM 22 can combine adjacent sin/cos calls into the POSIX `sincos` symbol,
+  # which is not supplied by the MSVC runtime. Keep the compatibility function
+  # itself unoptimized so the same transform cannot be applied recursively.
+  set_source_files_properties(
+    "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
+    PROPERTIES COMPILE_OPTIONS "/Od"
   )
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+endif()
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND
+   NOT (MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
   target_compile_options(crx_kinematics PRIVATE
     "$<$<CONFIG:Release>:-O3>"
     "$<$<CONFIG:Release>:-march=native>"
