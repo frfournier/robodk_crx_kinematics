@@ -152,7 +152,11 @@ set(_CRXKIN_EIGEN_LEGAL_FILES
   LICENSE
 )
 set(_CRXKIN_THIRD_PARTY_NOTICES "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md")
-set(_CRXKIN_REQUIRED_LEGAL_FILES "${_CRXKIN_THIRD_PARTY_NOTICES}")
+set(_CRXKIN_PROJECT_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(_CRXKIN_REQUIRED_LEGAL_FILES
+  "${_CRXKIN_PROJECT_LICENSE}"
+  "${_CRXKIN_THIRD_PARTY_NOTICES}"
+)
 foreach(_EIGEN_LEGAL_FILE IN LISTS _CRXKIN_EIGEN_LEGAL_FILES)
   list(APPEND _CRXKIN_REQUIRED_LEGAL_FILES
        "${_CRXKIN_EIGEN_SOURCE_DIR}/${_EIGEN_LEGAL_FILE}")
@@ -226,6 +230,9 @@ add_custom_command(TARGET crx_kinematics POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory
           "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${_CRXKIN_PROJECT_LICENSE}"
+          "$<TARGET_FILE_DIR:crx_kinematics>/LICENSE"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${_CRXKIN_THIRD_PARTY_NOTICES}"
           "$<TARGET_FILE_DIR:crx_kinematics>/THIRD_PARTY_NOTICES.md"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -241,7 +248,7 @@ add_custom_command(TARGET crx_kinematics POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           "${_CRXKIN_EIGEN_SOURCE_DIR}/Eigen"
           "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen/source/Eigen"
-  COMMENT "Copying Eigen source, licenses, and third-party notices"
+  COMMENT "Copying project and third-party licenses and notices"
   VERBATIM
 )
 
@@ -412,6 +419,9 @@ if(ROBODK_DEPLOY)
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "$<TARGET_FILE:crx_kinematics>"
               "${_RDK_DST}/$<TARGET_FILE_NAME:crx_kinematics>"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${_CRXKIN_PROJECT_LICENSE}"
+              "${_RDK_DST}/LICENSE"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "${_CRXKIN_THIRD_PARTY_NOTICES}"
               "${_RDK_DST}/THIRD_PARTY_NOTICES.md"
