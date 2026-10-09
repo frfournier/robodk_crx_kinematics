@@ -26,6 +26,31 @@ The Windows integration setup checks that the deployed DLL matches the build and
 skips on a missing or stale deployment; tests never copy files into RoboDK.
 The default suite and CTest release gate skip live tests and run native checks.
 
+## Polynomial RoboDK comparison DLL
+
+Windows test builds also produce `crx_kinematics_polynomial.dll`. It exposes the
+same C ABI and runs polynomial discovery through the existing base/tool
+conversion, command-space limits, full-turn enumeration, seed ranking and result
+packing. It never calls the legacy scanner: unresolved discovery, non-asset
+joint senses and FK mismatches return `-1`; numerical no-candidate results use
+the existing empty-search/seed policy. The production DLL and deployment target
+still use the scanner as a temporary comparison baseline before cutover.
+
+`test_crx_polynomial_adapter.py` compares both DLLs: all 64 legacy witnesses
+(including the four production defects), all 25 fixture targets, random legal
+commands for all six assets, transformed base/tool frames, restricted limits,
+seed ranking, capacity and reserved-field/buffer boundaries. Fixture targets are
+compared by postures and independently recomputed FK, not discovery ordering.
+`CRXKIN_POLYNOMIAL_LIBRARY_PATH` overrides the comparison DLL location; CTest
+sets it to the matching build and fails if it is absent. The additional
+`crx.polynomial-api` CTest target runs the existing API regression module against
+the comparison DLL. Both gates run in the Release verification workflow.
+
+This is an integration comparison, not production cutover or a new completeness
+guarantee. Calibrated geometry and remaining continuous-family cases are still
+pending. The four strict production xfails remain until production switches;
+the comparison DLL must recover those same witnesses without exceptions.
+
 ## Command turns, ranking and capacity (#17)
 
 `crx.command-lifts` tests the private `crx_command_lifts` selector against 200
@@ -35,7 +60,7 @@ the G7 coupled-metric counterexample, invalid/repeated early candidates, a late
 nearest candidate after more than 32 postures, seed preservation, clamped
 roundoff, count/integer/travel overflow and explicit work exhaustion.
 
-`test_crx_command_turns.py` runs against the production DLL through the C ABI. It covers
+`test_crx_command_turns.py` runs against both DLLs through the C ABI. It covers
 shifted and negative turns, coupled J3 limits, negative rear-J3 commands,
 perturbed multiturn seeds, a 125-command exhaustive reference, capacities below,
 equal to and above the eligible count, optional alternatives, reserved zeros,
@@ -360,7 +385,8 @@ returns an explicit unresolved status instead of truncating or overrunning it.
 `Candidates` and `NoCandidate` are numerical discovery outcomes, not proofs of
 coverage or infeasibility. Ambiguity, exhausted work and exceptional incidence
 return `NeedsRefinement` with no partial list. No fallback is implemented here.
-RoboDK mapping, command limits/turns and production integration remain pending.
+The comparison DLL supplies RoboDK mapping and existing finalization. Revised
+turn/limit semantics and production cutover remain pending.
 
 Validation uses both the allocation-guarded native harness and the test-only
 `--discover` probe, which receives only lengths/target/tolerances. Coverage:

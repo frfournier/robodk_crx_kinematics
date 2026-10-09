@@ -15,7 +15,7 @@ from crx_reference import reference_fk
 from test_crx_kinematics import _to_c_array
 
 
-@pytest.fixture(params=["kinematics_lib"])
+@pytest.fixture(params=["kinematics_lib", "polynomial_kinematics_lib"])
 def command_lib(request):
     return request.getfixturevalue(request.param)
 

@@ -43,9 +43,7 @@ def _library_path(repo_root: Path | None = None) -> Path:
         return library_path.resolve()
 
 
-@pytest.fixture(scope="session")
-def kinematics_lib():
-    lib = _library_path()
+def _load_kinematics_library(lib):
     print(f"Loading crx_kinematics library from:\n  {lib}")
 
     if not lib.exists():
@@ -88,6 +86,21 @@ def kinematics_lib():
     lib.Joints2Config.restype = ctypes.c_int
 
     return lib
+
+
+@pytest.fixture(scope="session")
+def kinematics_lib():
+    return _load_kinematics_library(_library_path())
+
+
+@pytest.fixture(scope="session")
+def polynomial_kinematics_lib():
+    configured = os.environ.get("CRXKIN_POLYNOMIAL_LIBRARY_PATH")
+    path = (Path(configured) if configured else
+            _library_path().with_name("crx_kinematics_polynomial.dll"))
+    if configured:
+        assert path.is_file(), f"Configured comparison DLL is missing: {path}"
+    return _load_kinematics_library(path)
 
 
 kRobotBaseXyzwprRow = 9

@@ -201,6 +201,7 @@ Each solution occupies 12 doubles: six command angles in degrees, followed by
 six zeros. Turn counts and truncation diagnostics remain internal; no reserved
 ABI fields are repurposed. Results equal to the caller's capacity may be truncated.
 
+Both the production scanner and polynomial comparison DLL use this policy.
 Enumeration visits at most 1,048,576 candidate commands per call; unsupported
 integer ranges, count/travel overflow, or a larger workload return `-1` for
 RoboDK's generic solver, without publishing partial results. Limit clamping is

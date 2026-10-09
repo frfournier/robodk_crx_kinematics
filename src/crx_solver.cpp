@@ -18,6 +18,10 @@
 #include "crx_types.h"
 #include "crx_vector_helpers.h"
 
+#ifdef CRXKIN_POLYNOMIAL_COMPARISON
+#include "crx_discovery.h"
+#endif
+
 namespace crx {
 namespace {
 
@@ -1057,7 +1061,46 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   const Vec6 *approx_for_finalize =
       has_approximate_joints ? &approx_joints_rad_local : nullptr;
 
+#ifdef CRXKIN_POLYNOMIAL_COMPARISON
+  // Comparison build only: the six approved CRX assets use these senses.
+  // Keep model recognition/equivalence evidence in the Python asset oracle.
+  // The existing DH guard and base/tool conversion above remain authoritative.
+  constexpr std::array<double, kDofCount> kCrxSenses{1, 1, -1, -1, -1, -1};
+  if (model.joint_senses != kCrxSenses) {
+    return -1;
+  }
+  // NormalizeProductionDhForAnalyticIk negates the three wrist offsets
+  // for the legacy scanner. Canonical lengths retain the production signs.
+  const canonical::Lengths lengths{crx_params.a2, -crx_params.r4,
+                                   -crx_params.r6, crx_params.r5};
+  const canonical::PoseTolerance tolerance{kSolutionPositionToleranceMm,
+                                           kSolutionAngleToleranceRad};
+  const auto discovered =
+      canonical::DiscoverJointCandidates(lengths, target_pose_06, tolerance);
+  if (discovered.status != canonical::RecoveryStatus::Candidates &&
+      discovered.status != canonical::RecoveryStatus::NoCandidate) {
+    // Fail explicitly; the polynomial comparison must not conceal a
+    // discovery defect by invoking the legacy scanner.
+    return -1;
+  }
+  if (discovered.status == canonical::RecoveryStatus::Candidates) {
+    geometric_solutions.reserve(discovered.count);
+    for (std::size_t i = 0; i < discovered.count; ++i) {
+      // Discovery returns coupled canonical J3; the existing finalizer
+      // consumes decoupled user J3, then selects lifts in command coordinates.
+      Vec6 user = CommandToUser(discovered.candidates[i].joints);
+      // Subtracting two canonical representatives can add a full J3 turn.
+      // Match the scanner's principal geometric domain before finalizing.
+      NormalizeVecKeepSignedPi(user);
+      if (!IsFkRoundtripValid(user, target_pose, target_quaternion, model)) {
+        return -1;
+      }
+      geometric_solutions.push_back(user);
+    }
+  }
+#else
   SolveCrxIk(target_pose_06, crx_params, nullptr, geometric_solutions);
+#endif
 
   if (geometric_solutions.empty()) {
     if (has_approximate_joints) {

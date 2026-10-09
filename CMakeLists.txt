@@ -320,6 +320,18 @@ if(BUILD_TESTING)
   target_include_directories(crx_command_lift_tests PRIVATE src)
   target_link_libraries(crx_command_lift_tests PRIVATE Eigen3::Eigen)
   add_test(NAME crx.command-lifts COMMAND crx_command_lift_tests)
+  # Exercise polynomial discovery through the real RoboDK C ABI without
+  # switching or deploying the production library. Same sources/finalization;
+  # only the discovery selection differs. No additional public exports.
+  if(WIN32)
+    add_library(crx_kinematics_polynomial SHARED ${CRXKIN_CPP_SOURCES})
+    target_include_directories(crx_kinematics_polynomial PRIVATE include src)
+    target_link_libraries(crx_kinematics_polynomial PRIVATE Eigen3::Eigen)
+    target_compile_definitions(crx_kinematics_polynomial PRIVATE CRXKIN_POLYNOMIAL_COMPARISON)
+    if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+      target_compile_options(crx_kinematics_polynomial PRIVATE /W4 /permissive-)
+    endif()
+  endif()
   # Compile the internal comparison kernel directly into an assertion-enabled
   # harness. These definitions must cover every Eigen-using translation unit;
   # the Release DLL's NDEBUG build is not an allocation test.
@@ -364,6 +376,18 @@ if(BUILD_TESTING)
     set_tests_properties(crx.python-regression PROPERTIES
       ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>"
     )
+    if(WIN32)
+      set_property(TEST crx.python-regression APPEND PROPERTY ENVIRONMENT
+        "CRXKIN_POLYNOMIAL_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics_polynomial>")
+      add_test(
+        NAME crx.polynomial-api
+        COMMAND "${CRXKIN_UV_EXECUTABLE}" run --locked pytest tests/test_crx_kinematics.py
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      )
+      set_tests_properties(crx.polynomial-api PROPERTIES
+        ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics_polynomial>"
+      )
+    endif()
 
     add_custom_target(check
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
@@ -373,6 +397,9 @@ if(BUILD_TESTING)
       USES_TERMINAL
       VERBATIM
     )
+    if(WIN32)
+      add_dependencies(check crx_kinematics_polynomial)
+    endif()
   else()
     message(WARNING
       "BUILD_TESTING=ON, but uv was not found. CTest integration is disabled."
