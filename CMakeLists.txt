@@ -169,6 +169,7 @@ endforeach()
 # ------------------------------------------------------------------------------
 set(CRXKIN_CPP_SOURCES
   "${CMAKE_SOURCE_DIR}/src/crx_canonical.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_polynomial_roots.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
@@ -311,8 +312,10 @@ if(BUILD_TESTING)
   # the Release DLL's NDEBUG build is not an allocation test.
   add_executable(crx_canonical_tests
     tests/test_crx_canonical.cpp
+    tests/test_crx_polynomial_roots.cpp
     tests/crx_allocation_probe.cpp
     src/crx_canonical.cpp
+    src/crx_polynomial_roots.cpp
     src/crx_math_compat.cpp
   )
   target_include_directories(crx_canonical_tests PRIVATE include src tests)
@@ -337,7 +340,7 @@ if(BUILD_TESTING)
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
     set_tests_properties(crx.python-regression PROPERTIES
-      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>"
+      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>"
     )
 
     add_custom_target(check

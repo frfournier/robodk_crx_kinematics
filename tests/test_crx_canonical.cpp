@@ -1,5 +1,7 @@
 #include "crx_allocation_probe.h"
 #include "crx_canonical.h"
+#include "crx_polynomial_roots.h"
+#include "crx_root_tests.h"
 
 #include <algorithm>
 #include <cmath>
@@ -206,6 +208,9 @@ void TestDegeneratePolynomials() {
   Require(RepresentedDegree(polynomial.coefficients) == 0 &&
               polynomial.omitted_point_residual == 0,
           "constant polynomial still requires pi incidence");
+  Require(FindRootCandidates(polynomial.coefficients).status ==
+              RootStatus::ConstantPolynomial,
+          "no finite candidates does not remove the omitted-point root");
   // a=1/2,b=r=1,p=ex: P=(4+(3/4)Q)^2, an exact degree-four case.
   circle = Prepare({0.5, 1, 0, 1}, target);
   polynomial = PolynomialFor(circle);
@@ -333,7 +338,10 @@ private:
 };
 } // namespace
 
-auto main() -> int {
+auto main(int argc, char **argv) -> int {
+  if (argc > 1) {
+    return RunRootProbe(argc, argv);
+  }
   // Positive controls: prove both allocation replacements are actually
   // active.
   const auto before_probe = crx::test::AllocationCount();
@@ -352,10 +360,11 @@ auto main() -> int {
     TestDegeneratePolynomials();
     TestPolynomialUtilities();
     TestInvalidAndRangeFailures();
+    RunPolynomialRootTests();
   }
   Require(crx::test::AllocationCount() == before_kernel,
           "canonical component made a C++ heap allocation");
-  std::puts("Canonical residual/coefficient checks passed; zero C++ "
+  std::puts("Canonical residual/coefficient/root checks passed; zero C++ "
             "allocations; Eigen guard active.");
   return 0;
 }
