@@ -332,6 +332,23 @@ if(BUILD_TESTING)
       target_compile_options(crx_kinematics_polynomial PRIVATE /W4 /permissive-)
     endif()
   endif()
+  # Opt-in Release timing harness, without allocation probes or /UNDEBUG.
+  # Production is called through its actual DLL; polynomial sources use the
+  # same preset optimization flags. No benchmark exports enter the plugin ABI.
+  if(WIN32)
+    add_executable(crx_discovery_benchmark EXCLUDE_FROM_ALL
+      scripts/benchmark_discovery.cpp
+      src/crx_canonical.cpp
+      src/crx_discovery.cpp
+      src/crx_incidence.cpp
+      src/crx_joint_recovery.cpp
+      src/crx_polynomial_roots.cpp
+      src/crx_math_compat.cpp
+    )
+    target_include_directories(crx_discovery_benchmark PRIVATE src)
+    target_link_libraries(crx_discovery_benchmark PRIVATE Eigen3::Eigen)
+    add_dependencies(crx_discovery_benchmark crx_kinematics)
+  endif()
   # Compile the internal comparison kernel directly into an assertion-enabled
   # harness. These definitions must cover every Eigen-using translation unit;
   # the Release DLL's NDEBUG build is not an allocation test.

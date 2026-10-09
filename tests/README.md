@@ -101,6 +101,30 @@ global optimality, and the legacy approximate empty-search fallback remain
 outside this command-selection guarantee. The selector uses dynamic storage;
 the canonical allocation guards do not establish allocation-free ABI calls.
 
+## Production versus polynomial timing snapshot
+
+From the x64 Visual Studio developer environment, build and run the opt-in
+native Release benchmark:
+
+```powershell
+cmake --preset windows-clang-release-tidy
+cmake --build --preset windows-clang-release-tidy --target crx_discovery_benchmark
+uv run python scripts/benchmark_discovery.py
+```
+
+Results go to `build/performance-snapshot/report.md`, with raw timings, returned
+joints, the exact corpus, source hashes, and compiler flags alongside it. Use
+`--output` to preserve separate snapshots. Defaults cover all 25 named fixture
+targets, 128 deterministic reachable random poses and 16 singular stress poses
+per approved asset, plus the separate 64 legacy discovery witnesses.
+
+Timing uses native loops with warmup, CPU affinity, shuffled case order, and
+alternating path order. Python independently checks returned joints afterward.
+Production measures the actual DLL, including command handling; polynomial
+measures canonical discovery before command handling and fallback integration.
+Compare candidate-producing cases separately from `NeedsRefinement` exits.
+The report's hypothetical fallback costs are estimates, not integrated timings.
+
 ## Fixture provenance
 
 The parametrized CRX-10iA cases combine legacy regression observations from:
