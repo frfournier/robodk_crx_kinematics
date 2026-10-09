@@ -673,6 +673,21 @@ def test_joints_to_configuration_rejects_invalid_inputs(kinematics_lib, crx_10ia
     assert output == list(sentinel)
 
 
+def test_invalid_model_diagnostic_has_complete_name_buffer(kinematics_lib, crx_10ia, capfd):
+    from conftest import ROBOT_NAME_ROW, ROBOT_NAME_CAPACITY, ROBOT_STRIDE
+    # Cross the row boundary and fill every readable name element, exercising
+    # the no-terminator bound as well as the previously undersized allocation.
+    name = "X" * ROBOT_NAME_CAPACITY
+    flat = ctypes.cast(ctypes.byref(crx_10ia), ctypes.POINTER(ctypes.c_double))
+    for index, character in enumerate(name):
+        flat[ROBOT_NAME_ROW * ROBOT_STRIDE + index] = ord(character)
+    crx_10ia.data[1][1] = 5.0
+    status, output = _call_joints_config(kinematics_lib, crx_10ia, [0.] * 6, (-9., -8., -7.))
+    assert status == -1
+    assert output == [-9., -8., -7.]
+    assert f"[{name}]" in capfd.readouterr().err
+
+
 def test_joints_to_configuration_rejects_shoulder_singularity(kinematics_lib, crx_10ia):
     sentinel = (-9.0, -8.0, -7.0)
     status, output = _call_joints_config(

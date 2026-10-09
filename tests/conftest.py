@@ -6,8 +6,13 @@ import math
 import pytest
 
 
-ROBOT_ROWS = 32
 ROBOT_STRIDE = 20
+# Adapter warnings read the ASCII name at row 90, across up to 59 doubles.
+# A 32-row kinematics-only mock made invalid-input diagnostics read past its
+# allocation, causing intermittent access violations as test layouts changed.
+ROBOT_NAME_ROW = 90
+ROBOT_NAME_CAPACITY = 59
+ROBOT_ROWS = ROBOT_NAME_ROW + (ROBOT_NAME_CAPACITY + ROBOT_STRIDE - 1) // ROBOT_STRIDE
 DOFS = 6
 
 
