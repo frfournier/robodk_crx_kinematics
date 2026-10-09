@@ -133,6 +133,116 @@ The full `windows-clang-release-verify` workflow runs both this native gate and
 the existing Python regression suite. The qmake source list includes the kernel;
 the native CTest harness is provided by the default CMake build.
 
+## Polynomial root candidates and exact reference
+
+`src/crx_polynomial_roots.h/.cpp` add an internal candidate backend for the
+stored ascending polynomial coefficients. Degree one uses scalar division;
+degrees two through eight use fixed-size companion matrices and supported
+`Eigen::EigenSolver`, computing eigenvalues only. This avoids coupling to
+`unsupported/Eigen/Polynomials` and keeps balancing, iteration budgets, and
+failure reporting under local control. Production IK still uses the scanner.
+
+Power-of-two coefficient normalization and diagonal similarity balancing reject
+detected overflow or underflow to zero. Balancing defaults to at most 32 sweeps;
+the eigensolver receives a 256-iteration limit. Separate statuses identify
+invalid input, numerical range failure, each work limit, constant and zero
+polynomials, and unresolved leading coefficients. The default leading-term
+heuristic is `abs(leading)/max(abs(coefficients)) < 64*epsilon(double)`; it never
+trims the coefficient or claims a lower geometric degree. A zero candidate count
+must be interpreted with its status. Even a constant finite-chart polynomial
+still requires checking the chart's separately stored omitted point.
+
+Candidates retain all complex eigenvalues, including small imaginary parts and
+numerical splitting of repeated roots. Each carries the componentwise residual
+`abs(P(z))/sum(abs(c[k])*abs(z)^k)`, evaluated using the reciprocal
+polynomial for `abs(z)>1` to avoid large powers. This diagnostic has no acceptance
+threshold and does not establish reality, multiplicity, completeness, or geometric
+feasibility.
+The native harness guards first construction of every degree, scale and degree
+changes, zero/repeated and complex roots, and numerical/work-limit paths against
+C++ and Eigen allocations. These checks retain the allocation scope limits above.
+
+`polynomial_reference.py` is an offline reference using standard-library
+`Fraction`, exact square-free factorization, and Sturm sign counts. It returns
+rational isolating intervals and multiplicities, or distinct zero-polynomial and
+subdivision-limit exceptions. It certifies the supplied rational polynomial
+only: converting a float to `Fraction` does not recover uncertain geometric
+coefficients. Its subdivision budget does not bound rational arithmetic cost.
+
+`test_polynomial_roots.py` checks known rational and irrational roots, close pairs,
+repeated roots, complex-only and mixed cases, degree drops, and signed coefficient
+scales. A test-only JSON probe in `crx_canonical_tests --roots c0 ... c8` enables
+one-to-one native comparisons and missing/duplicate-candidate mutation checks.
+CTest sets `CRXKIN_ROOT_PROBE_PATH` to its build's executable; direct pytest uses
+that variable or `build/Release/crx_canonical_tests.exe`, skipping native probe
+tests if the default executable is absent. Run the narrow Python gate after build:
+
+```powershell
+uv run --locked pytest tests/test_polynomial_roots.py
+```
+
+This partially addresses roadmap #8/#9/#11. Numerical acceptance policy,
+the six-asset bridge, latency measurements and production integration remain
+open. Formal root certification is deferred under the CRX scope decision below.
+
+## Fixed-angle elbow incidence
+
+`src/crx_incidence.h/.cpp` implement a direct nominal-CRX elbow reconstruction.
+For normalized signed arm lengths `a,b`, wrist point `x`, and unit fifth axis `u`,
+the two arm spheres intersect the vertical base plane in at most two elbows.
+The implementation constructs both, then checks both arm lengths and the
+unsquared wrist constraint `(y-x).u=0`. It has no SVD, numerical rank API, or
+circle descriptor. This remains an internal candidate component; production IK
+still uses the existing scanner.
+
+Vertical/near-origin wrists, tangencies, ambiguous compatibility and failed
+geometric rechecks return `NeedsRefinement`, with no partial candidate list.
+That status is a handoff requirement, not an implemented refinement solver or
+an unreachable-target result. `NoCandidate` is restricted to a clear numerical
+rejection at this wrist point. Joint recovery and full-pose FK checks are still
+required before integrating this component into production IK.
+
+Unit-axis tolerance is `128*epsilon(double)`, small-direction tolerance is
+`256*epsilon(double)` times the largest arm/wrist length, and relative residual
+tolerance is `512*epsilon(double)`. Sphere checks scale by squared lengths;
+wrist perpendicularity scales by the largest arm/wrist length. An eightfold
+ambiguity band defers marginal branch decisions without expanding acceptance.
+These are roundoff heuristics, not physical calibration tolerances or certificates.
+
+The earlier SVD implementation and its broader singular/circle cases live in
+`tests/crx_incidence_reference.*` and `test_crx_incidence_reference.cpp`. CMake
+links them only into the test executable, never the library or qmake target.
+They provide an independent algebraic comparison, not production feature scope.
+Its provisional SVD ranks and heuristic classifications are not exact oracles.
+The scalar-zero counterexample is rejected by the reference and safely deferred
+by the direct path. The direct path recovers all 128 synthetic canonical FK
+witnesses, including sample 55 that the SVD may leave unresolved. Two-branch,
+ambiguity, tangency, invalid-input and range checks also run under the existing
+Eigen/C++ allocation guards in `crx.canonical`.
+
+## CRX scope and calibration boundary
+
+Support is limited to the six approved CRX assets. The coordinate bridge and
+their reachable/limited configurations determine production requirements;
+synthetic reference cases do not add supported robot models. General continuous
+family enumeration and formal completeness certification are deferred. A clear
+refinement/failure outcome remains necessary for unsupported configurations.
+
+Joint zero offsets, base/tool frames and changes to the canonical lengths can
+preserve the nominal geometry when incorporated correctly into the coordinate
+bridge. Calibration of axis tilts or other offsets that break the assumed
+parallelism/intersections can invalidate the polynomial as well as incidence.
+Increasing incidence tolerances does not establish support for those models.
+
+The intended calibrated path uses nominal CRX candidates as initial guesses for
+bounded numerical correction against the actual calibrated FK, followed by
+position/orientation and command-limit validation. It must retain genuine
+calibration parameters rather than snap them to nominal geometry. That path,
+its physical acceptance tolerances, and its singular-case behavior are not yet
+implemented or validated. The immediate priorities are the asset-coordinate
+bridge, joint recovery and full FK checks, rather than more general incidence
+classification.
+
 ## Fixture source
 
 The committed CSV is the editable source of truth. The JSON is the generated
