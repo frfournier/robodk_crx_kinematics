@@ -35,6 +35,47 @@ the G7 coupled-metric counterexample, invalid/repeated early candidates, a late
 nearest candidate after more than 32 postures, seed preservation, clamped
 roundoff, count/integer/travel overflow and explicit work exhaustion.
 
+`test_crx_command_turns.py` runs against the production DLL through the C ABI. It covers
+shifted and negative turns, coupled J3 limits, negative rear-J3 commands,
+perturbed multiturn seeds, a 125-command exhaustive reference, capacities below,
+equal to and above the eligible count, optional alternatives, reserved zeros,
+and untouched buffer sentinels on success and failure. The six-asset random API
+tests now sample the full captured command box, without the former restriction
+to commands also legal in decoupled coordinates. Fixture catalogue checks use
+4096 output slots and assert that capacity was not exhausted; small-capacity
+tests independently require the correct ranked prefix.
+
+The policy follows RoboDK's [sample header](https://github.com/RoboDK/Plug-In-Interface/blob/master/robotextensions/samplekinematics/samplekinematics.h):
+chosen output included among alternatives, 12-double slots, caller capacity,
+and `-1` generic-solver handoff. Its dummy IK example does not specify turn
+enumeration, ranking, or a meaning for the six reserved fields. This library
+enumerates all finite admissible turns within its explicit work budget, ranks
+by equal-weight squared command travel, and keeps reserved fields zero.
+Seedless order and exact computed-score ties use lexicographic command order;
+a preserved strict-FK-valid seed takes precedence on a score tie.
+
+Limits and distances use coupled RoboDK commands in radians, before joint
+senses; internal FK joints remain decoupled. Integer coupling and signs preserve
+the full-turn lattice. Phase deduplication uses `1e-10` radians. Endpoint clamps
+allow only `min(1e-10, 64*epsilon*max(1,abs(boundary)))` radians, followed by full
+FK validation. The former physical 0.01-degree limit band is removed.
+
+The selector records unique geometric and feasible postures, box-lift count,
+FK-valid discovered lift count, seed inclusion/matching, returned commands and
+output truncation. Each retained command carries six internal signed turn
+indices. Angle/root counts remain discovery's responsibility. Checked uint64
+arithmetic and exactly representable turn bounds protect enumeration; a budget
+of 1,048,576 box lifts prevents unbounded work. A top-K heap bounds retained
+storage, while every lift is visited before success. Range/work failures expose
+no partial results and map to `-1`, independently of output truncation.
+
+The legacy scanner's raw 32-hit stop is removed: its 960 intervals bound the
+number of raw candidates instead. Neither the geometric regular-case bound nor
+configuration flags bound the number of commands. Continuous-family coverage,
+global optimality, and the legacy approximate empty-search fallback remain
+outside this command-selection guarantee. The selector uses dynamic storage;
+the canonical allocation guards do not establish allocation-free ABI calls.
+
 ## Fixture provenance
 
 The parametrized CRX-10iA cases combine legacy regression observations from:

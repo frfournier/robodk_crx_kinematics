@@ -121,6 +121,13 @@ def test_reference_fk_and_all_cad_frames(kinematics_lib, crx_10ia, case_id, tran
         crx_10ia.data[28][:6] = [-15, 24, 33, -0.2, 0.4, -0.6]
         crx_10ia.data[3][4:10] = [-1, 1, 1, -1, 1, -1]
     joints = discovery_joints(case_id)
+    # This test compares FK implementations, so choose a legal command lift.
+    # The legacy witness generator samples decoupled J3; J2+J3 can lie below
+    # the RoboDK command limit even when both internal coordinates are legal.
+    command_j3 = joints[1] + joints[2]
+    lower, upper = crx_10ia.data[30][2], crx_10ia.data[31][2]
+    if not lower <= command_j3 <= upper:
+        joints[2] += 360.0 * np.ceil((lower - command_j3) / 360.0)
     expected, frames = reference_fk(crx_10ia, joints)
     status, actual = _call_fk(kinematics_lib, crx_10ia, joints)
     assert status == 1

@@ -47,6 +47,7 @@ struct CrxModelData {
   PoseIsoRT tool_transform = PoseIsoRT::Identity();
   std::array<DhRow, kDofCount> dh_rows{};
   std::array<double, kDofCount> joint_senses{};
+  // Limits use coupled RoboDK command coordinates, before joint senses.
   Vec6 lower_limits_rad = Vec6::Zero();
   Vec6 upper_limits_rad = Vec6::Zero();
 };

@@ -484,13 +484,16 @@ def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
 
     approx = p["expected_best_joints"]
+    # Fixture coverage concerns the complete finite catalogue. General command
+    # turns can exceed 32 entries; separate tests verify ranked small buffers.
     n, best, all_solutions = _call_ik(
         kinematics_lib,
         crx_10ia,
         p["target_pose16"],
         approx=approx,
-        max_solutions=32,
+        max_solutions=4096,
     )
+    assert n < 4096, "fixture catalogue was truncated"
 
     assert n > 0, "\n".join(
         [

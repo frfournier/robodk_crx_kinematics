@@ -27,23 +27,4 @@ void NormalizeUserSolutionDomains(Vec6 &q) {
   q[kJoint3Index] = joint3_raw;
 }
 
-auto ClampToLimits(Vec6 &q, const Vec6 &lo, const Vec6 &hi, double tol_rad)
-    -> bool {
-  const auto out_of_bounds = ((q.array() < (lo.array() - tol_rad)) ||
-                              (q.array() > (hi.array() + tol_rad)))
-                                 .any();
-  if (out_of_bounds)
-    return false;
-  q = q.cwiseMax(lo).cwiseMin(hi);
-  return true;
-}
-
-auto WrappedDist2Rad(const Vec6 &a, const Vec6 &b) -> double {
-  return (a - b).unaryExpr([](double x) { return WrapRadPi(x); }).squaredNorm();
-}
-
-auto MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) -> double {
-  return (a - b).cwiseAbs().maxCoeff();
-}
-
 } // namespace crx

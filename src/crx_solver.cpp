@@ -12,6 +12,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include "crx_command_lifts.h"
 #include "crx_math_helpers.h"
 #include "crx_pose_helpers.h"
 #include "crx_types.h"
@@ -43,15 +44,13 @@ constexpr double kApproxFallbackPositionToleranceMm = 1e-2;
 constexpr double kApproxFallbackPositionToleranceMmSquared =
     kApproxFallbackPositionToleranceMm * kApproxFallbackPositionToleranceMm;
 
-constexpr double kJointLimitToleranceDeg = 1e-2;
-constexpr double kJointLimitToleranceRad =
-    angle_conv::DegToRad(kJointLimitToleranceDeg);
-
 constexpr double kDhConventionToleranceRad = 1e-5;
 constexpr double kTriangleNegativeTolerance = 1e-9;
 constexpr double kTriangleShellRelativeTolerance = 1.0e-6;
 
-constexpr std::size_t kMaxIkSolutions = 32;
+// At most two sample hits plus two bracket hits per scanner interval.
+// Reserve storage without stopping discovery or truncating candidates.
+constexpr std::size_t kScannerReserve = 4 * (kIkQSamples + 1);
 
 auto IsModelDataValid(const CrxModelData &model) -> bool {
   if (!model.base_transform.matrix().allFinite() ||
@@ -93,6 +92,13 @@ inline void BuildJointPoseInputRad(const DhRow &dh_row, double joint_motion_rad,
 auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
                  JointPoseBuffer *joint_poses_out, bool check_limits,
                  const CrxModelData &model) -> int {
+  if (check_limits) {
+    Vec6 command = UserToCommand(user_joints_rad);
+    if (!ClampCommandToLimits(command, model.lower_limits_rad,
+                              model.upper_limits_rad)) {
+      return -2;
+    }
+  }
   PoseIsoRT accumulated_pose = model.base_transform;
   if (joint_poses_out != nullptr) {
     (*joint_poses_out)[0] = accumulated_pose;
@@ -106,16 +112,6 @@ auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
     const auto storage_index = static_cast<std::size_t>(joint_id);
     const double sensed_joint_rad =
         user_joints_rad[eigen_index] * model.joint_senses[storage_index];
-
-    if (check_limits) {
-      const double user_joint_rad = user_joints_rad[eigen_index];
-      if (user_joint_rad <
-              (model.lower_limits_rad[eigen_index] - kJointLimitToleranceRad) ||
-          user_joint_rad >
-              (model.upper_limits_rad[eigen_index] + kJointLimitToleranceRad)) {
-        return -2;
-      }
-    }
 
     double joint_model_rad = sensed_joint_rad;
     if (joint_id == kJoint3Index) {
@@ -731,70 +727,11 @@ void DualSolutionRad(const Vec6 &source_solution, Vec6 &dual_solution_out) {
   NormalizeUserSolutionDomains(dual_solution_out);
 }
 
-template <typename EmitFn>
-auto ForEachSignedPiVariant(const Vec6 &base_solution, EmitFn emit) -> bool {
-  constexpr double kPiFlipTol = 1e-8;
-
-  std::array<int, kDofCount> pi_flip_joint_ids{};
-  std::size_t pi_flip_count = 0;
-  for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
-    if (std::abs(std::abs(base_solution[joint_id]) - angle_conv::kPi) <=
-        kPiFlipTol) {
-      pi_flip_joint_ids[pi_flip_count++] = joint_id;
-    }
-  }
-
-  // +PI and -PI represent the same physical angle but can map to different
-  // controller branches/joint-limit edges. Emit both to keep branch choice
-  // stable.
-  const auto variant_count = static_cast<std::uint32_t>(1U << pi_flip_count);
-  for (std::uint32_t mask = 0; mask < variant_count; ++mask) {
-    Vec6 variant_solution = base_solution;
-    for (std::size_t bit = 0; bit < pi_flip_count; ++bit) {
-      if ((mask & (1U << bit)) == 0U) {
-        continue;
-      }
-      const int joint_id = pi_flip_joint_ids[bit];
-      variant_solution[joint_id] =
-          (base_solution[joint_id] >= 0.0) ? -angle_conv::kPi : angle_conv::kPi;
-    }
-    if (!emit(variant_solution)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-template <typename EmitFn>
-auto ForEachCandidateVariant(const Vec6 &base_solution, EmitFn emit) -> bool {
-  if (!ForEachSignedPiVariant(base_solution,
-                              [&](const Vec6 &signed_pi_variant) {
-                                return emit(signed_pi_variant);
-                              })) {
-    return false;
-  }
-
-  Vec6 dual_solution = Vec6::Zero();
-  DualSolutionRad(base_solution, dual_solution);
-  return ForEachSignedPiVariant(dual_solution, [&](const Vec6 &dual_variant) {
-    return emit(dual_variant);
-  });
-}
-
-struct Candidate {
-  Vec6 user_joints_rad = Vec6::Zero();
-  double distance_sq = 0.0;
-  bool is_preserved_seed = false;
-  std::size_t order = 0;
-};
-
-// ─────────────────────────── Closed-form CRX IK ─────────────────────────────
-
 void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
                 const Vec6 *approx_joints_rad,
                 std::vector<Vec6> &solutions_out) {
   solutions_out.clear();
-  solutions_out.reserve(kMaxIkSolutions);
+  solutions_out.reserve(kScannerReserve);
 
   const IkTolerancePack tolerances = BuildIkTolerancePack(params);
 
@@ -824,7 +761,7 @@ void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
                                          : 0.0;
 
   std::vector<Vec6> primal_solutions;
-  primal_solutions.reserve(kMaxIkSolutions);
+  primal_solutions.reserve(kScannerReserve);
 
   const auto evaluate_up_dot = [&](double q_eval) -> double {
     CircleDotEvaluation evaluation;
@@ -844,9 +781,6 @@ void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
   Vec6 candidate_joints_rad = Vec6::Zero();
   const auto try_store_solution = [&](const Vec3 &o3_candidate,
                                       const CircleEvaluation &evaluation) {
-    if (primal_solutions.size() >= kMaxIkSolutions) {
-      return;
-    }
     if (DetermineJointValues(o3_candidate, evaluation.o4_point,
                              circle_context.o5_point, target_pose_06, params,
                              tolerances, approx_joints_rad,
@@ -873,9 +807,6 @@ void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
                                            tolerances, previous_eval);
 
   const auto try_store_sample_root = [&](double sample_q, bool use_up_branch) {
-    if (primal_solutions.size() >= kMaxIkSolutions) {
-      return;
-    }
     if (EvaluateCircleFull(sample_q, circle_context, params, tolerances,
                            root_eval)) {
       try_store_solution(use_up_branch ? root_eval.o3_up_point
@@ -940,14 +871,10 @@ void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
     previous_q = current_q;
     previous_eval = current_eval;
     previous_ok = current_ok;
-
-    if (primal_solutions.size() >= kMaxIkSolutions) {
-      break;
-    }
   }
 
-  // Keep SolveCrxIk focused on geometric roots. Dual/signed-pi expansion and
-  // duplicate suppression happen after full FK/limit validation in SolveIK.
+  // Keep every bounded scanner hit. Validation, phase deduplication and
+  // command-turn enumeration precede output truncation in finalization.
   solutions_out = primal_solutions;
 }
 
@@ -958,127 +885,32 @@ auto FinalizeIkCandidates(const std::vector<Vec6> &geometric_solutions,
                           const Vec6 *approx_joints_rad, int max_solutions,
                           std::vector<Vec6> &solutions_out) -> int {
   solutions_out.clear();
-  if (max_solutions <= 0 || geometric_solutions.empty()) {
-    return 0;
+  std::vector<Vec6> command_postures;
+  command_postures.reserve(2 * geometric_solutions.size());
+  for (const Vec6 &solution : geometric_solutions) {
+    command_postures.push_back(UserToCommand(solution));
+    Vec6 dual = Vec6::Zero();
+    DualSolutionRad(solution, dual);
+    command_postures.push_back(UserToCommand(dual));
   }
-
-  const Vec6 &lower_limits_rad = model.lower_limits_rad;
-  const Vec6 &upper_limits_rad = model.upper_limits_rad;
-
-  const bool has_approximate_joints = (approx_joints_rad != nullptr);
-  Vec6 approx_joints_rad_local = Vec6::Zero();
-  if (has_approximate_joints) {
-    approx_joints_rad_local = *approx_joints_rad;
+  const Vec6 command_seed = approx_joints_rad != nullptr
+                                ? UserToCommand(*approx_joints_rad)
+                                : Vec6::Zero();
+  const auto selected = SelectCommandLifts(
+      command_postures, model.lower_limits_rad, model.upper_limits_rad,
+      approx_joints_rad != nullptr ? &command_seed : nullptr, max_solutions,
+      [&](const Vec6 &command) {
+        return IsFkRoundtripValid(CommandToUser(command), target_pose,
+                                  target_quaternion, model);
+      });
+  if (selected.status != CommandSelectionStatus::Complete) {
+    return -1;
   }
-
-  std::vector<Candidate> ranked_candidates;
-  ranked_candidates.reserve(kMaxIkSolutions);
-  std::size_t next_candidate_order = 0;
-
-  auto is_candidate_better = [](const Candidate &a, const Candidate &b) {
-    if (a.distance_sq != b.distance_sq) {
-      return a.distance_sq < b.distance_sq;
-    }
-    if (a.is_preserved_seed != b.is_preserved_seed) {
-      return a.is_preserved_seed;
-    }
-    return a.order < b.order;
-  };
-
-  auto is_direct_duplicate = [&](const Vec6 &candidate_joints_rad) {
-    return std::any_of(ranked_candidates.begin(), ranked_candidates.end(),
-                       [&](const Candidate &candidate) {
-                         return MaxAbsDiffRadDirect(
-                                    candidate_joints_rad,
-                                    candidate.user_joints_rad) <=
-                                kSolutionAngleToleranceRad;
-                       });
-  };
-
-  auto replace_worst_candidate_if_better = [&](const Candidate &incoming) {
-    auto worst_candidate_it =
-        std::max_element(ranked_candidates.begin(), ranked_candidates.end(),
-                         is_candidate_better);
-    if (worst_candidate_it != ranked_candidates.end() &&
-        is_candidate_better(incoming, *worst_candidate_it)) {
-      *worst_candidate_it = incoming;
-    }
-  };
-
-  for (Vec6 solution : geometric_solutions) {
-    NormalizeUserSolutionDomains(solution);
-
-    const bool processed_all_variants =
-        ForEachCandidateVariant(solution, [&](Vec6 variant) {
-          if (!ClampToLimits(variant, lower_limits_rad, upper_limits_rad,
-                             kJointLimitToleranceRad)) {
-            return true;
-          }
-
-          if (!IsFkRoundtripValid(variant, target_pose, target_quaternion,
-                                  model)) {
-            return true;
-          }
-
-          if (is_direct_duplicate(variant)) {
-            return true;
-          }
-
-          const double distance_sq =
-              has_approximate_joints
-                  ? WrappedDist2Rad(variant, approx_joints_rad_local)
-                  : static_cast<double>(ranked_candidates.size());
-
-          if (ranked_candidates.size() < kMaxIkSolutions) {
-            ranked_candidates.push_back(
-                Candidate{variant, distance_sq, false, next_candidate_order++});
-          } else if (has_approximate_joints) {
-            replace_worst_candidate_if_better(
-                Candidate{variant, distance_sq, false, next_candidate_order++});
-          }
-          return true;
-        });
-
-    if (!processed_all_variants) {
-      break;
-    }
+  solutions_out.reserve(selected.commands.size());
+  for (const auto &command : selected.commands) {
+    solutions_out.push_back(CommandToUser(command.command_rad));
   }
-
-  if (has_approximate_joints) {
-    Vec6 approx_candidate_rad = approx_joints_rad_local;
-    if (ClampToLimits(approx_candidate_rad, lower_limits_rad, upper_limits_rad,
-                      kJointLimitToleranceRad) &&
-        IsFkRoundtripValid(approx_candidate_rad, target_pose, target_quaternion,
-                           model) &&
-        !is_direct_duplicate(approx_candidate_rad)) {
-
-      if (ranked_candidates.size() < kMaxIkSolutions) {
-        ranked_candidates.push_back(
-            Candidate{approx_candidate_rad, 0.0, true, next_candidate_order++});
-      } else {
-        replace_worst_candidate_if_better(
-            Candidate{approx_candidate_rad, 0.0, true, next_candidate_order++});
-      }
-    }
-  }
-
-  if (ranked_candidates.empty()) {
-    return 0;
-  }
-
-  std::sort(ranked_candidates.begin(), ranked_candidates.end(),
-            is_candidate_better);
-
-  const auto solution_count = std::min<std::size_t>(
-      static_cast<std::size_t>(max_solutions), ranked_candidates.size());
-
-  solutions_out.reserve(solution_count);
-  for (std::size_t solution_idx = 0; solution_idx < solution_count;
-       ++solution_idx) {
-    solutions_out.push_back(ranked_candidates[solution_idx].user_joints_rad);
-  }
-
-  return static_cast<int>(solution_count);
+  return static_cast<int>(solutions_out.size());
 }
 
 struct ArmClassificationGeometry {
@@ -1229,9 +1061,10 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
 
   if (geometric_solutions.empty()) {
     if (has_approximate_joints) {
-      Vec6 approx_fallback_joints_rad = approx_joints_rad_local;
-      if (ClampToLimits(approx_fallback_joints_rad, model.lower_limits_rad,
-                        model.upper_limits_rad, kJointLimitToleranceRad)) {
+      Vec6 command = UserToCommand(approx_joints_rad_local);
+      if (ClampCommandToLimits(command, model.lower_limits_rad,
+                               model.upper_limits_rad)) {
+        const Vec6 approx_fallback_joints_rad = CommandToUser(command);
         if (IsFkRoundtripValid(approx_fallback_joints_rad, target_pose,
                                target_quaternion, model) ||
             IsFkRoundtripValidWithTolerances(

@@ -185,6 +185,28 @@ The implementation is based in part on Daniel Cranston's
 and RoboDK's
 [custom kinematics sample](https://github.com/RoboDK/Plug-In-Interface/tree/master/robotextensions/samplekinematics).
 
+### Joint limits and command turns
+
+Joint limits apply to the RoboDK command vector, including coupled J3, before
+joint senses. IK validates and deduplicates discovered postures, enumerates their
+admissible full-turn commands, and returns up to `max_solutions` of them. With a
+seed, ranking minimizes the sum of squared command displacements (equal weights,
+including whole turns). Without a seed, commands are ordered lexicographically.
+Equal computed travel scores use lexicographic command order; a preserved valid
+seed wins a score tie. This selects among discovered postures, not a certified
+complete IK catalogue or continuous singular family.
+
+The chosen `joints` equals the first solution in the optional `joints_all` array.
+Each solution occupies 12 doubles: six command angles in degrees, followed by
+six zeros. Turn counts and truncation diagnostics remain internal; no reserved
+ABI fields are repurposed. Results equal to the caller's capacity may be truncated.
+
+Enumeration visits at most 1,048,576 candidate commands per call; unsupported
+integer ranges, count/travel overflow, or a larger workload return `-1` for
+RoboDK's generic solver, without publishing partial results. Limit clamping is
+restricted to floating-point roundoff and IK rechecks the resulting full pose.
+The legacy empty-search approximate-seed policy remains a separate behavior.
+
 ## License
 
 This project is licensed under the

@@ -13,9 +13,4 @@ void NormalizeVecKeepSignedPi(Vec6 &q);
 
 void NormalizeUserSolutionDomains(Vec6 &q);
 
-auto ClampToLimits(Vec6 &q, const Vec6 &lo, const Vec6 &hi, double tol_rad)
-    -> bool;
-auto WrappedDist2Rad(const Vec6 &a, const Vec6 &b) -> double;
-auto MaxAbsDiffRadDirect(const Vec6 &a, const Vec6 &b) -> double;
-
 } // namespace crx
