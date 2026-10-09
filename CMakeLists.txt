@@ -306,6 +306,25 @@ endif()
 # Tests and verification utility
 # ------------------------------------------------------------------------------
 if(BUILD_TESTING)
+  # Compile the internal comparison kernel directly into an assertion-enabled
+  # harness. These definitions must cover every Eigen-using translation unit;
+  # the Release DLL's NDEBUG build is not an allocation test.
+  add_executable(crx_canonical_tests
+    tests/test_crx_canonical.cpp
+    tests/crx_allocation_probe.cpp
+    src/crx_canonical.cpp
+    src/crx_math_compat.cpp
+  )
+  target_include_directories(crx_canonical_tests PRIVATE include src tests)
+  target_link_libraries(crx_canonical_tests PRIVATE Eigen3::Eigen)
+  target_compile_definitions(crx_canonical_tests PRIVATE EIGEN_RUNTIME_NO_MALLOC)
+  if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(crx_canonical_tests PRIVATE /UNDEBUG /W4 /permissive-)
+  else()
+    target_compile_options(crx_canonical_tests PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
+  endif()
+  add_test(NAME crx.canonical COMMAND crx_canonical_tests)
+
   find_program(CRXKIN_UV_EXECUTABLE
     NAMES uv
     DOC "uv executable used to run the Python regression suite"
@@ -324,7 +343,7 @@ if(BUILD_TESTING)
     add_custom_target(check
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
               --output-on-failure
-      DEPENDS crx_kinematics
+      DEPENDS crx_kinematics crx_canonical_tests
       COMMENT "Running CMake/CTest regression checks"
       USES_TERMINAL
       VERBATIM
