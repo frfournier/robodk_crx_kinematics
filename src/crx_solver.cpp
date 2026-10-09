@@ -91,13 +91,8 @@ inline void BuildJointPoseInputRad(const DhRow &dh_row, double joint_motion_rad,
 }
 
 auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
-                 std::vector<PoseIsoRT> *joint_poses_out, bool check_limits,
+                 JointPoseBuffer *joint_poses_out, bool check_limits,
                  const CrxModelData &model) -> int {
-  if (joint_poses_out != nullptr &&
-      joint_poses_out->size() < static_cast<std::size_t>(kDofCount) + 1U) {
-    return -1;
-  }
-
   PoseIsoRT accumulated_pose = model.base_transform;
   if (joint_poses_out != nullptr) {
     (*joint_poses_out)[0] = accumulated_pose;
@@ -741,23 +736,22 @@ template <typename EmitFn>
 auto ForEachSignedPiVariant(const Vec6 &base_solution, EmitFn emit) -> bool {
   constexpr double kPiFlipTol = 1e-8;
 
-  std::vector<int> pi_flip_joint_ids;
-  pi_flip_joint_ids.reserve(kDofCount);
+  std::array<int, kDofCount> pi_flip_joint_ids{};
+  std::size_t pi_flip_count = 0;
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
     if (std::abs(std::abs(base_solution[joint_id]) - angle_conv::kPi) <=
         kPiFlipTol) {
-      pi_flip_joint_ids.push_back(joint_id);
+      pi_flip_joint_ids[pi_flip_count++] = joint_id;
     }
   }
 
   // +PI and -PI represent the same physical angle but can map to different
   // controller branches/joint-limit edges. Emit both to keep branch choice
   // stable.
-  const auto variant_count =
-      static_cast<std::uint32_t>(1U << pi_flip_joint_ids.size());
+  const auto variant_count = static_cast<std::uint32_t>(1U << pi_flip_count);
   for (std::uint32_t mask = 0; mask < variant_count; ++mask) {
     Vec6 variant_solution = base_solution;
-    for (std::size_t bit = 0; bit < pi_flip_joint_ids.size(); ++bit) {
+    for (std::size_t bit = 0; bit < pi_flip_count; ++bit) {
       if ((mask & (1U << bit)) == 0U) {
         continue;
       }
@@ -1114,8 +1108,7 @@ auto BuildArmClassificationGeometry(const CrxModelData &model,
   }
 
   PoseIsoRT unused_pose = PoseIsoRT::Identity();
-  std::vector<PoseIsoRT> joint_poses(static_cast<std::size_t>(kDofCount + 1),
-                                     PoseIsoRT::Identity());
+  JointPoseBuffer joint_poses;
   if (SolveFKCore(user_joints_rad, unused_pose, &joint_poses, false, model) !=
       1) {
     return false;
@@ -1134,7 +1127,7 @@ auto BuildArmClassificationGeometry(const CrxModelData &model,
 } // namespace
 
 auto SolveFkIsometry(const CrxModelData &model, const Vec6 &user_joints_rad,
-                     PoseIsoRT &pose_out, std::vector<PoseIsoRT> *joint_poses,
+                     PoseIsoRT &pose_out, JointPoseBuffer *joint_poses,
                      bool check_limits) -> int {
   if (!IsModelDataValid(model) || !user_joints_rad.allFinite()) {
     return -1;

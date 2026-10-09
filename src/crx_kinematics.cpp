@@ -32,14 +32,12 @@ auto SolveFkApi(const real_T *joints, real_T pose[crx::kPoseElementCount],
   }
 
   crx::PoseIsoRT fk_pose = crx::PoseIsoRT::Identity();
-  std::vector<crx::PoseIsoRT> joint_pose_isometries;
-  std::vector<crx::PoseIsoRT> *joint_pose_ptr = nullptr;
+  crx::JointPoseBuffer joint_pose_isometries;
+  crx::JointPoseBuffer *joint_pose_ptr = nullptr;
   if (joint_poses != nullptr) {
     if (max_poses < crx::kDofCount + 1) {
       return -1;
     }
-    joint_pose_isometries.resize(crx::kDofCount + 1,
-                                 crx::PoseIsoRT::Identity());
     joint_pose_ptr = &joint_pose_isometries;
   }
 

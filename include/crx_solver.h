@@ -1,13 +1,16 @@
 #pragma once
 
+#include <array>
 #include <vector>
 
 #include "crx_types.h"
 
 namespace crx {
 
+using JointPoseBuffer = std::array<PoseIsoRT, kDofCount + 1>;
+
 auto SolveFkIsometry(const CrxModelData &model, const Vec6 &user_joints_rad,
-                     PoseIsoRT &pose_out, std::vector<PoseIsoRT> *joint_poses,
+                     PoseIsoRT &pose_out, JointPoseBuffer *joint_poses,
                      bool check_limits) -> int;
 
 auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
