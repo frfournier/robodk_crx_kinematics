@@ -23,9 +23,10 @@ struct ElbowCandidates {
 
 // Nominal CRX geometry only; normalized signed a,b must be nonzero, u unit.
 // Intersect the two arm spheres with the base plane through x=O4. Test both
-// elbows against (y-x).u=0 and the original arm lengths; no rank classification
-// or continuous-family enumeration. Vertical/near-origin wrists, tangencies,
-// and ambiguous compatibility return NeedsRefinement with no partial results.
+// elbows against (y-x).u=0 and the original arm lengths. At tangency, solve
+// for signed elbow height using the wrist plane; on the base axis, intersect
+// the horizontal arm circle with that plane. Coincident arm spheres and
+// undetermined circles still return NeedsRefinement with no partial results.
 // NoCandidate concerns this wrist point only, not target reachability.
 // These numerical candidates still need joint recovery and full-pose FK checks.
 // Joint offsets and family-preserving lengths belong in the coordinate bridge.

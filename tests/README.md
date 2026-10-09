@@ -200,18 +200,17 @@ unsquared wrist constraint `(y-x).u=0`. It has no SVD, numerical rank API, or
 circle descriptor. This remains an internal candidate component; production IK
 still uses the existing scanner.
 
-Vertical/near-origin wrists, tangencies, ambiguous compatibility and failed
-geometric rechecks return `NeedsRefinement`, with no partial candidate list.
-That status is a handoff requirement, not an implemented refinement solver or
-an unreachable-target result. `NoCandidate` is restricted to a clear numerical
-rejection at this wrist point. The joint recovery component below performs the
-next canonical step; integration into production IK remains pending.
+Near tangency, the wrist plane supplies a stable signed elbow height instead
+of subtracting nearly equal squared arm lengths and taking a square root.
+On the base axis, the horizontal arm circle is intersected with the wrist plane.
+Coincident arm spheres and undetermined circles still return `NeedsRefinement`,
+with no partial list. `NoCandidate` concerns only the supplied wrist point.
 
 Unit-axis tolerance is `128*epsilon(double)`, small-direction tolerance is
 `256*epsilon(double)` times the largest arm/wrist length, and relative residual
 tolerance is `512*epsilon(double)`. Sphere checks scale by squared lengths;
 wrist perpendicularity scales by the largest arm/wrist length. An eightfold
-ambiguity band defers marginal branch decisions without expanding acceptance.
+compatibility band retains roundoff-sized candidates for strict full-FK checks.
 These are roundoff heuristics, not physical calibration tolerances or certificates.
 
 The earlier SVD implementation and its broader singular/circle cases live in
@@ -219,8 +218,8 @@ The earlier SVD implementation and its broader singular/circle cases live in
 links them only into the test executable, never the library or qmake target.
 They provide an independent algebraic comparison, not production feature scope.
 Its provisional SVD ranks and heuristic classifications are not exact oracles.
-The scalar-zero counterexample is rejected by the reference and safely deferred
-by the direct path. The direct path recovers all 128 synthetic canonical FK
+The scalar-zero counterexample is rejected by both implementations.
+The direct path recovers all 128 synthetic canonical FK
 witnesses, including sample 55 that the SVD may leave unresolved. Two-branch,
 ambiguity, tangency, invalid-input and range checks also run under the existing
 Eigen/C++ allocation guards in `crx.canonical`.
@@ -228,12 +227,20 @@ Eigen/C++ allocation guards in `crx.canonical`.
 ## Canonical joint recovery and full-pose validation
 
 `src/crx_joint_recovery.h/.cpp` recover joint candidates for one supplied
-wrist-circle angle. They prepare the normalized circle, reconstruct elbows,
+wrist-circle angle or unit sine/cosine pair. They prepare the normalized circle,
+reconstruct elbows,
 and recover both base-angle branches using appendix G6. The result holds at
 most four canonical postures (two elbows, two bases), with each joint in
 `[-pi, pi]`. There is no seed input, division by `sin(q5)`, or singularity-based
-override of J3/J6. Vertical, tangent and ambiguous cases keep the existing
-`NeedsRefinement` handoff; no numerical fallback is implied.
+override of J3/J6. A vertical wrist uses its recovered elbow to determine the
+base plane. When both arm points lie on the base axis, base=0 and its opposite
+are deterministic representatives, not enumeration of the continuous family.
+
+Recovery carries normalized sine/cosine pairs through scalar vector rotations,
+then extracts the joint angles. J6 uses two target-axis dot products instead of
+constructing a full wrist matrix. The independent FK check below still rebuilds
+the pose from the emitted angles. Tests cover each joint's quadrants and branch
+cuts, equivalent angle/coordinate inputs, and rejection of invalid unit pairs.
 
 Every recovered posture is checked by recomputing the complete canonical FK
 from its joint vector. Callers must supply a positive position tolerance in
@@ -252,9 +259,78 @@ tested with tight tolerances, alongside invalid inputs and refinement/range
 handoffs. These are synthetic nominal-CRX tests, not validation of the six
 asset-coordinate mappings or calibrated robots.
 
-This component consumes an angle; it does not discover or polish polynomial
-roots. Asset/command-coordinate conversion, limits, turn selection, refinement
-and production integration remain pending. The public C ABI is unchanged.
+This component consumes a wrist-circle point; it does not discover or polish
+polynomial roots itself. The discovery stage below supplies those points.
+
+## Target-only polynomial discovery
+
+`src/crx_discovery.h` declares discovery's options, result and entry point;
+`src/crx_discovery.cpp` implements them and keeps polishing/boundary helpers
+private. Recovery's header declares only recovery, without a root-solver
+dependency. Ordinary math, pose and vector helpers likewise use matching
+headers and `.cpp` files together in `src/`; `include/` contains only the public
+RoboDK C ABI header. Only compile-time constants and the two `constexpr`
+degree/radian conversions keep definitions in headers.
+
+`DiscoverJointCandidates` connects the existing
+coefficient, eigenvalue and joint-recovery components. It takes nominal canonical
+lengths, a target pose and physical pose tolerances, with no generating angle or
+joint seed. The model/coordinate oracle remains in Python; no new C++ robot-model
+bridge or public ABI is introduced. Production `SolveIK` still uses the scanner.
+
+The usual half-angle chart is zero; nearly folded arms start with a chart
+centered on the wrist-circle point closest to the base origin. Up to five
+bounded chart attempts address numerical conditioning; coefficients are never
+trimmed. Small endpoint distances and equal-arm differences are formed without
+cancelling large squared terms. Each chart's omitted point is checked separately.
+Near-real complex projections and small slopes are starting guesses for original
+geometry, not automatic rejection or acceptance. Analytic crossings of the
+horizontal wrist axis, wrist plane and arm-shell boundaries retain multiple and
+tangent roots. These are numerical methods, not formal root certification.
+Boundary crossings solve `A*cos(theta)+B*sin(theta)=C` directly in circle
+coordinates with a scaled discriminant. Tangencies nominate one point, disjoint
+constraints nominate none, and a zero normal supplies no isolated crossing.
+Roundoff-sized negative discriminants can nominate a tangent point for the
+unchanged geometric/FK checks. Boundary recovery avoids inverse-trigonometric
+round trips; an angle is formed only when an unresolved root needs a proximity
+check against a boundary point.
+
+Real candidates are polished against the unsquared elbow/wrist constraint with
+an analytic derivative, at most 24 iterations by default (64 maximum), and eight
+backtracking attempts per iteration. Movement stays within 0.05 radians; regular
+roots also use a quarter of neighboring angular separation. Ill-conditioned
+clusters retain the larger bounded polishing window. Elbow selection uses the
+Newton correction instead of residual size alone, avoiding a flat incompatible
+branch. A smooth signed-height sphere residual handles tangency. Acceptance uses
+arm/wrist rechecks and independent full-pose FK calculation; tolerances are not
+widened. Postures within `1e-10` radians in every joint modulo full turns are
+deduplicated. The fixed buffer holds at most 36 numerical candidates; overflow
+returns an explicit unresolved status instead of truncating or overrunning it.
+
+`Candidates` and `NoCandidate` are numerical discovery outcomes, not proofs of
+coverage or infeasibility. Ambiguity, exhausted work and exceptional incidence
+return `NeedsRefinement` with no partial list. No fallback is implemented here.
+RoboDK mapping, command limits/turns and production integration remain pending.
+
+Validation uses both the allocation-guarded native harness and the test-only
+`--discover` probe, which receives only lengths/target/tolerances. Coverage:
+
+- 128 synthetic generating postures from targets alone, signed/scaled geometry,
+  half-angle endpoints, and a control proving geometric polishing is necessary.
+- All 96 captured mixed-joint asset targets, checked by the Python FK oracle.
+- All 64 legacy discovery witnesses, including 8, 36, 42 and 57, without seeds.
+  Their production xfails remain until the new path is actually integrated.
+- All recorded postures for ALL8, ONLY7, ABBES-TABLE4, ABBES-TABLE6 and
+  WRIST_SING_NEAR_RG_LIMIT. ABBES-TABLE6 returns 16 distinct postures. ONLY7
+  returns eight before command limits, as expected for this stage.
+- All 25 fixture targets now require candidates without a scanner. The rounded
+  MIN_Z target disagrees with its recorded posture by 0.00425 mm; exact target
+  results are checked by strict independent FK, and a separate exact-FK target
+  requires recovery of the recorded generating posture. Fixture data is unchanged.
+- Straight/near-straight arms across all six assets, perturbed multiple roots,
+  near-chart endpoints, and nearly folded arms are passing witness requirements.
+- Zero wrist sine with nonzero J6, no-candidate versus zero-polynomial handoff,
+  separate tight pose-tolerance failures, and missing/duplicate mutation checks.
 
 ## CRX scope and calibration boundary
 
@@ -275,10 +351,9 @@ bounded numerical correction against the actual calibrated FK, followed by
 position/orientation and command-limit validation. It must retain genuine
 calibration parameters rather than snap them to nominal geometry. That path,
 its physical acceptance tolerances, and its singular-case behavior are not yet
-implemented or validated. Canonical joint recovery and FK checks now have a
-tested component; the immediate priorities are the asset-coordinate bridge and
-connecting root discovery to validated postures, rather than more general
-incidence classification.
+implemented or validated. Target-only discovery now reaches validated canonical
+postures, with coordinate evidence in the Python oracle. The immediate priorities
+are command limits/turns, remaining singular families, and production cutover.
 
 ## Asset-coordinate oracle
 

@@ -33,6 +33,13 @@ struct JointRecovery {
   std::array<JointCandidate, 4> candidates{}; // Two elbows, two bases each.
 };
 
+// Unit-circle coordinates in the prepared wrist basis (v, w). Keeping these
+// coordinates avoids angle -> trigonometry round trips for analytic crossings.
+struct WristPhase {
+  double cosine = 1.0;
+  double sine = 0.0;
+};
+
 // Nominal canonical CRX only, for one supplied wrist-circle angle. Prepares
 // the circle, reconstructs elbows, recovers both base branches without seed
 // overrides or division by sin(q5), and checks the complete canonical FK pose.
@@ -44,5 +51,9 @@ struct JointRecovery {
 auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                             double wrist_angle, const PoseTolerance &tolerance)
     -> JointRecovery;
+
+auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
+                            const WristPhase &phase,
+                            const PoseTolerance &tolerance) -> JointRecovery;
 
 } // namespace crx::canonical

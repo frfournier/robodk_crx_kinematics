@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <new>
 
@@ -342,6 +343,10 @@ private:
 
 auto main(int argc, char **argv) -> int {
   if (argc > 1) {
+    if (std::strcmp(argv[1], "--discover") == 0 ||
+        std::strcmp(argv[1], "--diagnose-discovery") == 0) {
+      return RunDiscoveryProbe(argc, argv);
+    }
     return RunRootProbe(argc, argv);
   }
   // Positive controls: prove both allocation replacements are actually

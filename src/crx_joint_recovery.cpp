@@ -15,30 +15,6 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kGeometryTolerance =
     4096.0 * std::numeric_limits<double>::epsilon();
 
-auto Rx(double angle) -> Mat3 {
-  const double c = std::cos(angle);
-  const double s = std::sin(angle);
-  Mat3 result;
-  result << 1, 0, 0, 0, c, -s, 0, s, c;
-  return result;
-}
-
-auto Ry(double angle) -> Mat3 {
-  const double c = std::cos(angle);
-  const double s = std::sin(angle);
-  Mat3 result;
-  result << c, 0, s, 0, 1, 0, -s, 0, c;
-  return result;
-}
-
-auto Rz(double angle) -> Mat3 {
-  const double c = std::cos(angle);
-  const double s = std::sin(angle);
-  Mat3 result;
-  result << c, -s, 0, s, c, 0, 0, 0, 1;
-  return result;
-}
-
 auto FlangeConvention() -> Mat3 {
   Mat3 result;
   result << 0, 0, 1, 0, -1, 0, 1, 0, 0;
@@ -54,46 +30,76 @@ auto Angle(double sine, double cosine, double &angle) -> bool {
   return true;
 }
 
-auto RecoverAtBase(double base, const Lengths &lengths, const Mat3 &rotation,
-                   const Vec3 &x, const Vec3 &u, const Vec3 &y, Vec6 &q)
-    -> bool {
-  q[0] = std::remainder(base, 2.0 * kPi);
-  const Mat3 base_rotation = Rz(q[0]);
-  const Vec3 upper = (base_rotation.transpose() * y) / lengths.a;
-  const Vec3 lower = (base_rotation.transpose() * (x - y)) / lengths.b;
-  double beta = 0.0;
+auto NormalizePhase(double sine, double cosine, WristPhase &phase) -> bool {
+  const double magnitude = std::hypot(sine, cosine);
+  if (!std::isfinite(magnitude) || magnitude <= kGeometryTolerance) {
+    return false;
+  }
+  phase = {cosine / magnitude, sine / magnitude};
+  return true;
+}
+
+auto UndoBase(const WristPhase &base, const Vec3 &vector) -> Vec3 {
+  return {base.cosine * vector.x() + base.sine * vector.y(),
+          -base.sine * vector.x() + base.cosine * vector.y(), vector.z()};
+}
+
+auto UndoShoulder(const WristPhase &beta, const Vec3 &vector) -> Vec3 {
+  return {beta.cosine * vector.x() - beta.sine * vector.z(), vector.y(),
+          beta.sine * vector.x() + beta.cosine * vector.z()};
+}
+
+auto RecoverAtBase(const WristPhase &base, const Lengths &lengths,
+                   const Mat3 &rotation, const Vec3 &x, const Vec3 &u,
+                   const Vec3 &y, Vec6 &q) -> bool {
+  const Vec3 upper = UndoBase(base, y) / lengths.a;
+  const Vec3 lower = UndoBase(base, x - y) / lengths.b;
+  WristPhase beta;
   if (!upper.allFinite() || !lower.allFinite() ||
       std::abs(upper.y()) > kGeometryTolerance ||
       std::abs(lower.y()) > kGeometryTolerance ||
-      !Angle(upper.x(), upper.z(), q[1]) ||
-      !Angle(-lower.z(), lower.x(), beta)) {
+      !NormalizePhase(-lower.z(), lower.x(), beta)) {
     return false;
   }
-  q[2] = std::remainder(q[1] - beta, 2.0 * kPi);
-  const Mat3 r3 = base_rotation * Ry(q[1] - q[2]);
-  const Vec3 u3 = r3.transpose() * u;
-  if (std::abs(u3.x()) > kGeometryTolerance || !Angle(-u3.z(), u3.y(), q[3])) {
+  const Vec3 u3 = UndoShoulder(beta, UndoBase(base, u));
+  WristPhase wrist;
+  if (std::abs(u3.x()) > kGeometryTolerance ||
+      !NormalizePhase(-u3.z(), u3.y(), wrist)) {
     return false;
   }
-  const Mat3 r4 = r3 * Rx(-q[3]);
-  const Vec3 v4 = r4.transpose() * rotation.col(2);
-  if (std::abs(v4.y()) > kGeometryTolerance || !Angle(v4.z(), v4.x(), q[4])) {
+  const Vec3 v3 = UndoShoulder(beta, UndoBase(base, rotation.col(2)));
+  const Vec3 v4(v3.x(), wrist.cosine * v3.y() - wrist.sine * v3.z(),
+                wrist.sine * v3.y() + wrist.cosine * v3.z());
+  if (std::abs(v4.y()) > kGeometryTolerance) {
     return false;
   }
-  const Mat3 r5 = r4 * Ry(-q[4]);
-  const Mat3 wrist = r5.transpose() * rotation * FlangeConvention().transpose();
-  return Angle(wrist(1, 2), wrist(1, 1), q[5]) && q.allFinite();
+  // Ry(-q5) leaves the second column of R4 unchanged. Only its two dot
+  // products with the target are needed for q6, not R5 or a wrist matrix.
+  const Vec3 wrist_axis(
+      -base.sine * wrist.cosine - base.cosine * beta.sine * wrist.sine,
+      base.cosine * wrist.cosine - base.sine * beta.sine * wrist.sine,
+      -beta.cosine * wrist.sine);
+  q[0] = std::atan2(base.sine, base.cosine);
+  q[3] = std::atan2(wrist.sine, wrist.cosine);
+  if (!Angle(upper.x(), upper.z(), q[1]) || !Angle(v4.z(), v4.x(), q[4]) ||
+      !Angle(wrist_axis.dot(rotation.col(0)), -wrist_axis.dot(rotation.col(1)),
+             q[5])) {
+    return false;
+  }
+  q[2] = std::remainder(q[1] - std::atan2(beta.sine, beta.cosine), 2.0 * kPi);
+  return q.allFinite();
 }
 
 // Recompute from the recovered joint vector, not the elbow/wrist intermediates.
 auto ForwardPose(const Lengths &lengths, const Vec6 &q) -> PoseIsoRT {
-  const Mat3 r1 = Rz(q[0]);
-  const Mat3 r2 = r1 * Ry(q[1]);
-  const Mat3 r3 = r2 * Ry(-q[2]);
-  const Mat3 r4 = r3 * Rx(-q[3]);
-  const Mat3 r5 = r4 * Ry(-q[4]);
+  const Mat3 r1 = Eigen::AngleAxisd(q[0], Vec3::UnitZ()).toRotationMatrix();
+  const Mat3 r2 = r1 * Eigen::AngleAxisd(q[1], Vec3::UnitY());
+  const Mat3 r3 = r2 * Eigen::AngleAxisd(-q[2], Vec3::UnitY());
+  const Mat3 r4 = r3 * Eigen::AngleAxisd(-q[3], Vec3::UnitX());
+  const Mat3 r5 = r4 * Eigen::AngleAxisd(-q[4], Vec3::UnitY());
   PoseIsoRT pose = PoseIsoRT::Identity();
-  pose.linear() = r5 * Rx(-q[5]) * FlangeConvention();
+  pose.linear() =
+      r5 * Eigen::AngleAxisd(-q[5], Vec3::UnitX()) * FlangeConvention();
   pose.translation() = lengths.a * r2.col(2) +
                        r4 * Vec3(lengths.b, -lengths.r, 0) +
                        lengths.c * r5.col(0);
@@ -120,8 +126,22 @@ auto MapIncidenceStatus(IncidenceStatus status) -> RecoveryStatus {
 auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                             double wrist_angle, const PoseTolerance &tolerance)
     -> JointRecovery {
+  if (!std::isfinite(wrist_angle)) {
+    return {};
+  }
+  return RecoverJointCandidates(
+      lengths, target, WristPhase{std::cos(wrist_angle), std::sin(wrist_angle)},
+      tolerance);
+}
+
+auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
+                            const WristPhase &phase,
+                            const PoseTolerance &tolerance) -> JointRecovery {
   JointRecovery result;
-  if (!std::isfinite(wrist_angle) || !std::isfinite(tolerance.position) ||
+  if (!std::isfinite(phase.cosine) || !std::isfinite(phase.sine) ||
+      std::abs(phase.cosine * phase.cosine + phase.sine * phase.sine - 1.0) >
+          128.0 * std::numeric_limits<double>::epsilon() ||
+      !std::isfinite(tolerance.position) ||
       !std::isfinite(tolerance.orientation) || tolerance.position <= 0.0 ||
       tolerance.orientation <= 0.0 || tolerance.orientation >= kPi) {
     return result;
@@ -134,8 +154,7 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                         : RecoveryStatus::NumericalRangeFailure;
     return result;
   }
-  const Vec3 u =
-      circle.v * std::cos(wrist_angle) + circle.w * std::sin(wrist_angle);
+  const Vec3 u = circle.v * phase.cosine + circle.w * phase.sine;
   const Vec3 x = circle.p + circle.lengths.r * u;
   const auto elbows =
       FindElbowCandidates(circle.lengths.a, circle.lengths.b, x, u);
@@ -143,14 +162,22 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   if (result.status != RecoveryStatus::Candidates) {
     return result;
   }
-  const double base = std::atan2(x.y(), x.x());
   const Vec3 target_position = target.translation() / circle.length_scale;
   std::array<JointCandidate, 4> candidates{};
   std::size_t count = 0;
   for (std::size_t elbow = 0; elbow < elbows.count; ++elbow) {
-    for (const double base_angle : {base, base + kPi}) {
+    // At a vertical wrist point the elbow fixes the base plane. If both arm
+    // points are on-axis, use base=0 as a deterministic singular-family
+    // representative; the wrist angles still come from the target rotation.
+    const Vec3 base_point = std::hypot(x.x(), x.y()) > kGeometryTolerance
+                                ? x
+                                : elbows.points[elbow];
+    WristPhase base;
+    NormalizePhase(base_point.y(), base_point.x(), base);
+    for (const WristPhase &base_phase :
+         {base, WristPhase{-base.cosine, -base.sine}}) {
       JointCandidate candidate;
-      if (!RecoverAtBase(base_angle, circle.lengths, target.linear(), x, u,
+      if (!RecoverAtBase(base_phase, circle.lengths, target.linear(), x, u,
                          elbows.points[elbow], candidate.joints)) {
         result.status = RecoveryStatus::NeedsRefinement;
         return result;

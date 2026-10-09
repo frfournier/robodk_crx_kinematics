@@ -70,23 +70,38 @@ void TestBranchesAndFallback() {
   ExpectStatus(1, 1, x, Vec3::UnitZ(), IncidenceStatus::NoCandidate);
   ExpectStatus(1, 1, Vec3(3, 0, 0), u, IncidenceStatus::NoCandidate);
   ExpectStatus(1, 0.5, Vec3(0.1, 0, 0), u, IncidenceStatus::NoCandidate);
-  for (const Vec3 wrist :
-       {Vec3::Zero().eval(), Vec3(0, 0, 1), Vec3(1e-15, 0, 1)}) {
-    ExpectStatus(1, 1, wrist, u, IncidenceStatus::NeedsRefinement);
+  ExpectStatus(1, 1, Vec3::Zero(), u, IncidenceStatus::NeedsRefinement);
+  for (const Vec3 wrist : {Vec3(0, 0, 1), Vec3(1e-15, 0, 1)}) {
+    const auto vertical = FindElbowCandidates(1, 1, wrist, u);
+    Require(vertical.status == IncidenceStatus::PointCandidates &&
+                vertical.count == 2,
+            "vertical wrist has two wrist-plane intersections");
+    for (std::size_t i = 0; i < vertical.count; ++i) {
+      CheckWitness(1, 1, wrist, u, vertical.points[i]);
+    }
   }
   for (const double reach : {2.0 - 1e-14, 2.0, 2.0 + 1e-14}) {
-    ExpectStatus(1, 1, Vec3(reach, 0, 0), u, IncidenceStatus::NeedsRefinement);
+    const Vec3 wrist(reach, 0, 0);
+    const auto tangent = FindElbowCandidates(1, 1, wrist, u);
+    Require(tangent.status == IncidenceStatus::PointCandidates &&
+                tangent.count == (reach < 2 ? 2U : 1U),
+            "tangent and adjacent elbows recovered");
+    for (std::size_t i = 0; i < tangent.count; ++i) {
+      CheckWitness(1, 1, wrist, u, tangent.points[i]);
+    }
   }
-  // One compatible branch and one ambiguous branch must not publish a partial
-  // list. A clearly incompatible pair must not become a false root.
+  // Keep both numerically compatible branches for the caller's full-pose
+  // check. A clearly incompatible pair must not become a false root.
   const double tilt = 4e-13;
-  ExpectStatus(1, 1, x, Vec3(std::sqrt(3.0) * tilt, 1, tilt),
-               IncidenceStatus::NeedsRefinement);
+  const auto ambiguous =
+      FindElbowCandidates(1, 1, x, Vec3(std::sqrt(3.0) * tilt, 1, tilt));
+  Require(ambiguous.status == IncidenceStatus::PointCandidates &&
+              ambiguous.count == 2,
+          "roundoff band retained for full FK acceptance");
   ExpectStatus(1, 1, x, Vec3(1e-10, 1, 0), IncidenceStatus::NoCandidate);
-  // The scalar-zero counterexample is deferred, never accepted. Its detailed
-  // inconsistency classification belongs only to the offline SVD reference.
+  // A scalar zero with an inconsistent vertical wrist plane is rejected.
   const Vec3 vertical(0, 0, 2);
-  ExpectStatus(1, 1, vertical, Vec3::UnitZ(), IncidenceStatus::NeedsRefinement);
+  ExpectStatus(1, 1, vertical, Vec3::UnitZ(), IncidenceStatus::NoCandidate);
   Require(
       reference::FindElbowCandidates(1, 1, vertical, Vec3::UnitZ()).status ==
           reference::IncidenceStatus::NoCandidate,

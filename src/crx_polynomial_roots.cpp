@@ -1,7 +1,6 @@
 #include "crx_polynomial_roots.h"
 #include "crx_canonical.h"
 
-#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstddef>
@@ -11,10 +10,6 @@
 
 namespace crx::canonical {
 namespace {
-
-auto IsFinite(const std::complex<double> &value) -> bool {
-  return std::isfinite(value.real()) && std::isfinite(value.imag());
-}
 
 // Evaluate the componentwise relative residual without large powers of the
 // root. For |z|>1 evaluate z^-degree P(z) in the reciprocal variable instead.
@@ -97,6 +92,7 @@ void SolveCompanion(const Coefficients &coefficients,
                     const RootOptions &options, RootResult &result) {
   using Matrix = Eigen::Matrix<double, Degree, Degree>;
   Matrix companion = Matrix::Zero();
+  companion.diagonal(-1).setOnes();
   for (int row = 0; row < Degree; ++row) {
     const double coefficient = coefficients[static_cast<std::size_t>(row)];
     const double monic = -coefficient / coefficients[Degree];
@@ -105,9 +101,6 @@ void SolveCompanion(const Coefficients &coefficients,
       return;
     }
     companion(row, Degree - 1) = monic;
-    if (row > 0) {
-      companion(row, row - 1) = 1.0;
-    }
   }
   result.status =
       Balance(companion, options.max_balance_sweeps, result.balance_sweeps);
@@ -127,12 +120,12 @@ void SolveCompanion(const Coefficients &coefficients,
                         : RootStatus::NumericalRangeFailure;
     return;
   }
+  if (!solver.eigenvalues().allFinite()) {
+    result.status = RootStatus::NumericalRangeFailure;
+    return;
+  }
   for (int i = 0; i < Degree; ++i) {
     const std::complex<double> root = solver.eigenvalues()[i];
-    if (!IsFinite(root)) {
-      result.status = RootStatus::NumericalRangeFailure;
-      return;
-    }
     const double residual = RelativeResidual(coefficients, Degree, root);
     if (!std::isfinite(residual)) {
       result.status = RootStatus::NumericalRangeFailure;
@@ -155,13 +148,12 @@ auto FindRootCandidates(const Coefficients &coefficients,
       options.leading_relative_tolerance > 1.0) {
     return result;
   }
-  double scale = 0.0;
-  for (const double coefficient : coefficients) {
-    if (!std::isfinite(coefficient)) {
-      return result;
-    }
-    scale = std::max(scale, std::abs(coefficient));
+  const Eigen::Map<const Eigen::Matrix<double, kCoefficientCount, 1>> mapped(
+      coefficients.data());
+  if (!mapped.allFinite()) {
+    return result;
   }
+  const double scale = mapped.cwiseAbs().maxCoeff();
   const int degree = RepresentedDegree(coefficients);
   result.represented_degree = degree;
   if (degree <= 0) {

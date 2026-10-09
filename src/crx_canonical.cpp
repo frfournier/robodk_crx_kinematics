@@ -7,37 +7,16 @@
 namespace crx::canonical {
 namespace {
 
-// Array sizes express the algebraic degree; multiplication cannot silently
+// Vector sizes express the algebraic degree; multiplication cannot silently
 // truncate terms, including for the intermediate quartics in appendix G4.
-template <std::size_t N> using Polynomial = std::array<double, N>;
+template <int N> using Polynomial = Eigen::Matrix<double, N, 1>;
 
-template <std::size_t N>
-auto Add(const Polynomial<N> &left, const Polynomial<N> &right,
-         double right_scale = 1.0) -> Polynomial<N> {
-  Polynomial<N> result{};
-  for (std::size_t i = 0; i < N; ++i) {
-    result[i] = left[i] + right_scale * right[i];
-  }
-  return result;
-}
-
-template <std::size_t N>
-auto Scale(const Polynomial<N> &polynomial, double factor) -> Polynomial<N> {
-  Polynomial<N> result{};
-  for (std::size_t i = 0; i < N; ++i) {
-    result[i] = polynomial[i] * factor;
-  }
-  return result;
-}
-
-template <std::size_t N, std::size_t M>
+template <int N, int M>
 auto Multiply(const Polynomial<N> &left, const Polynomial<M> &right)
     -> Polynomial<N + M - 1> {
-  Polynomial<N + M - 1> result{};
-  for (std::size_t i = 0; i < N; ++i) {
-    for (std::size_t j = 0; j < M; ++j) {
-      result[i + j] += left[i] * right[j];
-    }
+  Polynomial<N + M - 1> result = Polynomial<N + M - 1>::Zero();
+  for (int i = 0; i < N; ++i) {
+    result.template segment<M>(i) += left[i] * right;
   }
   return result;
 }
@@ -70,7 +49,7 @@ auto ResidualForAxis(const WristCircle &circle, const Vec3 &axis) -> double {
 
 auto ConstructCoefficients(const WristCircle &circle, const Vec3 &v,
                            const Vec3 &w) -> Coefficients {
-  constexpr Polynomial<3> kQ{1.0, 0.0, 1.0};
+  const Polynomial<3> kQ{1.0, 0.0, 1.0};
   const double a_squared = circle.lengths.a * circle.lengths.a;
   const double b_squared = circle.lengths.b * circle.lengths.b;
   const double r = circle.lengths.r;
@@ -79,41 +58,47 @@ auto ConstructCoefficients(const WristCircle &circle, const Vec3 &v,
   const double pv = circle.p.dot(v);
   const Polynomial<3> d{pv, 2.0 * circle.p.dot(w), -pv};
   const Polynomial<3> uz{v.z(), 2.0 * w.z(), -v.z()};
-  const auto z = Add(Scale(kQ, pz), uz, r);
-  const auto s = Add(Scale(kQ, p_squared + r * r), d, 2.0 * r);
-  const auto g = Add(d, kQ, r);
-  const auto a_hat = Add(s, kQ, b_squared - a_squared);
-  const auto sphere = Add(s, kQ, a_squared - b_squared);
-  const auto d_hat = Add(Scale(Multiply(s, kQ), 4.0 * a_squared),
-                         Multiply(sphere, sphere), -1.0);
-  const auto first =
-      Multiply(Add(Multiply(a_hat, a_hat), Multiply(z, z), -4.0 * b_squared),
-               Multiply(g, g));
-  const auto second = Multiply(
-      d_hat, Multiply(uz, Add(Scale(g, 2.0 * pz), uz, r * r - p_squared)));
-  return Scale(Add(first, second), 0.25);
+  const Polynomial<3> z = pz * kQ + r * uz;
+  // Form endpoint distances from vectors, not p²+r² +/- 2r(p.v). Near a
+  // folded equal-link arm those large scalar terms cancel and erase the
+  // closely spaced roots before the eigensolver even sees the polynomial.
+  const Polynomial<3> s{(circle.p + r * v).squaredNorm(),
+                        4.0 * r * circle.p.dot(w),
+                        (circle.p - r * v).squaredNorm()};
+  const Polynomial<3> g = d + r * kQ;
+  const double arm_difference = (circle.lengths.a - circle.lengths.b) *
+                                (circle.lengths.a + circle.lengths.b);
+  const Polynomial<3> a_hat = s - arm_difference * kQ;
+  const Polynomial<3> sphere = s + arm_difference * kQ;
+  const Polynomial<5> d_hat =
+      (4.0 * a_squared) * Multiply(s, kQ) - Multiply(sphere, sphere);
+  const Polynomial<5> first_factor =
+      Multiply(a_hat, a_hat) - (4.0 * b_squared) * Multiply(z, z);
+  const Polynomial<9> first = Multiply(first_factor, Multiply(g, g));
+  const Polynomial<3> second_factor = (2.0 * pz) * g + (r * r - p_squared) * uz;
+  const Polynomial<9> second = Multiply(d_hat, Multiply(uz, second_factor));
+  Coefficients result{};
+  Eigen::Map<Polynomial<9>> mapped(result.data());
+  mapped = 0.25 * (first + second);
+  return result;
 }
 
 } // namespace
 
 auto PrepareWristCircle(const Lengths &lengths, const PoseIsoRT &target,
                         WristCircle &output) -> PreparationStatus {
-  const std::array<double, 4> physical{lengths.a, lengths.b, lengths.c,
-                                       lengths.r};
-  if (!std::all_of(physical.begin(), physical.end(),
-                   [](double value) { return std::isfinite(value); }) ||
-      lengths.a == 0.0 || lengths.b == 0.0 || !IsRigidTarget(target)) {
+  const Eigen::Array4d physical{lengths.a, lengths.b, lengths.c, lengths.r};
+  if (!physical.allFinite() || lengths.a == 0.0 || lengths.b == 0.0 ||
+      !IsRigidTarget(target)) {
     return PreparationStatus::InvalidInput;
   }
   WristCircle prepared;
-  prepared.length_scale = std::max({std::abs(lengths.a), std::abs(lengths.b),
-                                    std::abs(lengths.c), std::abs(lengths.r)});
-  std::array<double, 4> normalized{};
-  for (std::size_t i = 0; i < physical.size(); ++i) {
-    normalized[i] = physical[i] / prepared.length_scale;
-    if (physical[i] != 0.0 && normalized[i] == 0.0) {
-      return PreparationStatus::NumericalRangeFailure;
-    }
+  prepared.length_scale = physical.abs().maxCoeff();
+  // Keep division rather than a reciprocal that can overflow for tiny scales.
+  const Eigen::Array4d normalized =
+      physical / Eigen::Array4d::Constant(prepared.length_scale);
+  if (((physical != 0.0) && (normalized == 0.0)).any()) {
+    return PreparationStatus::NumericalRangeFailure;
   }
   prepared.lengths = {normalized[0], normalized[1], normalized[2],
                       normalized[3]};
@@ -152,10 +137,10 @@ auto BuildHalfAnglePolynomial(const WristCircle &circle, double chart_angle,
   polynomial.coefficients = ConstructCoefficients(circle, v, w);
   polynomial.chart_angle = chart_angle;
   polynomial.omitted_point_residual = ResidualForAxis(circle, -v);
+  const Eigen::Map<const Eigen::Matrix<double, kCoefficientCount, 1>> mapped(
+      polynomial.coefficients.data());
   if (!std::isfinite(polynomial.omitted_point_residual) ||
-      !std::all_of(polynomial.coefficients.begin(),
-                   polynomial.coefficients.end(),
-                   [](double value) { return std::isfinite(value); })) {
+      !mapped.allFinite()) {
     return PreparationStatus::NumericalRangeFailure;
   }
   output = polynomial;

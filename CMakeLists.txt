@@ -169,6 +169,7 @@ endforeach()
 # ------------------------------------------------------------------------------
 set(CRXKIN_CPP_SOURCES
   "${CMAKE_SOURCE_DIR}/src/crx_canonical.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_discovery.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_incidence.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_joint_recovery.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_polynomial_roots.cpp"
@@ -324,6 +325,7 @@ if(BUILD_TESTING)
     tests/test_crx_polynomial_roots.cpp
     tests/crx_allocation_probe.cpp
     src/crx_canonical.cpp
+    src/crx_discovery.cpp
     src/crx_incidence.cpp
     src/crx_joint_recovery.cpp
     src/crx_polynomial_roots.cpp
