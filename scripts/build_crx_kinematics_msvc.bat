@@ -94,6 +94,8 @@ popd
 exit /b 0
 
 :check
+"%UV_EXE%" sync --locked --check
+if errorlevel 1 goto :fail
 "%UV_EXE%" run --locked --no-sync python -c "import sys, struct, importlib.metadata as m; print(sys.version); assert struct.calcsize('P') == 8, '64-bit Python required'; [print(name, m.version(name)) for name in ('hypothesis', 'numpy', 'pandas', 'pytest', 'robodk')]"
 if errorlevel 1 goto :fail
 "%UV_EXE%" pip check
