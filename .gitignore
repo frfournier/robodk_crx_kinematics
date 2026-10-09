@@ -354,3 +354,5 @@ __marimo__/
 .docker/data/
 .docker/secrets/
 AGENTS.md
+
+notes/*.md
