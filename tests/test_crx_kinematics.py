@@ -20,7 +20,6 @@ POSE_POS_TOL_MM = 0.027  # mm
 POSE_ANG_TOL_DEG = 0.018  # deg
 JOINT_TOL_DEG = 0.009  # deg
 FUZZ_JOINT_TOL_DEG = JOINT_TOL_DEG  # deg
-KNOWN_INVALID_CONFIGS = {("ABBES-TABLE6", 4)}
 CONFIG_FIXTURE_CASES = {
     "HOME",
     "PERCH",
@@ -337,8 +336,6 @@ def test_fixture_config_letters_are_legal():
         for p in _PARAMS
         if not _is_legal_fixture_config(p.values[0]["config"])
     ]
-    if invalid == [("ABBES-TABLE6", 4, {"FB": "N", "UD": "B", "TB": "D"})]:
-        pytest.xfail("Known invalid ABBES-TABLE6 SOL4 fixture config anomaly")
     assert invalid == []
 
 
