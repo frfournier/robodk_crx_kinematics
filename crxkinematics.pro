@@ -30,6 +30,7 @@ INCLUDEPATH += $$PWD/include $$PWD/src $$PWD
 SOURCES += \
     $$PWD/src/crx_canonical.cpp \
     $$PWD/src/crx_incidence.cpp \
+    $$PWD/src/crx_joint_recovery.cpp \
     $$PWD/src/crx_polynomial_roots.cpp \
     $$PWD/src/crx_kinematics.cpp \
     $$PWD/src/crx_solver.cpp \
@@ -38,6 +39,7 @@ SOURCES += \
 HEADERS += \
     $$PWD/src/crx_canonical.h \
     $$PWD/src/crx_incidence.h \
+    $$PWD/src/crx_joint_recovery.h \
     $$PWD/src/crx_polynomial_roots.h \
     $$PWD/include/crx_kinematics.h \
     $$PWD/include/crx_types.h \
