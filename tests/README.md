@@ -26,6 +26,15 @@ The Windows integration setup checks that the deployed DLL matches the build and
 skips on a missing or stale deployment; tests never copy files into RoboDK.
 The default suite and CTest release gate skip live tests and run native checks.
 
+## Command turns, ranking and capacity (#17)
+
+`crx.command-lifts` tests the private `crx_command_lifts` selector against 200
+independently enumerated finite catalogues, with seeded and seedless orderings
+and several capacities. Further cases cover shifted limits, both midpoint ties,
+the G7 coupled-metric counterexample, invalid/repeated early candidates, a late
+nearest candidate after more than 32 postures, seed preservation, clamped
+roundoff, count/integer/travel overflow and explicit work exhaustion.
+
 ## Fixture provenance
 
 The parametrized CRX-10iA cases combine legacy regression observations from:

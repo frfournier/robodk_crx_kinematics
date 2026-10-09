@@ -168,6 +168,7 @@ endforeach()
 # Library target (src/)
 # ------------------------------------------------------------------------------
 set(CRXKIN_CPP_SOURCES
+  "${CMAKE_SOURCE_DIR}/src/crx_command_lifts.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_canonical.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_discovery.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_incidence.cpp"
@@ -313,6 +314,12 @@ endif()
 # Tests and verification utility
 # ------------------------------------------------------------------------------
 if(BUILD_TESTING)
+  add_executable(crx_command_lift_tests
+    tests/test_crx_command_lifts.cpp src/crx_command_lifts.cpp
+    src/crx_math_helpers.cpp src/crx_math_compat.cpp src/crx_vector_helpers.cpp)
+  target_include_directories(crx_command_lift_tests PRIVATE src)
+  target_link_libraries(crx_command_lift_tests PRIVATE Eigen3::Eigen)
+  add_test(NAME crx.command-lifts COMMAND crx_command_lift_tests)
   # Compile the internal comparison kernel directly into an assertion-enabled
   # harness. These definitions must cover every Eigen-using translation unit;
   # the Release DLL's NDEBUG build is not an allocation test.
@@ -361,7 +368,7 @@ if(BUILD_TESTING)
     add_custom_target(check
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
               --output-on-failure
-      DEPENDS crx_kinematics crx_canonical_tests
+      DEPENDS crx_kinematics crx_canonical_tests crx_command_lift_tests
       COMMENT "Running CMake/CTest regression checks"
       USES_TERMINAL
       VERBATIM

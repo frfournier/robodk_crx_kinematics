@@ -28,6 +28,7 @@ win32 {
 INCLUDEPATH += $$PWD/include $$PWD/src $$PWD
 
 SOURCES += \
+    $$PWD/src/crx_command_lifts.cpp \
     $$PWD/src/crx_canonical.cpp \
     $$PWD/src/crx_discovery.cpp \
     $$PWD/src/crx_incidence.cpp \
@@ -41,6 +42,7 @@ SOURCES += \
     $$PWD/src/crx_vector_helpers.cpp
 
 HEADERS += \
+    $$PWD/src/crx_command_lifts.h \
     $$PWD/src/crx_canonical.h \
     $$PWD/src/crx_discovery.h \
     $$PWD/src/crx_incidence.h \
