@@ -28,11 +28,13 @@ win32 {
 INCLUDEPATH += $$PWD/include $$PWD/src $$PWD
 
 SOURCES += \
+    $$PWD/src/crx_canonical.cpp \
     $$PWD/src/crx_kinematics.cpp \
     $$PWD/src/crx_solver.cpp \
     $$PWD/src/crx_robodk_adapter.cpp
 
 HEADERS += \
+    $$PWD/src/crx_canonical.h \
     $$PWD/include/crx_kinematics.h \
     $$PWD/include/crx_types.h \
     $$PWD/include/crx_math_helpers.h \

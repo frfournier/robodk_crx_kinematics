@@ -168,6 +168,7 @@ endforeach()
 # Library target (src/)
 # ------------------------------------------------------------------------------
 set(CRXKIN_CPP_SOURCES
+  "${CMAKE_SOURCE_DIR}/src/crx_canonical.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
@@ -176,6 +177,7 @@ set(CRXKIN_CPP_SOURCES
 
 file(GLOB CRXKIN_FORMAT_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/src/*.cpp"
+  "${CMAKE_SOURCE_DIR}/src/*.h"
   "${CMAKE_SOURCE_DIR}/include/*.h"
   "${CMAKE_SOURCE_DIR}/include/*.hpp"
   "${CMAKE_SOURCE_DIR}/tests/*.cpp"
