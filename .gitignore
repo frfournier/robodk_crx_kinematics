@@ -1,8 +1,7 @@
 # Do not check vendored dependencies
 third_party/
 
-# Local Python dependency resolution
-uv.lock
+# Commit uv.lock so installs and CTest use the reviewed dependency versions.
 
 # Standard C++
 # Prerequisites
