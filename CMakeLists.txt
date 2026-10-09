@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.25)
 
 # ------------------------------------------------------------------------------
 # Project
@@ -315,7 +315,7 @@ if(BUILD_TESTING)
   if(CRXKIN_UV_EXECUTABLE)
     add_test(
       NAME crx.python-regression
-      COMMAND "${CRXKIN_UV_EXECUTABLE}" run pytest
+      COMMAND "${CRXKIN_UV_EXECUTABLE}" run --locked pytest
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
     set_tests_properties(crx.python-regression PROPERTIES

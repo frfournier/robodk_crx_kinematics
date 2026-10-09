@@ -42,15 +42,16 @@ CRX-10iA check.
 ### Prerequisites
 
 - Git with Git LFS
-- Visual Studio 2022 with:
+- Visual Studio 2022 or 2026 with:
   - Desktop development with C++
   - C++ Clang tools for Windows
-  - CMake and Ninja
+  - CMake 3.25 or newer and Ninja
+- [uv](https://docs.astral.sh/uv/) for the pinned Python and test dependencies
 
-Clone the repository and initialize Eigen:
+Clone the repository and download the RoboDK assets:
 
 ```powershell
-git clone --recurse-submodules https://github.com/frfournier/robodk_crx_kinematics.git
+git clone https://github.com/frfournier/robodk_crx_kinematics.git
 cd robodk_crx_kinematics
 git lfs pull
 ```
@@ -67,14 +68,21 @@ Output:
 build\Release\crx_kinematics.dll
 ```
 
-The script finds Visual Studio, initializes its x64 environment, and builds
-with `clang-cl`, CMake, and Ninja.
-
-If the repository was cloned without submodules, run this first:
+The script finds a Visual Studio installation containing all required C++ tools,
+initializes its x64 environment, installs the locked Python dependencies, and
+builds the `windows-clang-release-tidy` preset with `clang-cl`, CMake, and Ninja.
+Deployment is disabled. Use `--verify` to run the complete release gate, or check
+an existing installation without building:
 
 ```powershell
-git submodule update --init --recursive
+uv sync --locked
+scripts\build_crx_kinematics_msvc.bat --check
+scripts\build_crx_kinematics_msvc.bat --verify
 ```
+
+Eigen is not tracked as a submodule in this repository. CMake uses a separately
+provided `third_party/eigen` tree when available and otherwise downloads Eigen
+5.0.1. The first build without local headers therefore requires network access.
 
 ## Compile on Linux
 
@@ -114,7 +122,9 @@ receives the project's full regression coverage.
 
 ## Developer verification
 
-Tests use [uv](https://docs.astral.sh/uv/) and Python 3.12 or newer.
+Tests use [uv](https://docs.astral.sh/uv/) and the Python patch release pinned in
+`.python-version`; the package supports Python 3.12 or newer. Commit changes to
+`uv.lock` alongside dependency updates so `--locked` installs are reproducible.
 See the [test documentation](tests/README.md) for suite organization, fixture
 provenance, and fixture regeneration instructions.
 
@@ -123,8 +133,7 @@ provenance, and fixture regeneration instructions.
 Run these commands from an x64 Visual Studio Developer PowerShell:
 
 ```powershell
-git submodule update --init --recursive
-uv sync
+uv sync --locked
 cmake --workflow --preset windows-clang-release-verify
 ```
 
@@ -134,13 +143,17 @@ After building the Linux library and installing `uv`, run from the repository
 root:
 
 ```bash
-uv sync
+uv sync --locked
 CRXKIN_LIBRARY_PATH="$PWD/build/Release/libcrx_kinematics.so" \
-  uv run pytest
+  uv run --locked pytest
 ```
 
 Do not run `scripts/install.bat` for a normal build. It is a repository
 bootstrap script that modifies Git configuration and creates commits.
+
+The default test gate skips live RoboDK integration. After explicitly deploying
+the current Release DLL, use `uv run --locked pytest --run-robodk` to include it.
+Tests check the deployed DLL's hash and never deploy it automatically.
 
 ## How it works
 
