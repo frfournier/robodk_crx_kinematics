@@ -1,4 +1,5 @@
 #include "crx_incidence.h"
+#include "crx_numerics.h"
 #include "crx_types.h"
 
 #include <algorithm>
@@ -8,32 +9,26 @@
 
 namespace crx::canonical {
 namespace {
-constexpr double kDirectionTolerance =
-    256.0 * std::numeric_limits<double>::epsilon();
-constexpr double kResidualTolerance =
-    512.0 * std::numeric_limits<double>::epsilon();
 // Roundoff-sized wrist-plane incompatibility produces a numerical candidate,
 // not a definitive branch rejection. Joint recovery and full FK must still
 // accept it at the caller's unchanged physical tolerances. Not calibration
 // slack.
-constexpr double kAmbiguityFactor = 8.0;
 
 auto SphereMatches(double squared_length, const Vec3 &vector) -> bool {
   const double squared = vector.squaredNorm();
-  return std::isfinite(squared) &&
-         std::abs(squared - squared_length) <=
-             kResidualTolerance * std::max(squared, squared_length);
+  return std::isfinite(squared) && std::abs(squared - squared_length) <=
+                                       numerics::kIncidenceResidualTolerance *
+                                           std::max(squared, squared_length);
 }
 } // namespace
 
 auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
     -> ElbowCandidates {
   ElbowCandidates result;
-  constexpr double kUnitTolerance =
-      128.0 * std::numeric_limits<double>::epsilon();
-  if (!std::isfinite(a) || !std::isfinite(b) || a == 0.0 || b == 0.0 ||
+  if (!std::isfinite(a) || !std::isfinite(b) ||
+      numerics::IsRepresentedZero(a) || numerics::IsRepresentedZero(b) ||
       !x.allFinite() || !u.allFinite() ||
-      std::abs(u.squaredNorm() - 1.0) > kUnitTolerance) {
+      std::abs(u.squaredNorm() - 1.0) > numerics::kUnitTolerance) {
     return result;
   }
   result.status = IncidenceStatus::NumericalRangeFailure;
@@ -41,14 +36,17 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
   const double b_squared = b * b;
   const double squared_distance = x.squaredNorm();
   if (!std::isfinite(a_squared) || !std::isfinite(b_squared) ||
-      !std::isfinite(squared_distance) || a_squared == 0.0 ||
-      b_squared == 0.0 || (squared_distance == 0.0 && !x.isZero(0.0))) {
+      !std::isfinite(squared_distance) ||
+      numerics::IsRepresentedZero(a_squared) ||
+      numerics::IsRepresentedZero(b_squared) ||
+      (numerics::IsRepresentedZero(squared_distance) &&
+       !x.array().unaryExpr(&numerics::IsRepresentedZero).all())) {
     return result;
   }
   const double distance = std::sqrt(squared_distance);
   const double horizontal = std::hypot(x.x(), x.y());
   const double scale = std::max({std::abs(a), std::abs(b), distance});
-  if (distance <= kDirectionTolerance * scale) {
+  if (distance <= numerics::kDirectionTolerance * scale) {
     result.status = IncidenceStatus::NeedsRefinement;
     return result;
   }
@@ -57,31 +55,35 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
       ((a - b) * (a + b) + squared_distance) / (2.0 * distance);
   const double height_squared = a_squared - along * along;
   const double height_scale = std::max(a_squared, along * along);
-  const double height_tolerance = kResidualTolerance * height_scale;
+  const double height_tolerance =
+      numerics::kIncidenceResidualTolerance * height_scale;
   if (!std::isfinite(along) || !std::isfinite(height_squared) ||
-      !std::isfinite(height_tolerance) || height_tolerance == 0.0) {
+      !std::isfinite(height_tolerance) ||
+      numerics::IsRepresentedZero(height_tolerance)) {
     return result;
   }
-  if (height_squared < -kAmbiguityFactor * height_tolerance) {
+  if (height_squared <
+      -numerics::kIncidenceAmbiguityFactor * height_tolerance) {
     result.status = IncidenceStatus::NoCandidate;
     return result;
   }
-  if (horizontal <= kDirectionTolerance * scale) {
+  if (horizontal <= numerics::kDirectionTolerance * scale) {
     // On the base axis, the base plane is determined by the elbow instead.
     // Intersect the horizontal arm-circle with the unsquared wrist plane.
     const double z = along * (x.z() / distance);
     const double wrist_horizontal = std::hypot(u.x(), u.y());
     const double rhs = (x.z() - z) * u.z();
-    if (wrist_horizontal <= kDirectionTolerance) {
-      result.status = std::abs(rhs) > kResidualTolerance * scale
-                          ? IncidenceStatus::NoCandidate
-                          : IncidenceStatus::NeedsRefinement;
+    if (wrist_horizontal <= numerics::kDirectionTolerance) {
+      result.status =
+          std::abs(rhs) > numerics::kIncidenceResidualTolerance * scale
+              ? IncidenceStatus::NoCandidate
+              : IncidenceStatus::NeedsRefinement;
       return result;
     }
     const Vec3 direction(u.x() / wrist_horizontal, u.y() / wrist_horizontal, 0);
     const double along_plane = rhs / wrist_horizontal;
     const double remaining = height_squared - along_plane * along_plane;
-    if (remaining < -kAmbiguityFactor * height_tolerance) {
+    if (remaining < -numerics::kIncidenceAmbiguityFactor * height_tolerance) {
       result.status = IncidenceStatus::NoCandidate;
       return result;
     }
@@ -93,7 +95,8 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
     for (std::size_t i = 0; i < count; ++i) {
       if (!SphereMatches(a_squared, points[i]) ||
           !SphereMatches(b_squared, points[i] - x) ||
-          std::abs((points[i] - x).dot(u)) > kResidualTolerance * scale) {
+          std::abs((points[i] - x).dot(u)) >
+              numerics::kIncidenceResidualTolerance * scale) {
         result.status = IncidenceStatus::NeedsRefinement;
         return result;
       }
@@ -110,21 +113,21 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
                            horizontal / distance);
   const Vec3 center = along * radial;
   const double slope = perpendicular.dot(u);
-  if (height_squared <=
-      std::sqrt(std::sqrt(std::numeric_limits<double>::epsilon())) *
-          height_scale) {
-    // At a straight/folded arm, sqrt(a²-along²) loses the small elbow
+  if (height_squared <= numerics::kFourthRootEpsilon * height_scale) {
+    // At a straight/folded arm, sqrt(aÂ²-alongÂ²) loses the small elbow
     // displacement. Recover its signed value from the unsquared wrist plane
     // instead, then check both original spheres. No division by the height.
     const double residual = (center - x).dot(u);
     Vec3 elbow = center;
-    if (std::abs(slope) > kDirectionTolerance) {
+    if (std::abs(slope) > numerics::kDirectionTolerance) {
       elbow -= (residual / slope) * perpendicular;
     }
-    if (std::abs(slope) > kDirectionTolerance || height_squared <= 0) {
+    if (std::abs(slope) > numerics::kDirectionTolerance ||
+        height_squared <= 0) {
       if (SphereMatches(a_squared, elbow) &&
           SphereMatches(b_squared, elbow - x) &&
-          std::abs((elbow - x).dot(u)) <= kResidualTolerance * scale) {
+          std::abs((elbow - x).dot(u)) <=
+              numerics::kIncidenceResidualTolerance * scale) {
         result.status = IncidenceStatus::PointCandidates;
         result.points[0] = elbow;
         result.count = 1;
@@ -133,7 +136,9 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
             std::max(std::abs(elbow.squaredNorm() - a_squared),
                      std::abs((elbow - x).squaredNorm() - b_squared));
         result.status =
-            sphere_error > kAmbiguityFactor * kResidualTolerance * scale * scale
+            sphere_error > numerics::kIncidenceAmbiguityFactor *
+                               numerics::kIncidenceResidualTolerance * scale *
+                               scale
                 ? IncidenceStatus::NoCandidate
                 : IncidenceStatus::NeedsRefinement;
       }
@@ -147,7 +152,7 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
   for (const Vec3 &elbow : elbows) {
     const Vec3 forearm = elbow - x;
     const double error = std::abs(forearm.dot(u));
-    const double tolerance = kResidualTolerance * scale;
+    const double tolerance = numerics::kIncidenceResidualTolerance * scale;
     if (!elbow.allFinite() || !std::isfinite(error)) {
       return result;
     }
@@ -156,7 +161,7 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
       result.status = IncidenceStatus::NeedsRefinement;
       return result;
     }
-    if (error <= kAmbiguityFactor * tolerance) {
+    if (error <= numerics::kIncidenceAmbiguityFactor * tolerance) {
       accepted[count++] = elbow;
     }
   }

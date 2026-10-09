@@ -5,6 +5,7 @@
 #include <functional>
 #include <vector>
 
+#include "crx_numerics.h"
 #include "crx_types.h"
 
 namespace crx {
@@ -45,6 +46,7 @@ auto ClampCommandToLimits(Vec6 &command, const Vec6 &lower, const Vec6 &upper)
 auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
                         const Vec6 &upper, const Vec6 *seed, int capacity,
                         const std::function<bool(const Vec6 &)> &validate,
-                        std::uint64_t work_limit = 1048576) -> CommandSelection;
+                        std::uint64_t work_limit = numerics::kCommandLiftBudget)
+    -> CommandSelection;
 
 } // namespace crx

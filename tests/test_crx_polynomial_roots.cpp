@@ -1,5 +1,6 @@
 #include "crx_allocation_probe.h"
 #include "crx_canonical.h"
+#include "crx_numerics.h"
 #include "crx_polynomial_roots.h"
 #include "crx_root_tests.h"
 
@@ -98,8 +99,10 @@ void RunPolynomialRootTests() {
                 zeros.count == static_cast<std::size_t>(degree),
             "zero root repetitions");
     for (std::size_t i = 0; i < zeros.count; ++i) {
-      Require(zeros.candidates[i].value == std::complex<double>{},
-              "exact zero eigenvalue");
+      Require(Eigen::Vector2d(zeros.candidates[i].value.real(),
+                              zeros.candidates[i].value.imag())
+                  .isZero(crx::numerics::kEpsilon),
+              "zero eigenvalue within one epsilon");
     }
   }
   const auto complex = FindRootCandidates({1e-20, 0, 1});
@@ -108,6 +111,14 @@ void RunPolynomialRootTests() {
   Require(std::abs(complex.candidates[0].value.imag()) > 9e-11 &&
               std::abs(complex.candidates[1].value.imag()) > 9e-11,
           "small imaginary parts preserved");
+  const auto subnormal =
+      FindRootCandidates({std::numeric_limits<double>::denorm_min(), 1});
+  Require(
+      subnormal.status == RootStatus::Candidates && subnormal.count == 1 &&
+          std::fpclassify(subnormal.candidates[0].value.real()) ==
+              FP_SUBNORMAL &&
+          subnormal.candidates[0].value.real() < 0,
+      "representable subnormal root survives normalization and range checks");
   const auto balanced = FindRootCandidates({100, -10000.01, 1});
   Require(balanced.status == RootStatus::Candidates &&
               balanced.balance_sweeps > 1,

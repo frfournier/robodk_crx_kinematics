@@ -46,9 +46,10 @@ struct PolynomialValue {
 
 // Lengths and translation share one unit. a,b must be nonzero; c,r may be zero.
 // L=max(|a|,|b|,|c|,|r|). Input must already be in canonical coordinates.
-// Rotation roundoff within 128*epsilon is accepted without projection; larger
-// orthogonality/determinant errors and non-affine bottom rows are rejected.
-// Failure leaves output unchanged. Ready means prepared, never IK feasibility.
+// Rotation and homogeneous-row roundoff within 128*epsilon is accepted without
+// projection; larger orthogonality/determinant and bottom-row errors are
+// rejected. Failure leaves output unchanged. Ready means prepared, never IK
+// feasibility.
 auto PrepareWristCircle(const Lengths &lengths, const PoseIsoRT &target,
                         WristCircle &output) -> PreparationStatus;
 

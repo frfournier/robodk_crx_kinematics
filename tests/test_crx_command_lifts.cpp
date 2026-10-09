@@ -1,5 +1,6 @@
 #include "crx_command_lifts.h"
 #include "crx_math_helpers.h"
+#include "crx_numerics.h"
 #include "crx_vector_helpers.h"
 
 #include <algorithm>
@@ -53,14 +54,19 @@ void ExhaustiveReference() {
       }
     }
     const bool seeded = trial % 2 == 0;
-    std::sort(
-        expected.begin(), expected.end(), [&](const Vec6 &a, const Vec6 &b) {
-          if (seeded && (a - seed).squaredNorm() != (b - seed).squaredNorm()) {
-            return (a - seed).squaredNorm() < (b - seed).squaredNorm();
-          }
-          return std::lexicographical_compare(a.data(), a.data() + 6, b.data(),
-                                              b.data() + 6);
-        });
+    std::sort(expected.begin(), expected.end(),
+              [&](const Vec6 &a, const Vec6 &b) {
+                if (seeded) {
+                  if ((a - seed).squaredNorm() < (b - seed).squaredNorm()) {
+                    return true;
+                  }
+                  if ((b - seed).squaredNorm() < (a - seed).squaredNorm()) {
+                    return false;
+                  }
+                }
+                return std::lexicographical_compare(a.data(), a.data() + 6,
+                                                    b.data(), b.data() + 6);
+              });
     for (int capacity : {1, 7, 64}) {
       const auto actual = crx::SelectCommandLifts(
           {phase, phase + Vec6::Constant(kTau)}, lo, hi,
@@ -169,7 +175,9 @@ void BoundariesAndFailures() {
   boundary[0] = std::nextafter(1.0, 2.0);
   Require(crx::ClampCommandToLimits(boundary, Vec6::Zero(), Vec6::Ones()),
           "roundoff clamp");
-  Require(boundary[0] == 1.0, "clamped boundary");
+  Require(crx::numerics::Scalar(boundary[0])
+              .isApproxToConstant(1.0, crx::numerics::kEpsilon),
+          "clamped boundary");
   boundary[0] = 1.00001;
   Require(!crx::ClampCommandToLimits(boundary, Vec6::Zero(), Vec6::Ones()),
           "no physical tolerance expansion");
@@ -189,23 +197,30 @@ void LateCandidatesAndSeed() {
   seed[5] = 0.01; // Not a target witness: selection cannot insert it.
   auto result = crx::SelectCommandLifts(
       phases, Vec6::Constant(-1.0), Vec6::Constant(1.0), &seed, 1,
-      [](const Vec6 &q) { return q[5] == 0.0; });
+      [](const Vec6 &q) {
+        return crx::numerics::Scalar(q[5]).isZero(crx::numerics::kEpsilon);
+      });
   Require(result.valid_lifts == 40 && result.commands.size() == 1,
           "late valid phases survive invalid raw hits and 32 cap");
   Require(std::abs(result.commands[0].command_rad[0] - 0.39) < 1e-12,
           "late nearest survives cap");
   seed[5] = 0.0;
-  result = crx::SelectCommandLifts(phases, Vec6::Constant(-1.0),
-                                   Vec6::Constant(1.0), &seed, 64,
-                                   [](const Vec6 &q) { return q[5] == 0.0; });
+  result = crx::SelectCommandLifts(
+      phases, Vec6::Constant(-1.0), Vec6::Constant(1.0), &seed, 64,
+      [](const Vec6 &q) {
+        return crx::numerics::Scalar(q[5]).isZero(crx::numerics::kEpsilon);
+      });
   Require(result.valid_lifts == 40 && result.commands.size() == 40,
           "seed deduplication");
   Require(result.seed_added && result.seed_matches_discovery &&
               result.commands.front().preserved_seed,
           "seed accounted separately");
   const Vec6 command = (Vec6() << 0.0, 1.0, -1.0, 0.0, 0.0, 0.0).finished();
-  Require(crx::CommandToUser(command)[2] == -2.0, "coupling");
-  Require(crx::UserToCommand(crx::CommandToUser(command)) == command,
+  Require(crx::numerics::Scalar(crx::CommandToUser(command)[2])
+              .isApproxToConstant(-2.0, crx::numerics::kEpsilon),
+          "coupling");
+  Require(crx::UserToCommand(crx::CommandToUser(command))
+              .isApprox(command, crx::numerics::kEpsilon),
           "command mapping inverse");
 }
 
@@ -228,10 +243,52 @@ void CoupledMetricCounterexample() {
       });
   Require(result.commands.size() == 4, "coupled finite catalogue");
   const Vec6 best = crx::CommandToUser(result.commands.front().command_rad);
-  Require(best[1] == 0.0 && best[2] == kTau, "transported command metric");
+  Require(crx::numerics::Scalar(best[1]).isZero(crx::numerics::kEpsilon) &&
+              crx::numerics::Scalar(best[2]).isApproxToConstant(
+                  kTau, crx::numerics::kEpsilon),
+          "transported command metric");
   Require(std::abs(result.commands.front().travel_squared / (kTau * kTau) -
                    0.2405) < 1e-12,
           "cross-term reference cost");
+}
+
+void RoundoffBoundariesAndOrdering() {
+  for (double sign : {-1.0, 1.0}) {
+    for (double ulps : {1.0, 32.0, 256.0}) {
+      Vec6 phase = Vec6::Zero();
+      phase[5] = angle_conv::kPi + sign * ulps * crx::numerics::kEpsilon;
+      const auto result = crx::SelectCommandLifts(
+          {phase}, Vec6::Constant(-angle_conv::kPi),
+          Vec6::Constant(angle_conv::kPi), nullptr, 64, Accept);
+      Require(
+          result.commands.size() == (ulps < 64 ? 2U : 1U),
+          "roundoff near pi retains boundary lifts without widening limits");
+    }
+  }
+  // Different phases with almost equal squared travel. A fuzzy comparator
+  // could mistake these for ties and prefer the lexicographically lower one.
+  std::vector<Vec6> phases(3, Vec6::Zero());
+  phases[0][0] = 1;
+  phases[1][0] = -1 - 4 * crx::numerics::kEpsilon;
+  phases[2][1] = 1 + 8 * crx::numerics::kEpsilon;
+  Vec6 seed = Vec6::Zero();
+  for (int permutation = 0; permutation < 3; ++permutation) {
+    for (int capacity : {1, 2, 3}) {
+      const auto result = crx::SelectCommandLifts(
+          phases, Vec6::Constant(-2), Vec6::Constant(2), &seed, capacity,
+          [](const Vec6 &q) { return q.norm() > .5; });
+      Require(result.commands.size() == static_cast<std::size_t>(capacity),
+              "near-tie capacity");
+      Require(result.commands.front().command_rad[0] > .5,
+              "nearest cost wins even inside approximate equality tolerance");
+      for (std::size_t i = 1; i < result.commands.size(); ++i) {
+        Require(result.commands[i - 1].travel_squared <
+                    result.commands[i].travel_squared,
+                "near-tie costs remain strictly ordered");
+      }
+    }
+    std::rotate(phases.begin(), phases.begin() + 1, phases.end());
+  }
 }
 } // namespace
 
@@ -240,6 +297,7 @@ auto main() -> int {
   BoundariesAndFailures();
   LateCandidatesAndSeed();
   CoupledMetricCounterexample();
+  RoundoffBoundariesAndOrdering();
   std::puts(
       "Command lift reference, capacity, boundary and failure checks passed");
 }

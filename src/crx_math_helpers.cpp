@@ -1,4 +1,5 @@
 #include "crx_math_helpers.h"
+#include "crx_numerics.h"
 
 #include <array>
 #include <cmath>
@@ -36,9 +37,9 @@ auto ClampCosineNearUnit(double value) -> double {
   if (!std::isfinite(value))
     return value;
   if (value > 1.0)
-    return (value <= 1.0 + kCosineClampTolerance) ? 1.0 : value;
+    return (value <= 1.0 + numerics::kCosineClampTolerance) ? 1.0 : value;
   if (value < -1.0)
-    return (value >= -1.0 - kCosineClampTolerance) ? -1.0 : value;
+    return (value >= -1.0 - numerics::kCosineClampTolerance) ? -1.0 : value;
   return value;
 }
 

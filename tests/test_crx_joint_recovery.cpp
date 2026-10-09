@@ -4,6 +4,7 @@
 #include "crx_canonical.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
+#include "crx_numerics.h"
 #include "crx_types.h"
 
 #include <algorithm>
@@ -388,7 +389,8 @@ void TestTargetOnlyDiscovery() {
               BuildHalfAnglePolynomial(circle, 0, polynomial) ==
                   PreparationStatus::Ready &&
               RepresentedDegree(polynomial.coefficients) == 7 &&
-              polynomial.omitted_point_residual == 0,
+              crx::numerics::Scalar(polynomial.omitted_point_residual)
+                  .isZero(crx::numerics::kEpsilon),
           "exact degree-seven chart with an omitted root");
   const auto endpoints =
       DiscoverJointCandidates(endpoint_lengths, endpoint, {1e-9, 1e-9});

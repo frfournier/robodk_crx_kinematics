@@ -2,6 +2,7 @@
 #include "crx_canonical.h"
 #include "crx_incidence_tests.h"
 #include "crx_joint_recovery_tests.h"
+#include "crx_numerics.h"
 #include "crx_polynomial_roots.h"
 #include "crx_root_tests.h"
 
@@ -128,7 +129,7 @@ void CheckCharts(const WristCircle &circle) {
       Near(TriangleResidual(circle, angle),
            4 * circle.lengths.r * circle.lengths.r * residual,
            "triangle identity without dividing by radial length");
-      if (tau != 0.0) {
+      if (!crx::numerics::Scalar(tau).isZero(crx::numerics::kEpsilon)) {
         auto reciprocal = polynomial.coefficients;
         std::reverse(reciprocal.begin(), reciprocal.end());
         const double sigma = 1 / tau;
@@ -197,19 +198,29 @@ void TestNormalization() {
 }
 
 void TestDegeneratePolynomials() {
+  const auto coefficients_match = [](const Coefficients &a,
+                                     const Coefficients &b) {
+    using Vector = Eigen::Matrix<double, kCoefficientCount, 1>;
+    return (Eigen::Map<const Vector>(a.data()) -
+            Eigen::Map<const Vector>(b.data()))
+        .isZero(crx::numerics::kEpsilon);
+  };
   PoseIsoRT target = PoseIsoRT::Identity();
   auto circle = Prepare({1, 1, 0, 1}, target);
   const Coefficients constant_residual{0.25, 0, 1, 0, 1.5, 0, 1, 0, 0.25};
-  Require(PolynomialFor(circle).coefficients == constant_residual,
-          "constant residual gives Q^4/4 in the finite chart");
+  Require(
+      coefficients_match(PolynomialFor(circle).coefficients, constant_residual),
+      "constant residual gives Q^4/4 in the finite chart");
 
   target.translation().x() = 1;
   circle = Prepare({1, 1, 0, 1}, target);
   auto polynomial = PolynomialFor(circle);
-  Require(polynomial.coefficients == Coefficients{16, 0, 0, 0, 0, 0, 0, 0, 0},
+  Require(coefficients_match(polynomial.coefficients,
+                             Coefficients{16, 0, 0, 0, 0, 0, 0, 0, 0}),
           "exact degree-zero polynomial with omitted-point zero");
   Require(RepresentedDegree(polynomial.coefficients) == 0 &&
-              polynomial.omitted_point_residual == 0,
+              crx::numerics::Scalar(polynomial.omitted_point_residual)
+                  .isZero(crx::numerics::kEpsilon),
           "constant polynomial still requires pi incidence");
   Require(FindRootCandidates(polynomial.coefficients).status ==
               RootStatus::ConstantPolynomial,
@@ -217,8 +228,9 @@ void TestDegeneratePolynomials() {
   // a=1/2,b=r=1,p=ex: P=(4+(3/4)Q)^2, an exact degree-four case.
   circle = Prepare({0.5, 1, 0, 1}, target);
   polynomial = PolynomialFor(circle);
-  Require(polynomial.coefficients ==
-              Coefficients{22.5625, 0, 7.125, 0, 0.5625, 0, 0, 0, 0},
+  Require(coefficients_match(
+              polynomial.coefficients,
+              Coefficients{22.5625, 0, 7.125, 0, 0.5625, 0, 0, 0, 0}),
           "exact degree-four coefficient cancellation");
   Require(RepresentedDegree(polynomial.coefficients) == 4,
           "degree four retained");
@@ -227,7 +239,8 @@ void TestDegeneratePolynomials() {
   circle = Prepare({1, -0.5, 0, 0}, target);
   polynomial = PolynomialFor(circle);
   Require(RepresentedDegree(polynomial.coefficients) == -1 &&
-              polynomial.omitted_point_residual == 0,
+              crx::numerics::Scalar(polynomial.omitted_point_residual)
+                  .isZero(crx::numerics::kEpsilon),
           "origin zero polynomial is represented, never declared feasible");
   // Vertical O4 is another exceptional incidence domain; scalar zeros alone
   // do not provide a reconstruction or an infeasibility certificate.
@@ -273,7 +286,8 @@ void TestInvalidAndRangeFailures() {
     Require(PrepareWristCircle(lengths, identity, output) ==
                 PreparationStatus::InvalidInput,
             "invalid geometry rejected");
-    Require(output.length_scale == 123, "prepare failure leaves output intact");
+    Near(output.length_scale, 123, "prepare failure leaves output intact",
+         crx::numerics::kEpsilon);
   }
   for (int kind = 0; kind < 5; ++kind) {
     PoseIsoRT invalid = identity;
@@ -284,7 +298,7 @@ void TestInvalidAndRangeFailures() {
     if (kind == 2)
       invalid.translation().x() = infinity;
     if (kind == 3)
-      invalid.matrix()(3, 0) = 1e-16;
+      invalid.matrix()(3, 0) = 256 * crx::numerics::kEpsilon;
     if (kind == 4)
       invalid.linear()(0, 1) = nan;
     Require(PrepareWristCircle({1, 1, 0, 0}, invalid, output) ==
@@ -294,8 +308,23 @@ void TestInvalidAndRangeFailures() {
   auto roundoff = identity;
   roundoff.linear()(0, 0) += std::numeric_limits<double>::epsilon();
   const auto preserved = Prepare({1, 1, 0, 0}, roundoff);
-  Require(preserved.v.x() == roundoff.linear()(0, 0),
-          "roundoff is not projected");
+  Require(preserved.v.x() > 1.0, "roundoff is not projected to the identity");
+  Near(preserved.v.x(), roundoff.linear()(0, 0), "roundoff preserved",
+       crx::numerics::kEpsilon);
+  // Unit-scale row: accept ordinary rounding, reject values outside the
+  // existing 128-epsilon rigid-transform budget on either side.
+  for (int column = 0; column < 4; ++column) {
+    for (double sign : {-1.0, 1.0}) {
+      for (double ulps : {1.0, 64.0, 256.0}) {
+        auto perturbed = identity;
+        perturbed.matrix()(3, column) += sign * ulps * crx::numerics::kEpsilon;
+        const auto expected = ulps < 128 ? PreparationStatus::Ready
+                                         : PreparationStatus::InvalidInput;
+        Require(PrepareWristCircle({1, 1, 0, 0}, perturbed, output) == expected,
+                "homogeneous row uses the unit roundoff budget");
+      }
+    }
+  }
 
   Require(PrepareWristCircle({1e-300, 1e300, 0, 0}, identity, output) ==
               PreparationStatus::NumericalRangeFailure,
@@ -312,8 +341,8 @@ void TestInvalidAndRangeFailures() {
   Require(BuildHalfAnglePolynomial(huge_circle, 0, untouched) ==
               PreparationStatus::NumericalRangeFailure,
           "coefficient overflow is unresolved");
-  Require(untouched.chart_angle == 123,
-          "coefficient failure leaves output intact");
+  Near(untouched.chart_angle, 123, "coefficient failure leaves output intact",
+       crx::numerics::kEpsilon);
   Require(BuildHalfAnglePolynomial(Prepare({1, 1, 0, 0}, identity), infinity,
                                    untouched) ==
               PreparationStatus::InvalidInput,

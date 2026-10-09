@@ -1,4 +1,5 @@
 #include "crx_discovery.h"
+#include "crx_numerics.h"
 
 #include "crx_canonical.h"
 #include "crx_joint_recovery.h"
@@ -13,16 +14,6 @@
 
 namespace crx::canonical {
 namespace {
-constexpr double kPi = 3.14159265358979323846;
-constexpr double kEpsilon = std::numeric_limits<double>::epsilon();
-constexpr double kDuplicateTolerance = 1e-10;
-// Numerical handoff thresholds, not coefficient-error enclosures or root
-// certificates. FK acceptance uses the caller's physical pose tolerances.
-constexpr double kRootResidualTolerance = 1e-10;
-constexpr double kRootSlopeTolerance = 1e-8;
-constexpr double kNearRealTolerance = 1e-6;
-constexpr double kPolishRadius = 0.05;
-
 struct ElbowResidual {
   double value = 0;
   double derivative = 0;
@@ -39,7 +30,7 @@ auto EvaluateElbowResidual(const WristCircle &circle, double angle,
   const Vec3 x = circle.p + circle.lengths.r * u;
   const Vec3 dx = circle.lengths.r * du;
   const double distance = x.norm();
-  if (!std::isfinite(distance) || distance <= 256 * kEpsilon) {
+  if (!std::isfinite(distance) || distance <= numerics::kDirectionTolerance) {
     return false;
   }
   const Vec3 radial = x / distance;
@@ -47,7 +38,7 @@ auto EvaluateElbowResidual(const WristCircle &circle, double angle,
   const Vec3 dradial = (dx - radial * dd) / distance;
   const Vec3 vertical = Vec3::UnitZ() - radial.z() * radial;
   const double vertical_norm = vertical.norm();
-  if (vertical_norm <= 256 * kEpsilon) {
+  if (vertical_norm <= numerics::kDirectionTolerance) {
     return false;
   }
   const Vec3 perpendicular = vertical / vertical_norm;
@@ -61,12 +52,12 @@ auto EvaluateElbowResidual(const WristCircle &circle, double angle,
   const double along = (arm_difference + distance * distance) / (2 * distance);
   const double dalong = (x.dot(dx) - along * dd) / distance;
   const double height2 = a2 - along * along;
-  if (height2 <= std::sqrt(kEpsilon) * std::max(a2, along * along)) {
+  if (height2 <= numerics::kSqrtEpsilon * std::max(a2, along * along)) {
     // Near tangency differentiate the sphere residual after solving the
-    // unsquared wrist plane for the signed elbow height. sqrt(height²) and
+    // unsquared wrist plane for the signed elbow height. sqrt(heightÂ²) and
     // its derivative are ill-conditioned here, even for a simple root.
     const double slope = perpendicular.dot(u);
-    if (std::abs(slope) <= 256 * kEpsilon) {
+    if (std::abs(slope) <= numerics::kDirectionTolerance) {
       return false;
     }
     const Vec3 center = (along - distance) * radial;
@@ -97,9 +88,10 @@ auto EvaluateElbowResidual(const WristCircle &circle, double angle,
     // Near a multiple root, the other elbow can have a smaller residual but
     // an almost flat, nonzero constraint. Prefer the nearest Newton correction
     // instead of getting trapped polishing that incompatible elbow branch.
-    const double step = derivative == 0
-                            ? std::numeric_limits<double>::infinity()
-                            : std::abs(value / derivative);
+    const double step =
+        numerics::Scalar(derivative).isZero(numerics::kDirectionTolerance)
+            ? std::numeric_limits<double>::infinity()
+            : std::abs(value / derivative);
     if (step < best_step) {
       best = {value, derivative};
       best_step = step;
@@ -115,7 +107,7 @@ auto OutsideArmShell(const WristCircle &circle, double angle, double radius)
   const double distance = (circle.p + circle.lengths.r * u).norm();
   const double a = std::abs(circle.lengths.a);
   const double b = std::abs(circle.lengths.b);
-  const double margin = 8192 * kEpsilon * std::max({a, b, distance}) +
+  const double margin = numerics::kShellRoundoff * std::max({a, b, distance}) +
                         std::abs(circle.lengths.r) * radius;
   return std::isfinite(distance) &&
          (distance > a + b + margin || distance < std::abs(a - b) - margin);
@@ -141,15 +133,19 @@ auto PolishAndRecover(const Lengths &lengths, const PoseIsoRT &target,
     ElbowResidual residual;
     if (iteration == budget ||
         !EvaluateElbowResidual(circle, angle, residual) ||
-        std::abs(residual.derivative) <= 256 * kEpsilon) {
+        std::abs(residual.derivative) <= numerics::kDirectionTolerance) {
       break;
     }
-    double step = std::clamp(residual.value / residual.derivative, -0.25, 0.25);
+    double step =
+        std::clamp(residual.value / residual.derivative,
+                   -numerics::kPolishMaxStepRad, numerics::kPolishMaxStepRad);
     bool improved = false;
-    for (int backtrack = 0; backtrack < 8; ++backtrack) {
-      const double trial = std::remainder(angle - step, 2 * kPi);
+    for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
+         ++backtrack) {
+      const double trial = std::remainder(angle - step, 2 * angle_conv::kPi);
       ElbowResidual next;
-      if (std::abs(std::remainder(trial - initial_angle, 2 * kPi)) <= radius &&
+      if (std::abs(std::remainder(trial - initial_angle,
+                                  2 * angle_conv::kPi)) <= radius &&
           EvaluateElbowResidual(circle, trial, next) &&
           std::abs(next.value) < std::abs(residual.value)) {
         angle = trial;
@@ -200,13 +196,14 @@ auto AppendUnique(const JointRecovery &recovered, JointDiscovery &output)
     const auto &candidate = recovered.candidates[i];
     bool duplicate = false;
     for (std::size_t j = 0; j < output.count; ++j) {
-      const double difference = (candidate.joints - output.candidates[j].joints)
-                                    .unaryExpr([](double angle) {
-                                      return std::remainder(angle, 2 * kPi);
-                                    })
-                                    .cwiseAbs()
-                                    .maxCoeff();
-      duplicate = duplicate || difference <= kDuplicateTolerance;
+      const double difference =
+          (candidate.joints - output.candidates[j].joints)
+              .unaryExpr([](double angle) {
+                return std::remainder(angle, 2 * angle_conv::kPi);
+              })
+              .cwiseAbs()
+              .maxCoeff();
+      duplicate = duplicate || difference <= numerics::kJointPhaseToleranceRad;
     }
     if (!duplicate) {
       if (output.count == output.candidates.size()) {
@@ -233,12 +230,12 @@ auto BoundaryPhases(const WristCircle &circle) -> GeometricPhases {
     // Scale before forming the discriminant, so small coefficients do not
     // underflow when squared. A=B=0 has no isolated crossing to nominate.
     const double scale = std::max(std::abs(cosine), std::abs(sine));
-    if (scale == 0) {
+    if (numerics::IsRepresentedZero(scale)) {
       return;
     }
     const double a = cosine / scale, b = sine / scale;
     const double norm = std::hypot(a, b);
-    if (std::abs(rhs) > scale * norm + 64 * kEpsilon) {
+    if (std::abs(rhs) > scale * norm + numerics::kElementaryRoundoff) {
       return;
     }
     const double along = std::clamp((rhs / scale) / norm, -1.0, 1.0);
@@ -298,14 +295,14 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
     }
   }
   for (std::size_t i = 0; i <= roots.count; ++i) {
-    double angle = polynomial.chart_angle + kPi;
-    double radius = kPolishRadius;
+    double angle = polynomial.chart_angle + angle_conv::kPi;
+    double radius = numerics::kPolishRadiusRad;
     if (i == roots.count) {
       const Eigen::Map<const Eigen::Matrix<double, kCoefficientCount, 1>>
           mapped(polynomial.coefficients.data());
       const double scale = mapped.cwiseAbs().maxCoeff();
       if (std::abs(polynomial.omitted_point_residual) >
-          128 * kEpsilon * scale) {
+          numerics::kUnitTolerance * scale) {
         continue;
       }
     } else {
@@ -317,33 +314,34 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
       // Multiple real roots can split into conjugate eigenvalues. Their real
       // projections are starting guesses only: unsquared geometry and full FK
       // below, not the imaginary part or polynomial slope, decide acceptance.
-      if (relative_imaginary > 64 * kEpsilon) {
-        if (relative_imaginary > kNearRealTolerance &&
-            std::abs(projected.value) > kRootResidualTolerance) {
+      if (relative_imaginary > numerics::kElementaryRoundoff) {
+        if (relative_imaginary > numerics::kNearRealTolerance &&
+            std::abs(projected.value) > numerics::kRootResidualTolerance) {
           continue;
         }
       }
-      if (root.relative_residual > kRootResidualTolerance) {
+      if (root.relative_residual > numerics::kRootResidualTolerance) {
         result.status = RecoveryStatus::NeedsRefinement;
         return result;
       }
       angle = polynomial.chart_angle + 2 * std::atan(root.value.real());
       const bool ill_conditioned =
-          relative_imaginary > 64 * kEpsilon ||
-          std::abs(projected.derivative) <= kRootSlopeTolerance;
+          relative_imaginary > numerics::kElementaryRoundoff ||
+          std::abs(projected.derivative) <= numerics::kRootSlopeTolerance;
       for (std::size_t j = 0; j < roots.count; ++j) {
         if (i == j || ill_conditioned) {
           continue;
         }
         const double other = polynomial.chart_angle +
                              2 * std::atan(roots.candidates[j].value.real());
-        radius = std::min(
-            radius, 0.25 * std::abs(std::remainder(angle - other, 2 * kPi)));
+        radius = std::min(radius, numerics::kNeighborRadiusFraction *
+                                      std::abs(std::remainder(
+                                          angle - other, 2 * angle_conv::kPi)));
       }
     }
-    auto recovered = PolishAndRecover(lengths, target, circle,
-                                      std::remainder(angle, 2 * kPi), tolerance,
-                                      options.max_polish_iterations, radius);
+    auto recovered = PolishAndRecover(
+        lengths, target, circle, std::remainder(angle, 2 * angle_conv::kPi),
+        tolerance, options.max_polish_iterations, radius);
     if (recovered.status == RecoveryStatus::NeedsRefinement) {
       for (std::size_t j = 0; j < boundary_phases.count; ++j) {
         const auto &boundary = boundary_phases.values[j];
@@ -351,8 +349,8 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
         // recovery itself continues to use the original circle coordinates.
         const double boundary_angle =
             std::atan2(boundary.sine, boundary.cosine);
-        if (std::abs(std::remainder(boundary_angle - angle, 2 * kPi)) <=
-            radius) {
+        if (std::abs(std::remainder(boundary_angle - angle,
+                                    2 * angle_conv::kPi)) <= radius) {
           const auto trial =
               RecoverJointCandidates(lengths, target, boundary, tolerance);
           if (trial.status == RecoveryStatus::Candidates) {
@@ -385,8 +383,9 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   JointDiscovery result;
   if (!std::isfinite(tolerance.position) || tolerance.position <= 0 ||
       !std::isfinite(tolerance.orientation) || tolerance.orientation <= 0 ||
-      tolerance.orientation >= kPi || options.max_polish_iterations < 0 ||
-      options.max_polish_iterations > 64) {
+      tolerance.orientation >= angle_conv::kPi ||
+      options.max_polish_iterations < 0 ||
+      options.max_polish_iterations > numerics::kMaxPolishIterations) {
     return result;
   }
   WristCircle circle;
@@ -401,17 +400,19 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   // near the omitted point make geometric polishing ill-conditioned.
   const double closest_wrist =
       std::atan2(circle.p.dot(circle.w), circle.p.dot(circle.v)) +
-      (circle.lengths.r >= 0 ? kPi : 0.0);
+      (circle.lengths.r >= 0 ? angle_conv::kPi : 0.0);
   const Vec3 closest =
       circle.p + circle.lengths.r * (circle.v * std::cos(closest_wrist) +
                                      circle.w * std::sin(closest_wrist));
   const double first_chart =
-      closest.norm() < 0.01 * std::min(std::abs(circle.lengths.a),
-                                       std::abs(circle.lengths.b))
+      closest.norm() < numerics::kFoldedChartArmFraction *
+                           std::min(std::abs(circle.lengths.a),
+                                    std::abs(circle.lengths.b))
           ? closest_wrist
           : 0.0;
   for (const double chart :
-       {first_chart, kPi / 2, kPi / 4, -kPi / 4, closest_wrist}) {
+       {first_chart, angle_conv::kPi / 2, angle_conv::kPi / 4,
+        -angle_conv::kPi / 4, closest_wrist}) {
     result =
         DiscoverInChart(lengths, target, circle, tolerance, options, chart);
     if (result.status != RecoveryStatus::NeedsRefinement) {

@@ -6,6 +6,7 @@
 #include <limits>
 
 #include "crx_canonical.h"
+#include "crx_numerics.h"
 
 namespace crx::canonical {
 
@@ -21,12 +22,11 @@ enum class RootStatus {
 };
 
 struct RootOptions {
-  int max_balance_sweeps = 32;
-  int max_eigen_iterations = 256;
+  int max_balance_sweeps = numerics::kBalanceSweeps;
+  int max_eigen_iterations = numerics::kEigenIterations;
   // A relative leading coefficient below this threshold is unresolved, never
   // trimmed. Zero disables this heuristic for numerical experiments only.
-  double leading_relative_tolerance =
-      64.0 * std::numeric_limits<double>::epsilon();
+  double leading_relative_tolerance = numerics::kElementaryRoundoff;
 };
 
 struct RootCandidate {

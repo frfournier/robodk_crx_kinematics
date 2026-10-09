@@ -39,8 +39,8 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u,
   ElbowIncidence result;
   constexpr double kUnitTolerance =
       128.0 * std::numeric_limits<double>::epsilon();
-  if (!std::isfinite(a) || !std::isfinite(b) || a == 0.0 || b == 0.0 ||
-      !x.allFinite() || !u.allFinite() ||
+  if (!std::isfinite(a) || !std::isfinite(b) || std::fpclassify(a) == FP_ZERO ||
+      std::fpclassify(b) == FP_ZERO || !x.allFinite() || !u.allFinite() ||
       !ValidTolerance(options.rank_relative_tolerance) ||
       !ValidTolerance(options.residual_relative_tolerance) ||
       std::abs(u.squaredNorm() - 1.0) > kUnitTolerance) {
@@ -52,8 +52,14 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u,
   const double x_squared = x.squaredNorm();
   const double k = (a_squared + x_squared - b_squared) / 2.0;
   if (!std::isfinite(a_squared) || !std::isfinite(b_squared) ||
-      !std::isfinite(x_squared) || !std::isfinite(k) || a_squared == 0.0 ||
-      b_squared == 0.0 || (x_squared == 0.0 && !x.isZero(0.0))) {
+      !std::isfinite(x_squared) || !std::isfinite(k) ||
+      std::fpclassify(a_squared) == FP_ZERO ||
+      std::fpclassify(b_squared) == FP_ZERO ||
+      (std::fpclassify(x_squared) == FP_ZERO &&
+       !x.array()
+            .unaryExpr(
+                [](double value) { return std::fpclassify(value) == FP_ZERO; })
+            .all())) {
     return result;
   }
   Mat3 matrix;
@@ -113,7 +119,8 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u,
       options.residual_relative_tolerance * std::max(a_squared, center_squared);
   const double ambiguity_tolerance =
       slack_tolerance / result.reciprocal_condition;
-  if (slack_tolerance == 0.0 || !std::isfinite(ambiguity_tolerance)) {
+  if (std::fpclassify(slack_tolerance) == FP_ZERO ||
+      !std::isfinite(ambiguity_tolerance)) {
     return result;
   }
   if (rank == 3) {

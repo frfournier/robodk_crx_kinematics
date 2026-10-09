@@ -14,6 +14,7 @@
 
 #include "crx_command_lifts.h"
 #include "crx_math_helpers.h"
+#include "crx_numerics.h"
 #include "crx_pose_helpers.h"
 #include "crx_types.h"
 #include "crx_vector_helpers.h"
@@ -29,32 +30,9 @@ constexpr int kDhArgCount = 4;
 constexpr int kDhThetaIndex = 2;
 constexpr int kDhDIndex = 3;
 
-constexpr int kIkQSamples = 960;
-constexpr int kRefineMaxIterations = 100;
-constexpr double kRefineXTolerance = 1e-12;
-constexpr double kRootZeroTolerance = 1e-14;
-constexpr double kRootSampleHitTolerance = 1e-5;
-
-constexpr double kSolutionAngleToleranceDeg = 1e-3;
-constexpr double kSolutionAngleToleranceRad =
-    angle_conv::DegToRad(kSolutionAngleToleranceDeg);
-constexpr double kSolutionPositionToleranceMm = 1e-4;
-constexpr double kSolutionPositionToleranceMmSquared =
-    kSolutionPositionToleranceMm * kSolutionPositionToleranceMm;
-constexpr double kApproxFallbackAngleToleranceDeg = 1e-2;
-constexpr double kApproxFallbackAngleToleranceRad =
-    angle_conv::DegToRad(kApproxFallbackAngleToleranceDeg);
-constexpr double kApproxFallbackPositionToleranceMm = 1e-2;
-constexpr double kApproxFallbackPositionToleranceMmSquared =
-    kApproxFallbackPositionToleranceMm * kApproxFallbackPositionToleranceMm;
-
-constexpr double kDhConventionToleranceRad = 1e-5;
-constexpr double kTriangleNegativeTolerance = 1e-9;
-constexpr double kTriangleShellRelativeTolerance = 1.0e-6;
-
 // At most two sample hits plus two bracket hits per scanner interval.
 // Reserve storage without stopping discovery or truncating candidates.
-constexpr std::size_t kScannerReserve = 4 * (kIkQSamples + 1);
+constexpr std::size_t kScannerReserve = 4 * (numerics::kScannerIntervals + 1);
 
 auto IsModelDataValid(const CrxModelData &model) -> bool {
   if (!model.base_transform.matrix().allFinite() ||
@@ -70,7 +48,9 @@ auto IsModelDataValid(const CrxModelData &model) -> bool {
     const DhRow &row = model.dh_rows[joint_index];
     if (!std::isfinite(row.alpha_rad) || !std::isfinite(row.a) ||
         !std::isfinite(row.theta0_rad) || !std::isfinite(row.d) ||
-        std::abs(model.joint_senses[joint_index]) != 1.0) {
+        !std::isfinite(model.joint_senses[joint_index]) ||
+        !numerics::Scalar(std::abs(model.joint_senses[joint_index]))
+             .isApproxToConstant(1.0, numerics::kUnitTolerance)) {
       return false;
     }
   }
@@ -173,7 +153,9 @@ auto IsFkRoundtripValid(const Vec6 &candidate_user_joints_rad,
                         const CrxModelData &model) -> bool {
   return IsFkRoundtripValidWithTolerances(
       candidate_user_joints_rad, target_pose, target_quat, model,
-      kSolutionPositionToleranceMmSquared, kSolutionAngleToleranceRad);
+      (numerics::kSolutionPositionToleranceMm *
+       numerics::kSolutionPositionToleranceMm),
+      numerics::kSolutionAngleToleranceRad);
 }
 
 struct CrxParams {
@@ -186,11 +168,11 @@ struct CrxParams {
 
 struct IkTolerancePack {
   double length_scale = 1.0;
-  double eps_len = 1e-10;
-  double eps_len2 = 1e-20;
-  double eps_xy = 1e-8;
-  double eps_sin = 1e-8;
-  double eps_reach_sq = 1e-9;
+  double eps_len = 0.0;
+  double eps_len2 = 0.0;
+  double eps_xy = 0.0;
+  double eps_sin = 0.0;
+  double eps_reach_sq = 0.0;
 };
 
 inline auto BuildIkTolerancePack(const CrxParams &params) -> IkTolerancePack {
@@ -198,16 +180,18 @@ inline auto BuildIkTolerancePack(const CrxParams &params) -> IkTolerancePack {
   tolerances.length_scale =
       std::max({std::abs(params.a2), std::abs(params.r4), std::abs(params.r5),
                 std::abs(params.r6), 1.0});
-  const double machine_epsilon = std::numeric_limits<double>::epsilon();
+  const double machine_epsilon = numerics::kEpsilon;
   tolerances.eps_len =
-      std::max(1e-12, 8.0 * machine_epsilon * tolerances.length_scale);
+      std::max(numerics::kScannerLengthFloorMm,
+               8.0 * machine_epsilon * tolerances.length_scale);
   tolerances.eps_len2 = tolerances.eps_len * tolerances.eps_len;
   tolerances.eps_xy =
-      std::max(1e-12, 4096.0 * machine_epsilon * tolerances.length_scale);
-  tolerances.eps_sin = 1e-10;
-  tolerances.eps_reach_sq =
-      std::max(1e-12, machine_epsilon * tolerances.length_scale *
-                          tolerances.length_scale);
+      std::max(numerics::kScannerLengthFloorMm,
+               numerics::kGeometryTolerance * tolerances.length_scale);
+  tolerances.eps_sin = numerics::kJointPhaseToleranceRad;
+  tolerances.eps_reach_sq = std::max(numerics::kScannerSquaredLengthFloorMm2,
+                                     machine_epsilon * tolerances.length_scale *
+                                         tolerances.length_scale);
   return tolerances;
 }
 
@@ -237,7 +221,7 @@ auto NormalizeProductionDhForAnalyticIk(CrxParams &params,
   // Validate the production CRX DH signature and remap it only when every
   // structural assumption matches.
   base_z_shift_mm = 0.0;
-  const double tol = kDhConventionToleranceRad;
+  const double tol = numerics::kRightAngleSnapToleranceRad;
 
   const bool alpha_ok = AngleDiffAbs(params.alpha_rad[0], 0.0) < tol &&
                         AngleDiffAbs(params.alpha_rad[1], -kHalfPi) < tol &&
@@ -253,15 +237,20 @@ auto NormalizeProductionDhForAnalyticIk(CrxParams &params,
                         AngleDiffAbs(params.theta0_rad[4], 0.0) < tol &&
                         AngleDiffAbs(params.theta0_rad[5], 0.0) < tol;
 
-  const bool a_ok =
-      std::abs(params.a[0]) <= kEpsilon && std::abs(params.a[1]) <= kEpsilon &&
-      params.a[2] > 0.0 && std::abs(params.a[3]) <= kEpsilon &&
-      std::abs(params.a[4]) <= kEpsilon && std::abs(params.a[5]) <= kEpsilon;
+  const bool a_ok = std::abs(params.a[0]) <= numerics::kDhLengthToleranceMm &&
+                    std::abs(params.a[1]) <= numerics::kDhLengthToleranceMm &&
+                    params.a[2] > 0.0 &&
+                    std::abs(params.a[3]) <= numerics::kDhLengthToleranceMm &&
+                    std::abs(params.a[4]) <= numerics::kDhLengthToleranceMm &&
+                    std::abs(params.a[5]) <= numerics::kDhLengthToleranceMm;
 
-  const bool d_ok = params.d[0] > 0.0 && std::abs(params.d[1]) <= kEpsilon &&
-                    std::abs(params.d[2]) <= kEpsilon && params.d[3] > 0.0 &&
-                    params.d[4] <= -kEpsilon && // Pass-1 Fix #2
-                    params.d[5] > 0.0;
+  const bool d_ok =
+      params.d[0] > 0.0 &&
+      std::abs(params.d[1]) <= numerics::kDhLengthToleranceMm &&
+      std::abs(params.d[2]) <= numerics::kDhLengthToleranceMm &&
+      params.d[3] > 0.0 &&
+      params.d[4] <= -numerics::kDhLengthToleranceMm && // Pass-1 Fix #2
+      params.d[5] > 0.0;
 
   // Fail closed when a model differs from the CRX assumptions.
   if (!(alpha_ok && theta_ok && a_ok && d_ok)) {
@@ -303,8 +292,11 @@ inline auto ConstructPlane_O4_UnitZ_XY(const Vec3 &O4,
   double plane_y_norm_sq = plane_y.squaredNorm();
   if (!std::isfinite(plane_y_norm_sq) ||
       plane_y_norm_sq <= tolerances.eps_len2) {
-    const Vec3 fallback_axis =
-        (std::abs(plane_x.z()) > 0.99) ? Vec3::UnitY() : Vec3::UnitZ();
+    // Choose the less aligned coordinate axis. Its projected squared norm is
+    // at least 1/2 for a unit plane_x; no empirical .99 alignment cutoff.
+    const Vec3 fallback_axis = (std::abs(plane_x.z()) > std::abs(plane_x.y()))
+                                   ? Vec3::UnitY()
+                                   : Vec3::UnitZ();
     plane_y = fallback_axis - plane_x.dot(fallback_axis) * plane_x;
     plane_y_norm_sq = plane_y.squaredNorm();
     if (!std::isfinite(plane_y_norm_sq) ||
@@ -325,7 +317,7 @@ inline auto ConstructPlane_O4_UnitZ_XY(const Vec3 &O4,
 #ifndef NDEBUG
   const Vec3 plane_z = basis.x.cross(basis.y);
   const double det_like = basis.x.dot(basis.y.cross(plane_z));
-  assert(std::abs(det_like - 1.0) < 1e-9 &&
+  assert(std::abs(det_like - 1.0) < numerics::kPlaneOrthonormalityTolerance &&
          "ConstructPlane_O4_UnitZ_XY: basis is not orthonormal");
 #endif
   return true;
@@ -338,7 +330,7 @@ inline auto FindThirdTriangleCorner(double side_ab, double side_ac,
         std::isfinite(side_bc))) {
     return false;
   }
-  if (side_ab <= kEpsilon) {
+  if (side_ab <= numerics::kScannerLengthFloorMm) {
     return false;
   }
 
@@ -352,9 +344,9 @@ inline auto FindThirdTriangleCorner(double side_ab, double side_ac,
   const double side_scale =
       std::max({std::abs(side_ab), std::abs(side_ac), std::abs(side_bc)});
   const double shell_len_tol =
-      kTriangleShellRelativeTolerance * std::max(1.0, side_scale);
-  const double eps_shell =
-      std::max(kTriangleNegativeTolerance, shell_len_tol * shell_len_tol);
+      numerics::kTriangleShellRelativeTolerance * std::max(1.0, side_scale);
+  const double eps_shell = std::max(numerics::kTriangleNegativeToleranceMm2,
+                                    shell_len_tol * shell_len_tol);
 
   if (y_squared < -eps_shell) {
     return false;
@@ -455,7 +447,9 @@ auto DetermineJointValues(const Vec3 &o3_point, const Vec3 &o4_point,
   return true;
 }
 
-// ─────────────────────────── Circle sweep ───────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Circle sweep
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 struct CircleEvalContext {
   Vec3 o4_base = Vec3::Zero();
@@ -561,8 +555,10 @@ auto EvaluateCircleDots_cs(double cos_q, double sin_q,
       ClampCosineNearUnit(down_dot_raw * inv_o3_to_o4_norm * inv_o4_to_o5_norm);
   return std::isfinite(evaluation.up_dot_product) &&
          std::isfinite(evaluation.down_dot_product) &&
-         std::abs(evaluation.up_dot_product) <= 1.0 + kCosineClampTolerance &&
-         std::abs(evaluation.down_dot_product) <= 1.0 + kCosineClampTolerance;
+         std::abs(evaluation.up_dot_product) <=
+             1.0 + numerics::kCosineClampTolerance &&
+         std::abs(evaluation.down_dot_product) <=
+             1.0 + numerics::kCosineClampTolerance;
 }
 
 auto EvaluateCircleFull_cs(double cos_q, double sin_q,
@@ -613,8 +609,8 @@ inline auto HasBracket(double f_left, double f_right) -> bool {
   if (!(std::isfinite(f_left) && std::isfinite(f_right))) {
     return false;
   }
-  if (std::abs(f_left) <= kRootZeroTolerance ||
-      std::abs(f_right) <= kRootZeroTolerance) {
+  if (std::abs(f_left) <= numerics::kRootZeroTolerance ||
+      std::abs(f_right) <= numerics::kRootZeroTolerance) {
     return true;
   }
   return f_left * f_right < 0.0;
@@ -632,11 +628,11 @@ auto RefineZeroIllinois(double q_left, double q_right, double f_left,
     std::swap(q_left, q_right);
     std::swap(f_left, f_right);
   }
-  if (std::abs(f_left) <= kRootZeroTolerance) {
+  if (std::abs(f_left) <= numerics::kRootZeroTolerance) {
     root_out_q = WrapRad2Pi(q_left);
     return true;
   }
-  if (std::abs(f_right) <= kRootZeroTolerance) {
+  if (std::abs(f_right) <= numerics::kRootZeroTolerance) {
     root_out_q = WrapRad2Pi(q_right);
     return true;
   }
@@ -657,14 +653,15 @@ auto RefineZeroIllinois(double q_left, double q_right, double f_left,
   // -1: right endpoint moved, +1: left endpoint moved.
   int last_update_side = 0;
   int consecutive_same_side_updates = 0;
-  for (int iter = 0; iter < kRefineMaxIterations; ++iter) {
+  for (int iter = 0; iter < numerics::kScannerRefineIterations; ++iter) {
     double next_q = 0.5 * (left_q + right_q);
     // Hybrid safeguard: if the same side keeps updating, force a midpoint step
     // to guarantee interval shrink in flat/singular regions.
     const bool force_midpoint = consecutive_same_side_updates >= 2;
     if (!force_midpoint) {
       const double denom = right_weight_f - left_weight_f;
-      if (std::isfinite(denom) && std::abs(denom) > kEpsilon) {
+      if (std::isfinite(denom) &&
+          std::abs(denom) > numerics::kScannerDenominatorTolerance) {
         const double secant_q =
             (left_q * right_weight_f - right_q * left_weight_f) / denom;
         if (std::isfinite(secant_q) && secant_q > left_q &&
@@ -682,8 +679,8 @@ auto RefineZeroIllinois(double q_left, double q_right, double f_left,
       best_abs_f = std::abs(next_f);
       best_q = next_q;
     }
-    if (std::abs(next_f) <= kRootZeroTolerance ||
-        (right_q - left_q) < kRefineXTolerance) {
+    if (std::abs(next_f) <= numerics::kRootZeroTolerance ||
+        (right_q - left_q) < numerics::kRefineIntervalRad) {
       root_out_q = WrapRad2Pi(next_q);
       return true;
     }
@@ -752,7 +749,8 @@ void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
   const double triangle_side_a2 = std::abs(params.a2);
   const double triangle_side_r4 = std::abs(params.r4);
   const double reach_margin =
-      1e-6 * std::max(1.0, triangle_side_a2 + triangle_side_r4);
+      numerics::kTriangleShellRelativeTolerance *
+      std::max(1.0, triangle_side_a2 + triangle_side_r4);
   const double max_o0_o4_dist =
       triangle_side_a2 + triangle_side_r4 + reach_margin;
   const double min_o0_o4_dist =
@@ -794,7 +792,8 @@ void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
     }
   };
 
-  const double sample_step_q = kTwoPi / static_cast<double>(kIkQSamples);
+  const double sample_step_q =
+      kTwoPi / static_cast<double>(numerics::kScannerIntervals);
   double sin_step = 0.0;
   double cos_step = 1.0;
   SinCos(sample_step_q, sin_step, cos_step);
@@ -820,15 +819,18 @@ void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
   };
 
   if (previous_ok) {
-    if (std::abs(previous_eval.up_dot_product) <= kRootSampleHitTolerance) {
+    if (std::abs(previous_eval.up_dot_product) <=
+        numerics::kRootSampleHitTolerance) {
       try_store_sample_root(previous_q, true);
     }
-    if (std::abs(previous_eval.down_dot_product) <= kRootSampleHitTolerance) {
+    if (std::abs(previous_eval.down_dot_product) <=
+        numerics::kRootSampleHitTolerance) {
       try_store_sample_root(previous_q, false);
     }
   }
 
-  for (int sample_idx = 1; sample_idx <= kIkQSamples; ++sample_idx) {
+  for (int sample_idx = 1; sample_idx <= numerics::kScannerIntervals;
+       ++sample_idx) {
     const double current_q = sample_step_q * static_cast<double>(sample_idx);
 
     // Trig recurrence avoids repeated sin/cos calls in the hot loop.
@@ -865,10 +867,12 @@ void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
       }
     }
     if (current_ok) {
-      if (std::abs(current_eval.up_dot_product) <= kRootSampleHitTolerance) {
+      if (std::abs(current_eval.up_dot_product) <=
+          numerics::kRootSampleHitTolerance) {
         try_store_sample_root(current_q, true);
       }
-      if (std::abs(current_eval.down_dot_product) <= kRootSampleHitTolerance) {
+      if (std::abs(current_eval.down_dot_product) <=
+          numerics::kRootSampleHitTolerance) {
         try_store_sample_root(current_q, false);
       }
     }
@@ -985,7 +989,8 @@ auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &user_joints_rad,
   const double shoulder_radius =
       std::hypot(geometry.o4_point.x(), geometry.o4_point.y());
   const double singular_radius = std::max(
-      geometry.tolerances.eps_xy, 0.011 * geometry.tolerances.length_scale);
+      geometry.tolerances.eps_xy, numerics::kConfigShoulderRadiusFraction *
+                                      geometry.tolerances.length_scale);
   if (!std::isfinite(shoulder_radius) || shoulder_radius <= singular_radius) {
     return false;
   }
@@ -1005,8 +1010,7 @@ auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &user_joints_rad,
   const bool rear = geometry.o4_point.x() < 0.0;
   const bool geometric_lower_arm = elbow_side < -geometry.tolerances.eps_xy;
   const bool lower_arm = geometric_lower_arm != rear;
-  constexpr double kWristZeroToleranceRad = angle_conv::DegToRad(0.01);
-  const bool flip = user_joints_rad[4] > kWristZeroToleranceRad;
+  const bool flip = user_joints_rad[4] > numerics::kConfigWristZeroRad;
 
   posture_out = ArmPosture{rear, lower_arm, flip};
   return true;
@@ -1043,7 +1047,7 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   }
 
   PoseIsoRT target_pose_06 = target_pose_06_raw;
-  if (std::abs(convention_base_z_shift_mm) > kEpsilon) {
+  if (std::abs(convention_base_z_shift_mm) > numerics::kDhLengthToleranceMm) {
     PoseIsoRT convention_shift_transform = PoseIsoRT::Identity();
     convention_shift_transform.translation() << 0.0, 0.0,
         -convention_base_z_shift_mm;
@@ -1066,15 +1070,18 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   // Keep model recognition/equivalence evidence in the Python asset oracle.
   // The existing DH guard and base/tool conversion above remain authoritative.
   constexpr std::array<double, kDofCount> kCrxSenses{1, 1, -1, -1, -1, -1};
-  if (model.joint_senses != kCrxSenses) {
+  if (!Eigen::Map<const Vec6>(model.joint_senses.data())
+           .isApprox(Eigen::Map<const Vec6>(kCrxSenses.data()),
+                     numerics::kUnitTolerance)) {
     return -1;
   }
   // NormalizeProductionDhForAnalyticIk negates the three wrist offsets
   // for the legacy scanner. Canonical lengths retain the production signs.
   const canonical::Lengths lengths{crx_params.a2, -crx_params.r4,
                                    -crx_params.r6, crx_params.r5};
-  const canonical::PoseTolerance tolerance{kSolutionPositionToleranceMm,
-                                           kSolutionAngleToleranceRad};
+  const canonical::PoseTolerance tolerance{
+      numerics::kSolutionPositionToleranceMm,
+      numerics::kSolutionAngleToleranceRad};
   const auto discovered =
       canonical::DiscoverJointCandidates(lengths, target_pose_06, tolerance);
   if (discovered.status != canonical::RecoveryStatus::Candidates &&
@@ -1112,8 +1119,10 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
                                target_quaternion, model) ||
             IsFkRoundtripValidWithTolerances(
                 approx_fallback_joints_rad, target_pose, target_quaternion,
-                model, kApproxFallbackPositionToleranceMmSquared,
-                kApproxFallbackAngleToleranceRad)) {
+                model,
+                (numerics::kApproxFallbackPositionToleranceMm *
+                 numerics::kApproxFallbackPositionToleranceMm),
+                numerics::kApproxFallbackAngleToleranceRad)) {
           solutions_out.push_back(approx_fallback_joints_rad);
           return 1;
         }

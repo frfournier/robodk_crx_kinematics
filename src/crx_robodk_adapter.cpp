@@ -11,6 +11,7 @@
 
 #include "crx_kinematics.h"
 #include "crx_math_helpers.h"
+#include "crx_numerics.h"
 #include "crx_types.h"
 #include "crx_vector_helpers.h"
 
@@ -88,19 +89,25 @@ auto iRobot_Name(const robot_T *r) -> std::string {
   }
 
   const real_T *name_buffer = iRobot_At(r, kRobotNameRow);
-  const real_T *name_end =
-      std::find(name_buffer, name_buffer + kRobotNameSize, 0.0);
+  const real_T *name_end = std::find_if(
+      name_buffer, name_buffer + kRobotNameSize, [](double character) {
+        return crx::numerics::Scalar(character).isZero(
+            crx::numerics::kUnitTolerance);
+      });
 
   std::string name;
   name.reserve(static_cast<size_t>(name_end - name_buffer));
 
   for (const real_T *it = name_buffer; it != name_end; ++it) {
-    if (!std::isfinite(*it) || std::trunc(*it) != *it || *it < 0.0 ||
-        *it > 127.0) {
-      break; // or return {}, or append '?', depending on policy
+    const double character = std::round(*it);
+    if (!std::isfinite(*it) ||
+        !crx::numerics::Scalar(*it).isApproxToConstant(
+            character, crx::numerics::kUnitTolerance) ||
+        character < 0.0 || character > 127.0) {
+      break;
     }
 
-    name.push_back(static_cast<char>(*it));
+    name.push_back(static_cast<char>(character));
   }
 
   return name;
@@ -158,12 +165,15 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
     const auto storage_index = static_cast<std::size_t>(joint_id);
     const auto eigen_index = static_cast<Eigen::Index>(joint_id);
     const auto joint_sense = static_cast<double>(joint_senses[joint_id]);
-    if (!std::isfinite(joint_sense) || std::abs(joint_sense) != 1.0) {
+    if (!std::isfinite(joint_sense) ||
+        !numerics::Scalar(std::abs(joint_sense))
+             .isApproxToConstant(1.0, numerics::kUnitTolerance)) {
       LogRobotAdapterWarning(robot, "invalid joint sense at index " +
                                         std::to_string(joint_id));
       return false;
     }
-    model.joint_senses[storage_index] = joint_sense;
+    // The field encodes a sign, not a joint gain. Remove admitted roundoff.
+    model.joint_senses[storage_index] = std::copysign(1.0, joint_sense);
     model.lower_limits_rad[eigen_index] =
         static_cast<double>(lower_limits[joint_id]) * deg_to_rad;
     model.upper_limits_rad[eigen_index] =
@@ -175,7 +185,8 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
     row.a = static_cast<double>(dh_row[1]);
     row.theta0_rad = static_cast<double>(dh_row[2]);
     row.d = static_cast<double>(dh_row[3]);
-    row.is_prismatic = (dh_row[4] != 0.0);
+    row.is_prismatic =
+        !numerics::Scalar(dh_row[4]).isZero(numerics::kUnitTolerance);
     model.dh_rows[storage_index] = row;
   }
   return true;

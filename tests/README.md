@@ -51,6 +51,105 @@ guarantee. Calibrated geometry and remaining continuous-family cases are still
 pending. The four strict production xfails remain until production switches;
 the comparison DLL must recover those same witnesses without exceptions.
 
+## Numerical constants and sensitivity evidence
+
+`src/crx_numerics.h` owns numerical guards, search thresholds, physical pose
+contracts, and work budgets. The supported x86-64 implementation requires IEEE
+binary64 (53 significand bits). `epsilon` means machine epsilon, not a physical
+length or an arbitrary `1e-12`. Length/squared-length floors have explicit units;
+canonical guards use normalized geometry. Algebraic coefficients, matrix indices
+and ABI table offsets retain their mathematical/protocol meanings.
+
+The discardable **N1017 experiment, 2026-10-09**, tested 168 one-at-a-time
+parameter/path settings over 1,017 poses: 25 fixture targets, 768 random poses,
+96 singular stress poses across the six captured assets, 64 legacy witnesses,
+and 64 additional folded/vertical/extended-arm boundary cases. The latter sweep
+joint offsets from zero through `1e-12` to `.01` radians. It checked statuses,
+candidate counts, known-posture recovery, configuration labels and independent
+transform-product FK for every returned command/posture. The original production
+DLL and disposable scanner baseline agreed on all 1,017 result counts.
+
+| Quantity | Sensitivity observation and decision |
+| --- | --- |
+| Incidence residual / recovery geometry | `64*eps` incidence and `512*eps` geometry lose a folded-arm witness at a `1e-4`-rad offset. Larger guards can also lose witnesses. Retain tested `512*eps` / `4096*eps`. These factors are empirical margins, not formal error bounds. |
+| Root-slope classification | `1e-9` loses 16 PERCH/ABBES-TABLE5 witnesses. `sqrt(eps)` matches the stable `1e-8..1e-6` range; use the epsilon-derived value. |
+| Near-real root nomination | `1e-8..1e-4` produces identical outcomes. Use `64*sqrt(eps)`, near the previous `1e-6`; nomination always requires original-geometry/FK validation. |
+| Phase identity | `1e-12` changes near-duplicate counts; `1e-9` merges polynomial candidates. Retain rounded `1e-10` in the common stable range. This does not certify distinct branches. |
+| Polynomial residual | Counts remain stable at `1e-10..1e-8`; tighter settings change chart decisions. Retain `1e-10` and the independent strict FK acceptance gate. |
+| Polishing neighborhood / step | `.005/.01`-rad neighborhoods lose a near-folded witness. `.05.. .2` neighborhoods and `.1..1` step caps preserve counts; retain rounded `.05` / `.25` radians. |
+| Folded-arm chart / balancing | Chart fractions `.001.. .1` preserve counts; `.0001` changes one. Balancing ratios `.8.. .95` preserve counts; `.99/1` change one/two catalogues. Retain rounded `.01` / `.95`. |
+| Scanner small guards | Replace old decimal floors/denominator/interval guards with `4096*eps` at explicit unit scales, root zero with `64*eps`, and cosine allowance with `4096*eps`. The combined setting preserves observed results. A `1e-10` interval loses one near-folded witness. |
+| Sample-hit / triangle shell | `1e-7` sample-hit drops a vertical-arm case; retain rounded `1e-5`. Shell fractions `1e-8..1e-5` preserve counts, while `1e-4` changes ten outcomes; retain rounded `1e-6`. |
+| Configuration dead bands | Shoulder fraction `.010` changes ABBES-TABLE6 availability and `.020` changes eleven cases; retain `.011`. Zero wrist dead band changes twelve cases; retain the existing `.01`-degree API policy. These are label policies, not singularity proofs. |
+
+The selected values together preserve all N1017 statuses, counts, witness masks
+and configuration labels, with zero independently invalid returned poses. This
+supports the chosen values on the sampled nominal domain; it does not prove
+completeness, optimal thresholds, stability under all perturbations, or a speedup.
+Single-pass timings were recorded as diagnostics, not a controlled latency gate.
+The existing scanner misses and unresolved polynomial boundary cases are retained
+as baseline limitations, not counted as newly solved cases.
+
+Two additional micro checks cover scalar guards. For 1,700 plane constructions
+with horizontal/vertical ratios `1e-16..1`, the maximum determinant error was
+`5.56e-16`. Choosing the less aligned fallback axis removes the `.99` cutoff and
+guarantees a projected squared norm of at least one half. DH tilt checks show
+that the old `1e-5`-rad snap can erase `.005346 mm` over a 540-mm lever at a
+`9.9e-6` tilt. Snapping now uses `4096*eps`: nominal assets are unchanged; larger
+off-family tilts request IK fallback and FK retains their actual geometry.
+`test_crx_numerics.py` checks positive/negative alpha and theta offsets through
+both DLLs, including untouched outputs on fallback. Strict/approximate pose
+acceptance tolerances remain unchanged.
+
+Disposable source snapshots, the parameterized probe, raw per-pose CSVs,
+triangle-scale checks, selected-value comparison and command inventory live in
+`build/numerics/`. They add no runtime tuning or automatic benchmark target;
+the checked-in tests retain the observable DH-snapping contract. Work budgets
+remain explicit computational policy rather than numerical accuracy claims.
+
+The final Release gate passed all six CTest targets (1,801 main Python passes,
+1,327 polynomial API passes, 300 live opt-in skips and four unchanged production
+xfails). Both rebuilt DLLs matched their pre-change ABI result counts on all
+1,017 nominal corpus poses. The gate also exposed an undersized test robot
+buffer: `RobotT` now includes the diagnostic name field at row 90, and a dedicated
+test exercises its complete bounded name read. Captured fixture/asset bytes are
+unchanged.
+
+### Floating-point comparison policy
+
+Use Eigen's `isZero` for absolute near-zero checks, `isApprox` for relative
+vector comparisons, and `isApproxToConstant` for relative scalar/constant
+comparisons, with explicit tolerances from `crx_numerics.h`. The private
+`numerics::Scalar` wrapper exposes the same predicates for a single double.
+Do not use floating `==`/`!=`, including container equality or `std::find`,
+and do not disguise exact equality with zero-precision approximate predicates.
+`isApproxToConstant(0)` cannot express an absolute near-zero window.
+
+Representation checks use `std::fpclassify` through `IsRepresentedZero`:
+polynomial degree, vanished coefficients/lengths, and scale denominators must
+distinguish stored zero from a representable subnormal. A tolerance there would
+silently erase a polynomial term or hide underflow. The independent incidence
+oracle classifies directly. Heap/sort comparisons use directional `<`, preserving
+transitive ordering; approximate pairwise ties would violate that requirement.
+
+Boundary regressions cover signed perturbations of 1/64/256 epsilons in joint
+senses, revolute flags, ASCII diagnostic names and homogeneous rows. Unit-scale
+fields reuse the existing 128-epsilon budget; admitted joint-sense and character
+roundoff is snapped to the encoded sign/integer. Phase-endpoint checks cover
+1/32/256-epsilon offsets around pi using the existing 64-epsilon elementary
+budget. Near-tie command costs differing by a few epsilons must retain their
+travel ordering at every tested capacity/input order. Canonical tests retain a
+`denorm_min` leading coefficient and a representable subnormal linear root,
+and reject actual normalization underflow. No new decimal cutoff is introduced.
+
+The 2026-10-09 comparison update passes all four focused native suites and
+120 numerical API cases. Both DLLs preserve status/counts over all 1,017 N1017
+poses against their pre-comparison binaries; the full Release gate passes all
+six CTest suites (1,897 main Python passes, 1,327 polynomial API passes, 300
+live opt-in skips and four existing scanner xfails). Existing RoboDK import and
+clang-tidy warnings remain visible. Discardable before binaries, corpus runner,
+logs and command inventory are in `build/comparisons/`.
+
 ## Command turns, ranking and capacity (#17)
 
 `crx.command-lifts` tests the private `crx_command_lifts` selector against 200

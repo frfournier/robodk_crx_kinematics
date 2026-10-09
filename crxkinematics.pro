@@ -42,6 +42,7 @@ SOURCES += \
     $$PWD/src/crx_vector_helpers.cpp
 
 HEADERS += \
+    $$PWD/src/crx_numerics.h \
     $$PWD/src/crx_command_lifts.h \
     $$PWD/src/crx_canonical.h \
     $$PWD/src/crx_discovery.h \

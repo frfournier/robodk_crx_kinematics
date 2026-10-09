@@ -1,4 +1,5 @@
 #include "crx_canonical.h"
+#include "crx_numerics.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,17 +23,15 @@ auto Multiply(const Polynomial<N> &left, const Polynomial<M> &right)
 }
 
 auto IsRigidTarget(const PoseIsoRT &target) -> bool {
-  constexpr double kRotationTolerance =
-      128.0 * std::numeric_limits<double>::epsilon();
-  if (!target.matrix().allFinite() || target.matrix()(3, 0) != 0.0 ||
-      target.matrix()(3, 1) != 0.0 || target.matrix()(3, 2) != 0.0 ||
-      target.matrix()(3, 3) != 1.0) {
+  if (!target.matrix().allFinite() ||
+      !(target.matrix().row(3) - Eigen::RowVector4d(0, 0, 0, 1))
+           .isZero(numerics::kUnitTolerance)) {
     return false;
   }
   const Mat3 gram = target.linear().transpose() * target.linear();
-  return (gram - Mat3::Identity()).cwiseAbs().maxCoeff() <=
-             kRotationTolerance &&
-         std::abs(target.linear().determinant() - 1.0) <= kRotationTolerance;
+  return (gram - Mat3::Identity()).isZero(numerics::kUnitTolerance) &&
+         numerics::Scalar(target.linear().determinant() - 1.0)
+             .isZero(numerics::kUnitTolerance);
 }
 
 auto ResidualForAxis(const WristCircle &circle, const Vec3 &axis) -> double {
@@ -59,7 +58,7 @@ auto ConstructCoefficients(const WristCircle &circle, const Vec3 &v,
   const Polynomial<3> d{pv, 2.0 * circle.p.dot(w), -pv};
   const Polynomial<3> uz{v.z(), 2.0 * w.z(), -v.z()};
   const Polynomial<3> z = pz * kQ + r * uz;
-  // Form endpoint distances from vectors, not p²+r² +/- 2r(p.v). Near a
+  // Form endpoint distances from vectors, not pÂ²+rÂ² +/- 2r(p.v). Near a
   // folded equal-link arm those large scalar terms cancel and erase the
   // closely spaced roots before the eigensolver even sees the polynomial.
   const Polynomial<3> s{(circle.p + r * v).squaredNorm(),
@@ -88,8 +87,8 @@ auto ConstructCoefficients(const WristCircle &circle, const Vec3 &v,
 auto PrepareWristCircle(const Lengths &lengths, const PoseIsoRT &target,
                         WristCircle &output) -> PreparationStatus {
   const Eigen::Array4d physical{lengths.a, lengths.b, lengths.c, lengths.r};
-  if (!physical.allFinite() || lengths.a == 0.0 || lengths.b == 0.0 ||
-      !IsRigidTarget(target)) {
+  if (!physical.allFinite() || numerics::IsRepresentedZero(lengths.a) ||
+      numerics::IsRepresentedZero(lengths.b) || !IsRigidTarget(target)) {
     return PreparationStatus::InvalidInput;
   }
   WristCircle prepared;
@@ -97,7 +96,9 @@ auto PrepareWristCircle(const Lengths &lengths, const PoseIsoRT &target,
   // Keep division rather than a reciprocal that can overflow for tiny scales.
   const Eigen::Array4d normalized =
       physical / Eigen::Array4d::Constant(prepared.length_scale);
-  if (((physical != 0.0) && (normalized == 0.0)).any()) {
+  if ((!physical.unaryExpr(&numerics::IsRepresentedZero) &&
+       normalized.unaryExpr(&numerics::IsRepresentedZero))
+          .any()) {
     return PreparationStatus::NumericalRangeFailure;
   }
   prepared.lengths = {normalized[0], normalized[1], normalized[2],
@@ -149,7 +150,7 @@ auto BuildHalfAnglePolynomial(const WristCircle &circle, double chart_angle,
 
 auto RepresentedDegree(const Coefficients &coefficients) -> int {
   for (std::size_t i = coefficients.size(); i > 0; --i) {
-    if (coefficients[i - 1] != 0.0) {
+    if (!numerics::IsRepresentedZero(coefficients[i - 1])) {
       return static_cast<int>(i - 1);
     }
   }

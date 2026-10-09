@@ -5,6 +5,7 @@
 
 #include "crx_canonical.h"
 #include "crx_joint_recovery.h"
+#include "crx_numerics.h"
 #include "crx_polynomial_roots.h"
 #include "crx_types.h"
 
@@ -12,7 +13,7 @@ namespace crx::canonical {
 
 struct DiscoveryOptions {
   RootOptions roots{};
-  int max_polish_iterations = 24;
+  int max_polish_iterations = numerics::kPolishIterations;
 };
 
 struct JointDiscovery {

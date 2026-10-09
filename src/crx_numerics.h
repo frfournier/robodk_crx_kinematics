@@ -1,0 +1,164 @@
+#pragma once
+
+#include <cmath>
+#include <cstdint>
+#include <limits>
+
+#include <Eigen/Core>
+
+namespace angle_conv {
+inline constexpr double kPi = 3.141592653589793238462643383279502884;
+inline constexpr double kRadPerDeg = kPi / 180.0;
+inline constexpr double kDegPerRad = 180.0 / kPi;
+
+inline constexpr auto DegToRad(double degrees) -> double {
+  return degrees * kRadPerDeg;
+}
+
+inline constexpr auto RadToDeg(double radians) -> double {
+  return radians * kDegPerRad;
+}
+} // namespace angle_conv
+
+namespace crx {
+inline constexpr double kTwoPi = 2 * angle_conv::kPi;
+inline constexpr double kHalfPi = angle_conv::kPi / 2;
+
+namespace numerics {
+// Expose Eigen's absolute isZero and relative isApproxToConstant predicates
+// for scalars as well as vectors. Always supply a named, unit-aware tolerance;
+// isApproxToConstant(0) is not an absolute near-zero test.
+inline auto Scalar(double value) -> Eigen::Matrix<double, 1, 1> {
+  return Eigen::Matrix<double, 1, 1>{value};
+}
+
+// Representation checks for algebraic zero structure and loss of nonzero
+// values through underflow. A tolerance would silently erase small
+// coefficients/lengths, including denorm_min. Numerical decisions use Eigen's
+// approximate predicates instead; do not emulate classification with isZero(0).
+inline auto IsRepresentedZero(double value) -> bool {
+  return std::fpclassify(value) == FP_ZERO;
+}
+
+// The supported x86-64 build uses IEEE binary64 throughout. These are rounding
+// scales, not physical pose tolerances or certificates of complete discovery.
+static_assert(sizeof(double) == 8 && std::numeric_limits<double>::is_iec559 &&
+              std::numeric_limits<double>::digits == 53);
+inline constexpr double kEpsilon = std::numeric_limits<double>::epsilon();
+inline constexpr double kSqrtEpsilon =
+    0x1p-26; // sqrt(2^-52), exact in binary64.
+inline constexpr double kFourthRootEpsilon = 0x1p-13;
+// 2026-10-09 comparison checks: +/-1/32/256-eps offsets around pi retain
+// expected lifts; N1017 before/after DLL status/counts are unchanged.
+inline constexpr double kElementaryRoundoff = 64 * kEpsilon;
+// Signed 1/64/256-eps perturbations of homogeneous rows, joint senses,
+// revolute flags and diagnostic characters verify this roundoff window
+// (test_crx_canonical.cpp / test_crx_numerics.py, 2026-10-09).
+inline constexpr double kUnitTolerance = 128 * kEpsilon;
+inline constexpr double kDirectionTolerance = 256 * kEpsilon;
+// 2026-10-09, 1017-pose sweep: 64*eps loses the folded-arm 1e-4-rad
+// witness; 2048*eps also loses it by admitting an unpolishable branch.
+// 512*eps is a tested compromise, not a formal forward-error bound.
+inline constexpr double kIncidenceResidualTolerance = 512 * kEpsilon;
+// Same sweep: 512*eps loses that witness; 16384*eps loses another posture.
+// Retain 4096*eps for normalized back-substitution and scanner XY guards.
+inline constexpr double kGeometryTolerance = 4096 * kEpsilon;
+inline constexpr double kShellRoundoff = 2 * kGeometryTolerance;
+inline constexpr double kIncidenceAmbiguityFactor = 8;
+
+// Physical compatibility contracts (#12), not numerical tuning parameters.
+inline constexpr double kSolutionPositionToleranceMm = 1e-4;
+inline constexpr double kSolutionAngleToleranceRad = angle_conv::DegToRad(1e-3);
+inline constexpr double kApproxFallbackPositionToleranceMm = 1e-2;
+inline constexpr double kApproxFallbackAngleToleranceRad =
+    angle_conv::DegToRad(1e-2);
+
+// Sensitivity experiment N1017 (2026-10-09): six assets, 25 fixtures, 768
+// random, 96 stress, 64 legacy and 64 boundary poses; one-at-a-time threshold
+// sweeps. Details/limitations: tests/README.md. Discardable harness/raw CSV:
+// build/numerics. Phase: 1e-12 added near-duplicate candidates; 1e-9 merged
+// polynomial candidates. 1e-10 is the rounded overlap of the stable count
+// plateaus.
+inline constexpr double kJointPhaseToleranceRad = 1e-10;
+// N1017: stable counts at 1e-10..1e-8. Lower settings alter chart/handoff
+// decisions; retain the conservative lower edge, with strict FK still final.
+inline constexpr double kRootResidualTolerance = 1e-10;
+// N1017: 1e-9 loses 16 PERCH/ABBES-TABLE5 witnesses; sqrt(eps) matches
+// 1e-8..1e-6. A repeated-root perturbation naturally has sqrt(eps) scale.
+inline constexpr double kRootSlopeTolerance = kSqrtEpsilon;
+// N1017: 1e-8..1e-4 had identical outcomes. Use 64*sqrt(eps), near the
+// previous rounded 1e-6; it nominates guesses, never accepts a complex root.
+inline constexpr double kNearRealTolerance = 64 * kSqrtEpsilon;
+// N1017: .005/.01 rad lose a near-folded witness; .05.. .2 preserve counts.
+// .05 rad is a rounded, bounded neighborhood, not an accuracy tolerance.
+inline constexpr double kPolishRadiusRad = .05;
+// N1017: .1..1 rad preserve counts; retain the rounded .25-rad step cap.
+inline constexpr double kPolishMaxStepRad = .25;
+// Keep neighboring simple-root neighborhoods disjoint, with a half-gap left.
+inline constexpr double kNeighborRadiusFraction = .25;
+// N1017 folded-arm offsets 0.. .01 rad: .001.. .1 preserve counts;
+// .0001 changes one. One percent is a rounded chart-switch scale.
+inline constexpr double kFoldedChartArmFraction = .01;
+// N1017: .8.. .95 preserve counts; .99/1 change one/two catalogues.
+// Require a rounded 5% norm improvement to avoid marginal balancing work.
+inline constexpr double kBalanceRequiredImprovement = .95;
+
+// Scanner quantities carry units explicitly; no generic epsilon is shared
+// between DH lengths, dimensionless residuals and angular intervals.
+// Unit floors protect vanishing geometry; the scanner also scales guards by
+// its arm lengths. N1017: replacing the old 1e-12 floors by 4096*eps at
+// 1 mm / 1 mm^2 leaves outcomes/counts unchanged. Not calibration tolerances.
+inline constexpr double kReferenceLengthMm = 1.0;
+inline constexpr double kScannerLengthFloorMm =
+    kGeometryTolerance * kReferenceLengthMm;
+inline constexpr double kScannerSquaredLengthFloorMm2 =
+    kGeometryTolerance * kReferenceLengthMm * kReferenceLengthMm;
+inline constexpr double kScannerDenominatorTolerance = kGeometryTolerance;
+// N1017: 4096*eps preserves counts; 1e-10 loses a folded-arm witness.
+inline constexpr double kRefineIntervalRad = kGeometryTolerance;
+// N1017: 32*eps..1e-12 preserve counts. Use the elementary residual budget.
+inline constexpr double kRootZeroTolerance = kElementaryRoundoff;
+// N1017: 1e-7 drops a vertical-arm case, 1e-6 changes three catalogues;
+// retain rounded 1e-5 for nominating sampled roots, with strict FK afterward.
+inline constexpr double kRootSampleHitTolerance = 1e-5;
+inline constexpr double kTriangleNegativeToleranceMm2 =
+    kScannerSquaredLengthFloorMm2;
+// N1017: 1e-8..1e-5 preserve counts; 1e-4 changes ten outcomes. Keep the
+// rounded 1e-6 shell window, whose physical width scales with the arm.
+inline constexpr double kTriangleShellRelativeTolerance = 1e-6;
+// N1017: 64*eps..1e-7 unchanged; no need for the former 1e-9 allowance.
+inline constexpr double kCosineClampTolerance = kGeometryTolerance;
+inline constexpr double kDhLengthToleranceMm = kScannerLengthFloorMm;
+// N1017 nominal assets are unchanged at 4096*eps. The DH tilt micro-check
+// showed that the old 1e-5-rad window erases .005346 mm over 540 mm at
+// 9.9e-6 rad. Snap only roundoff; larger off-family tilts must request IK
+// fallback. This bounds a single 540-mm lever's snap displacement below 5e-10
+// mm.
+inline constexpr double kRightAngleSnapToleranceRad = kGeometryTolerance;
+// 1700 near-axis plane constructions (horizontal/vertical ratios 1e-16..1):
+// largest determinant error 5.56e-16; the normalized geometry budget suffices.
+inline constexpr double kPlaneOrthonormalityTolerance = kGeometryTolerance;
+// Configuration labels intentionally have a dead band, independent of IK FK
+// acceptance. This is a label policy, not a test of mathematical singularity.
+// N1017: .010 changes ABBES-TABLE6's classification availability; .020
+// changes 11 cases. Retain the rounded 1.1% arm-length exclusion band.
+inline constexpr double kConfigShoulderRadiusFraction = .011;
+// N1017: zero changes 12 cases; .1 degree changes one. Existing +/- .01
+// degree API boundary regressions define this compatibility dead band.
+inline constexpr double kConfigWristZeroRad = angle_conv::DegToRad(.01);
+
+// Bounded work policies; finite lists do not certify branch completeness.
+inline constexpr int kScannerIntervals = 960;
+inline constexpr int kScannerRefineIterations = 100;
+inline constexpr int kPolishIterations = 24;
+inline constexpr int kMaxPolishIterations = 64;
+inline constexpr int kPolishBacktracks = 8;
+inline constexpr int kBalanceSweeps = 32;
+inline constexpr int kEigenIterations = 256;
+inline constexpr std::uint64_t kCommandLiftBudget = std::uint64_t{1} << 20;
+// Leave a sign bit of exact-integer headroom: differences of two admitted
+// turns, and their inclusive interval size, remain exactly representable.
+inline constexpr double kMaxExactTurn = static_cast<double>(
+    (std::uint64_t{1} << (std::numeric_limits<double>::digits - 1)) - 1);
+} // namespace numerics
+} // namespace crx

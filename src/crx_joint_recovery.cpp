@@ -1,6 +1,7 @@
 #include "crx_joint_recovery.h"
 #include "crx_canonical.h"
 #include "crx_incidence.h"
+#include "crx_numerics.h"
 #include "crx_types.h"
 
 #include <algorithm>
@@ -11,9 +12,6 @@
 
 namespace crx::canonical {
 namespace {
-constexpr double kPi = 3.14159265358979323846;
-constexpr double kGeometryTolerance =
-    4096.0 * std::numeric_limits<double>::epsilon();
 
 auto FlangeConvention() -> Mat3 {
   Mat3 result;
@@ -23,7 +21,7 @@ auto FlangeConvention() -> Mat3 {
 
 auto Angle(double sine, double cosine, double &angle) -> bool {
   const double magnitude = std::hypot(sine, cosine);
-  if (!std::isfinite(magnitude) || magnitude <= kGeometryTolerance) {
+  if (!std::isfinite(magnitude) || magnitude <= numerics::kGeometryTolerance) {
     return false;
   }
   angle = std::atan2(sine, cosine);
@@ -32,7 +30,7 @@ auto Angle(double sine, double cosine, double &angle) -> bool {
 
 auto NormalizePhase(double sine, double cosine, WristPhase &phase) -> bool {
   const double magnitude = std::hypot(sine, cosine);
-  if (!std::isfinite(magnitude) || magnitude <= kGeometryTolerance) {
+  if (!std::isfinite(magnitude) || magnitude <= numerics::kGeometryTolerance) {
     return false;
   }
   phase = {cosine / magnitude, sine / magnitude};
@@ -56,21 +54,21 @@ auto RecoverAtBase(const WristPhase &base, const Lengths &lengths,
   const Vec3 lower = UndoBase(base, x - y) / lengths.b;
   WristPhase beta;
   if (!upper.allFinite() || !lower.allFinite() ||
-      std::abs(upper.y()) > kGeometryTolerance ||
-      std::abs(lower.y()) > kGeometryTolerance ||
+      std::abs(upper.y()) > numerics::kGeometryTolerance ||
+      std::abs(lower.y()) > numerics::kGeometryTolerance ||
       !NormalizePhase(-lower.z(), lower.x(), beta)) {
     return false;
   }
   const Vec3 u3 = UndoShoulder(beta, UndoBase(base, u));
   WristPhase wrist;
-  if (std::abs(u3.x()) > kGeometryTolerance ||
+  if (std::abs(u3.x()) > numerics::kGeometryTolerance ||
       !NormalizePhase(-u3.z(), u3.y(), wrist)) {
     return false;
   }
   const Vec3 v3 = UndoShoulder(beta, UndoBase(base, rotation.col(2)));
   const Vec3 v4(v3.x(), wrist.cosine * v3.y() - wrist.sine * v3.z(),
                 wrist.sine * v3.y() + wrist.cosine * v3.z());
-  if (std::abs(v4.y()) > kGeometryTolerance) {
+  if (std::abs(v4.y()) > numerics::kGeometryTolerance) {
     return false;
   }
   // Ry(-q5) leaves the second column of R4 unchanged. Only its two dot
@@ -86,7 +84,8 @@ auto RecoverAtBase(const WristPhase &base, const Lengths &lengths,
              q[5])) {
     return false;
   }
-  q[2] = std::remainder(q[1] - std::atan2(beta.sine, beta.cosine), 2.0 * kPi);
+  q[2] = std::remainder(q[1] - std::atan2(beta.sine, beta.cosine),
+                        2.0 * angle_conv::kPi);
   return q.allFinite();
 }
 
@@ -140,10 +139,11 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   JointRecovery result;
   if (!std::isfinite(phase.cosine) || !std::isfinite(phase.sine) ||
       std::abs(phase.cosine * phase.cosine + phase.sine * phase.sine - 1.0) >
-          128.0 * std::numeric_limits<double>::epsilon() ||
+          numerics::kUnitTolerance ||
       !std::isfinite(tolerance.position) ||
       !std::isfinite(tolerance.orientation) || tolerance.position <= 0.0 ||
-      tolerance.orientation <= 0.0 || tolerance.orientation >= kPi) {
+      tolerance.orientation <= 0.0 ||
+      tolerance.orientation >= angle_conv::kPi) {
     return result;
   }
   WristCircle circle;
@@ -169,9 +169,10 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
     // At a vertical wrist point the elbow fixes the base plane. If both arm
     // points are on-axis, use base=0 as a deterministic singular-family
     // representative; the wrist angles still come from the target rotation.
-    const Vec3 base_point = std::hypot(x.x(), x.y()) > kGeometryTolerance
-                                ? x
-                                : elbows.points[elbow];
+    const Vec3 base_point =
+        std::hypot(x.x(), x.y()) > numerics::kGeometryTolerance
+            ? x
+            : elbows.points[elbow];
     WristPhase base;
     NormalizePhase(base_point.y(), base_point.x(), base);
     for (const WristPhase &base_phase :

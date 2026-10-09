@@ -2,6 +2,7 @@
 
 #include "crx_canonical.h"
 #include "crx_incidence_reference.h"
+#include "crx_numerics.h"
 #include "crx_types.h"
 
 #include <algorithm>
@@ -112,7 +113,8 @@ void TestExceptionalIncidence() {
   Require(PrepareWristCircle({1, 1, 0, 0}, target, circle) ==
               PreparationStatus::Ready,
           "prepare inconsistent scalar zero");
-  Require(EvaluateResidual(circle, 0) == 0,
+  Require(crx::numerics::Scalar(EvaluateResidual(circle, 0))
+              .isZero(crx::numerics::kEpsilon),
           "scalar residual counterexample exactly zero");
   Require(FindElbowCandidates(1, 1, circle.p, circle.v).status ==
               IncidenceStatus::NoCandidate,

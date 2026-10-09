@@ -1,5 +1,6 @@
 #include "crx_polynomial_roots.h"
 #include "crx_canonical.h"
+#include "crx_numerics.h"
 
 #include <cmath>
 #include <complex>
@@ -28,17 +29,18 @@ auto RelativeResidual(const Coefficients &coefficients, int degree,
     bound = bound * absolute_argument + std::abs(coefficients[index]);
   }
   // P(z)=z^d at z=0 has both numerator and bound exactly zero.
-  return bound == 0.0 ? std::abs(value) : std::abs(value) / bound;
+  return numerics::IsRepresentedZero(bound) ? std::abs(value)
+                                            : std::abs(value) / bound;
 }
 
 auto IsUsableScale(double original, double scaled) -> bool {
-  return std::isfinite(scaled) && (original == 0.0 || scaled != 0.0);
+  return std::isfinite(scaled) && (numerics::IsRepresentedZero(original) ||
+                                   !numerics::IsRepresentedZero(scaled));
 }
 
 template <int Degree>
 auto Balance(Eigen::Matrix<double, Degree, Degree> &matrix, int sweep_limit,
              int &sweeps) -> RootStatus {
-  constexpr double kRequiredImprovement = 0.95;
   for (int sweep = 0; sweep < sweep_limit; ++sweep) {
     ++sweeps;
     bool changed = false;
@@ -54,15 +56,16 @@ auto Balance(Eigen::Matrix<double, Degree, Degree> &matrix, int sweep_limit,
       if (!std::isfinite(row_norm + column_norm)) {
         return RootStatus::NumericalRangeFailure;
       }
-      if (row_norm == 0.0 || column_norm == 0.0) {
+      if (numerics::IsRepresentedZero(row_norm) ||
+          numerics::IsRepresentedZero(column_norm)) {
         continue;
       }
       // Minimize r/2^e + c*2^e without forming r/c, which may overflow.
       const int exponent = (std::ilogb(row_norm) - std::ilogb(column_norm)) / 2;
       const double improved =
           std::scalbn(row_norm, -exponent) + std::scalbn(column_norm, exponent);
-      if (exponent == 0 ||
-          improved >= kRequiredImprovement * (row_norm + column_norm)) {
+      if (exponent == 0 || improved >= numerics::kBalanceRequiredImprovement *
+                                           (row_norm + column_norm)) {
         continue;
       }
       for (int j = 0; j < Degree; ++j) {

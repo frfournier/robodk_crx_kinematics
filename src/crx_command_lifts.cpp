@@ -5,39 +5,41 @@
 #include <limits>
 
 #include "crx_math_helpers.h"
+#include "crx_numerics.h"
 
 namespace crx {
 namespace {
-constexpr double kPhaseTolerance = 1e-10;
-constexpr double kRoundoffFactor = 64.0;
-// Stay within exactly representable integers; increments and differences below
-// this bound also fit int64_t. Larger finite inputs are explicitly unsupported.
-constexpr double kMaxExactTurn = 4503599627370495.0;
 using TurnVector = Eigen::Matrix<std::int64_t, kDofCount, 1>;
 
 auto BoundaryTolerance(const Vec6 &boundary) -> Vec6 {
-  return (boundary.cwiseAbs().cwiseMax(1.0) *
-          (kRoundoffFactor * std::numeric_limits<double>::epsilon()))
-      .cwiseMin(kPhaseTolerance);
+  return (boundary.cwiseAbs().cwiseMax(1.0) * numerics::kElementaryRoundoff)
+      .cwiseMin(numerics::kJointPhaseToleranceRad);
 }
 
 auto SamePhase(const Vec6 &a, const Vec6 &b) -> bool {
   return (a - b)
-             .unaryExpr([](double x) { return WrapRadPi(x); })
-             .cwiseAbs()
-             .maxCoeff() <= kPhaseTolerance;
+      .unaryExpr([](double x) { return WrapRadPi(x); })
+      .isZero(numerics::kJointPhaseToleranceRad);
 }
 
 auto Better(const CommandLift &a, const CommandLift &b) -> bool {
-  if (a.travel_squared != b.travel_squared) {
-    return a.travel_squared < b.travel_squared;
+  // Heap/sort ordering must be transitive. Approximate equality is only for
+  // posture deduplication, never a pairwise tie rule in this comparator.
+  if (a.travel_squared < b.travel_squared) {
+    return true;
+  }
+  if (b.travel_squared < a.travel_squared) {
+    return false;
   }
   if (a.preserved_seed != b.preserved_seed) {
     return a.preserved_seed;
   }
   for (int i = 0; i < kDofCount; ++i) {
-    if (a.command_rad[i] != b.command_rad[i]) {
-      return a.command_rad[i] < b.command_rad[i];
+    if (a.command_rad[i] < b.command_rad[i]) {
+      return true;
+    }
+    if (b.command_rad[i] < a.command_rad[i]) {
+      return false;
     }
   }
   return false;
@@ -56,8 +58,8 @@ auto PrepareBox(LiftBox &box, const Vec6 &lower, const Vec6 &upper) -> bool {
   const Vec6 hi =
       ((upper - box.phase + BoundaryTolerance(upper)).array() / kTwoPi).floor();
   if (!lo.allFinite() || !hi.allFinite() ||
-      lo.cwiseAbs().maxCoeff() > kMaxExactTurn ||
-      hi.cwiseAbs().maxCoeff() > kMaxExactTurn) {
+      lo.cwiseAbs().maxCoeff() > numerics::kMaxExactTurn ||
+      hi.cwiseAbs().maxCoeff() > numerics::kMaxExactTurn) {
     return false;
   }
   // Every component must pass before converting any value to integer turns.
@@ -119,7 +121,10 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     LiftBox box;
     box.phase = posture.unaryExpr([](double x) {
       const double phase = WrapRadPi(x);
-      return phase == angle_conv::kPi ? -angle_conv::kPi : phase;
+      return numerics::Scalar(phase - angle_conv::kPi)
+                     .isZero(numerics::kElementaryRoundoff)
+                 ? -angle_conv::kPi
+                 : phase;
     });
     if (!validate(box.phase) ||
         std::any_of(boxes.begin(), boxes.end(), [&](const LiftBox &other) {
@@ -152,11 +157,13 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     if (result.seed_added) {
       for (int i = 0; i < kDofCount; ++i) {
         const double wrapped = WrapRadPi(preserved.command_rad[i]);
-        const double phase =
-            wrapped == angle_conv::kPi ? -angle_conv::kPi : wrapped;
+        const double phase = numerics::Scalar(wrapped - angle_conv::kPi)
+                                     .isZero(numerics::kElementaryRoundoff)
+                                 ? -angle_conv::kPi
+                                 : wrapped;
         const double turn =
             std::round((preserved.command_rad[i] - phase) / kTwoPi);
-        if (std::abs(turn) > kMaxExactTurn) {
+        if (std::abs(turn) > numerics::kMaxExactTurn) {
           result.status = CommandSelectionStatus::RangeFailure;
           return result;
         }
@@ -204,8 +211,7 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
         ++result.valid_lifts;
         const bool matches_seed =
             result.seed_added && (command.command_rad - preserved.command_rad)
-                                         .cwiseAbs()
-                                         .maxCoeff() <= kPhaseTolerance;
+                                     .isZero(numerics::kJointPhaseToleranceRad);
         if (matches_seed) {
           // Count seed preservation separately, never as another discovered
           // lift.
