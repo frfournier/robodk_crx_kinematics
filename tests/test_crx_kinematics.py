@@ -1,4 +1,5 @@
 import ctypes
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -8,6 +9,7 @@ import numpy as np
 import pytest
 from robodk import robomath as rm
 
+from crx_assets import APPROVED_ROBOT_ASSETS
 import logging
 
 log = logging.getLogger(__name__)
@@ -350,18 +352,14 @@ def test_config_conversion_contract():
         assert _expected_robodk_config(fixture_config) == robodk_config
 
 
-def test_crx_family_assets_available_for_configuration_smoke():
+@pytest.mark.parametrize("asset_name,expected_hash", APPROVED_ROBOT_ASSETS.items())
+def test_crx_family_assets_available_for_configuration_smoke(asset_name, expected_hash):
     repo_root = Path(__file__).resolve().parents[1]
-    expected_assets = [
-        "Fanuc-CRX-5iA-Custom.robot",
-        "Fanuc-CRX-10iA-Custom.robot",
-        "Fanuc-CRX-10iA-L-Custom.robot",
-        "Fanuc-CRX-30iA-Custom.robot",
-    ]
-    missing = [
-        name for name in expected_assets if not (repo_root / "assets" / name).exists()
-    ]
-    assert missing == []
+    asset = repo_root / "assets" / asset_name
+    assert asset.is_file(), f"Missing approved asset: {asset}"
+    with asset.open("rb") as stream:
+        actual_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+    assert actual_hash == expected_hash, f"Asset changed or LFS content missing: {asset}"
 
 
 def _fixture_case_pose_and_approx(case_name: str) -> Tuple[List[float], List[float]]:

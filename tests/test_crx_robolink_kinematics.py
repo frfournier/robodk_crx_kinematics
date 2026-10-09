@@ -5,6 +5,7 @@ import sys
 
 import numpy as np
 import pytest
+from crx_assets import APPROVED_ROBOT_ASSETS
 from robodk.robolink import (
     ITEM_TYPE_ROBOT,
     Robolink,
@@ -225,12 +226,7 @@ def robolink_crx_10ia(request):
 
 @pytest.mark.parametrize(
     "asset_name",
-    [
-        "Fanuc-CRX-5iA-Custom.robot",
-        "Fanuc-CRX-10iA-Custom.robot",
-        "Fanuc-CRX-10iA-L-Custom.robot",
-        "Fanuc-CRX-30iA-Custom.robot",
-    ],
+    list(APPROVED_ROBOT_ASSETS),
 )
 def test_robolink_crx_family_configuration(robolink_crx_10ia, asset_name: str):
     rdk = robolink_crx_10ia.RDK()
