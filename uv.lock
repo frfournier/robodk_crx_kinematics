@@ -337,7 +337,7 @@ requires-dist = [
     { name = "hypothesis", specifier = ">=6.168.5" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "pandas", specifier = ">=3.0.6" },
-    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest", specifier = ">=9.1.1" },
     { name = "robodk", specifier = ">=6.0.1" },
 ]
 
