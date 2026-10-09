@@ -13,6 +13,18 @@ dependencies = [
     "robodk>=6.0.2",
 ]
 
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Typing :: Typed",
+]
+
+
 [tool.pytest.ini_options]
 log_cli = true
 log_cli_level = "INFO"
@@ -22,3 +34,45 @@ log_cli_format = "%(levelname)s %(message)s"
 addopts = "-q --tb=line -ra"
 
 testpaths = ["tests"]
+
+[tool.ruff]
+src = ["test"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+preview = true
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # Pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "RUF",   # Ruff-specific rules
+    "SIM",   # flake8-simplify
+    "UP",    # pyupgrade
+    "ASYNC", # flake8-async
+    "LOG",   # flake8-logging
+    "PERF",  # performance
+    "PIE",
+    "RET",
+    "NPY",   # NumPy-specific rules (numpy 2.x migration, legacy random API)
+    "FURB",  # modernize idioms
+]
+ignore = [
+    "E501",   # line too long
+    "E741",   # ambiguous variable name
+    "RUF002", # Docstring contains ambiguous
+]
+
+[tool.ty.src]
+include = ["tests"]
+
+[tool.ty.environment]
+python-platform = "win32"
