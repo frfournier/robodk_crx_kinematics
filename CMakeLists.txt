@@ -120,27 +120,24 @@ set(_VENDORED_EIGEN_DIR "${CMAKE_SOURCE_DIR}/third_party/eigen")
 if(CRXKIN_USE_VENDORED_EIGEN AND EXISTS "${_VENDORED_EIGEN_DIR}/Eigen/Core")
   message(STATUS "Using vendored Eigen include path: ${_VENDORED_EIGEN_DIR}")
   set(_CRXKIN_EIGEN_SOURCE_DIR "${_VENDORED_EIGEN_DIR}")
-  add_library(Eigen3::Eigen INTERFACE IMPORTED)
-  target_include_directories(Eigen3::Eigen INTERFACE "${_VENDORED_EIGEN_DIR}")
 else()
   message(STATUS "Vendored Eigen not found (or disabled). Fetching Eigen 5.0.1 via FetchContent...")
 
   include(FetchContent)
-  set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-  set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
-  set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
-  set(EIGEN_MPL2_ONLY ON CACHE BOOL "" FORCE)
-
   FetchContent_Declare(
     Eigen
-    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-    GIT_TAG        5.0.1
-    GIT_SHALLOW    TRUE
-    GIT_PROGRESS   TRUE
+    URL https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz
+    URL_HASH SHA256=e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec
+    # Eigen is header-only. A subdirectory without CMakeLists.txt downloads the
+    # sources without enabling Eigen's C compiler, tests, or installation rules.
+    SOURCE_SUBDIR _crxkin_headers_only
   )
   FetchContent_MakeAvailable(Eigen)
   set(_CRXKIN_EIGEN_SOURCE_DIR "${eigen_SOURCE_DIR}")
 endif()
+
+add_library(Eigen3::Eigen INTERFACE IMPORTED)
+target_include_directories(Eigen3::Eigen INTERFACE "${_CRXKIN_EIGEN_SOURCE_DIR}")
 
 set(_CRXKIN_EIGEN_LICENSE "${_CRXKIN_EIGEN_SOURCE_DIR}/LICENSE")
 set(_CRXKIN_EIGEN_LEGAL_FILES
