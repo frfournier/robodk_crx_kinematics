@@ -280,6 +280,42 @@ tested component; the immediate priorities are the asset-coordinate bridge and
 connecting root discovery to validated postures, rather than more general
 incidence classification.
 
+## Asset-coordinate oracle
+
+`fixtures/crx_asset_frames.json` captures all six approved assets through RoboDK
+6.0.6's nominal `JointPoses`, `SolveFK`, and `JointLimits` APIs. Each record keeps
+the asset SHA-256, zero frames, six single-command probes, and 16 deterministic
+multi-joint samples. Dimensions are derived from those frames, not a model-name
+table. The `.robot` files and the solution CSV/JSON are unchanged.
+
+The extraction, modified-DH derivation, screw-axis/home-transform comparisons,
+and canonical FK oracle live in Python (`crx_asset_reference.py` and
+`test_crx_asset_bridge.py`). They add no C++ model abstraction, runtime model
+recognizer, or public API. For these six observed assets, canonical `q` equals
+the RoboDK command vector in radians; the current C ABI's internal decoupled
+coordinate satisfies `q3 = user2 + user3`. The base includes DH shoulder height
+once, and the canonical flange convention requires no extra rotation for the
+captured assets. Every captured link/flange is also compared with the existing
+`SolveFK_CAD` callback. CAD FK bypasses limits, so this is not evidence for the
+still-pending command/decoupled limit and turn-selection policy.
+
+Regenerate the capture explicitly with:
+
+```powershell
+uv run python tests/capture_crx_assets.py --robodk-path 'C:/Program Files/RoboDK/bin/RoboDK.exe'
+uv run pytest tests/test_crx_asset_bridge.py
+```
+
+The collector opens its own hidden, unsaved RoboDK instance, selects nominal
+accuracy, and closes it afterward. It does not deploy a DLL, save assets, or
+connect to hardware. API reference:
+[RoboDK JointPoses](https://robodk.com/doc/en/PythonAPI/robodk.html#robodk.robolink.Item.JointPoses).
+The installed custom DLL can participate in these API observations; its hash is
+recorded, and bypass is explicitly **not** claimed. The independent Python
+transform products check consistency of the observed nominal chain, not an
+independent complete IK catalogue or end-to-end new-solver support. A capture
+with the extension bypassed remains desirable before production cutover.
+
 ## Fixture source
 
 The committed CSV is the editable source of truth. The JSON is the generated

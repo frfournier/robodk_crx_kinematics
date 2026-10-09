@@ -1,8 +1,9 @@
 """Approved model inputs for #19 A; hashes are Git LFS SHA-256 object IDs.
 
-Inventory verified at 2a2227aecd61a2094804117cac13f8ba8cc9eaab. Geometry,
-senses, coupling and base/tool conventions still require live extraction.
-Presence or matching bytes alone do not establish solver support.
+Inventory verified at 2a2227aecd61a2094804117cac13f8ba8cc9eaab. Nominal joint
+frames, command probes and limits are captured in fixtures/crx_asset_frames.json.
+The Python oracle derives and checks the canonical mapping; runtime integration
+and command-limit semantics remain pending. Hashes alone do not establish support.
 """
 
 APPROVED_ROBOT_ASSETS = {
