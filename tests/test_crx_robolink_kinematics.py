@@ -1,7 +1,6 @@
 import hashlib
 import os
 from pathlib import Path
-import shutil
 import sys
 
 import numpy as np
@@ -83,7 +82,7 @@ def _robotextensions_dir(robodk_root: Path) -> Path:
     return robodk_root / "robotextensions"
 
 
-def _sync_robolink_extension_or_skip() -> None:
+def _require_robolink_extension_or_skip() -> None:
     if sys.platform != "win32":
         return
 
@@ -111,33 +110,16 @@ def _sync_robolink_extension_or_skip() -> None:
     if not is_mismatch:
         return
 
-    try:
-        robotextensions_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(build_dll, robodk_dll)
-    except Exception as exc:
-        pytest.skip(
-            "\n".join(
-                [
-                    "RoboDK extension DLL is stale and copy failed.",
-                    f"build_dll={build_dll}",
-                    f"robodk_dll={robodk_dll}",
-                    f"error={exc}",
-                    "Skipping RoboDK tests to avoid stale results.",
-                ]
-            )
+    pytest.skip(
+        "\n".join(
+            [
+                "RoboDK extension DLL is missing or differs from the build.",
+                f"build_dll={build_dll}",
+                f"robodk_dll={robodk_dll}",
+                "Deploy the matching DLL explicitly before running live tests.",
+            ]
         )
-
-    if _sha256_file(build_dll) != _sha256_file(robodk_dll):
-        pytest.skip(
-            "\n".join(
-                [
-                    "RoboDK extension DLL mismatch remains after copy.",
-                    f"build_dll={build_dll}",
-                    f"robodk_dll={robodk_dll}",
-                    "Skipping RoboDK tests to avoid stale results.",
-                ]
-            )
-        )
+    )
 
 
 def _sample_crx_coupled_joints_in_limits(
@@ -190,8 +172,10 @@ def _wrap_joints_to_limits(
 
 
 @pytest.fixture(scope="session")
-def robolink_crx_10ia():
-    _sync_robolink_extension_or_skip()
+def robolink_crx_10ia(request):
+    if not request.config.getoption("--run-robodk"):
+        pytest.skip("Live RoboDK tests require --run-robodk and explicit deployment")
+    _require_robolink_extension_or_skip()
 
     if not _ROBOT_ASSET.exists():
         pytest.skip(f"RoboDK robot asset not found: {_ROBOT_ASSET}")

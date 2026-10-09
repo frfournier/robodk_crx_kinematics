@@ -13,12 +13,18 @@ kinematics, version metadata, and live RoboDK integration.
 Run the suite from the repository root after building the library:
 
 ```powershell
-uv sync
-uv run pytest
+uv sync --locked
+uv run --locked pytest
 ```
 
 Set `CRXKIN_LIBRARY_PATH` when the library is not in the default
 `build/Release` location.
+
+Live RoboDK tests are opt-in. After explicitly deploying the current Release DLL
+using the installation instructions, run `uv run --locked pytest --run-robodk`.
+The Windows integration setup checks that the deployed DLL matches the build and
+skips on a missing or stale deployment; tests never copy files into RoboDK.
+The default suite and CTest release gate skip live tests and run native checks.
 
 ## Fixture provenance
 

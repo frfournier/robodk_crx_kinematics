@@ -11,6 +11,15 @@ ROBOT_STRIDE = 20
 DOFS = 6
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-robodk",
+        action="store_true",
+        default=False,
+        help="Run live RoboDK tests using an already deployed matching DLL",
+    )
+
+
 class RobotT(ctypes.Structure):
     _fields_ = [("data", (ctypes.c_double * ROBOT_STRIDE) * ROBOT_ROWS)]
 
