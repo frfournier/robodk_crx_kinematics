@@ -362,6 +362,7 @@ auto main(int argc, char **argv) -> int {
     TestPolynomialUtilities();
     TestInvalidAndRangeFailures();
     RunPolynomialRootTests();
+    RunIncidenceTests();
     RunIncidenceReferenceTests();
   }
   Require(crx::test::AllocationCount() == before_kernel,

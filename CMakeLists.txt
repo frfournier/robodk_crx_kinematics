@@ -169,6 +169,7 @@ endforeach()
 # ------------------------------------------------------------------------------
 set(CRXKIN_CPP_SOURCES
   "${CMAKE_SOURCE_DIR}/src/crx_canonical.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_incidence.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_polynomial_roots.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
@@ -312,11 +313,13 @@ if(BUILD_TESTING)
   # the Release DLL's NDEBUG build is not an allocation test.
   add_executable(crx_canonical_tests
     tests/test_crx_canonical.cpp
+    tests/test_crx_incidence.cpp
     tests/test_crx_incidence_reference.cpp
     tests/crx_incidence_reference.cpp
     tests/test_crx_polynomial_roots.cpp
     tests/crx_allocation_probe.cpp
     src/crx_canonical.cpp
+    src/crx_incidence.cpp
     src/crx_polynomial_roots.cpp
     src/crx_math_compat.cpp
   )
