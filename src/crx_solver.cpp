@@ -135,8 +135,7 @@ auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
     }
   }
 
-  pose_out =
-      accumulated_pose * FixedJ6ToToolIsometryFk() * model.tool_transform;
+  pose_out = accumulated_pose * model.tool_transform;
   return 1;
 }
 

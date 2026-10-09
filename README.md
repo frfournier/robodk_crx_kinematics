@@ -37,6 +37,13 @@ CRX-10iA check.
 > generated programs in RoboDK and on the real controller using your normal
 > safety process.
 
+## Source layout
+
+- `include/crx_kinematics.h` declares the public RoboDK C ABI.
+- `src/` contains the implementation and its private headers, paired by name.
+  Solver, adapter, Eigen types and helpers are internal C++ interfaces.
+- `tests/` contains regression tests and test-only support code.
+
 ## Compile on Windows
 
 ### Prerequisites

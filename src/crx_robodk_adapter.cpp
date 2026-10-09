@@ -12,6 +12,7 @@
 #include "crx_kinematics.h"
 #include "crx_math_helpers.h"
 #include "crx_types.h"
+#include "crx_vector_helpers.h"
 
 namespace {
 
@@ -205,9 +206,9 @@ auto RoboDkJointsDegCoupledToUserRad(const real_T *joints_deg,
 
   // RoboDK API boundary convention for CRX uses coupled J3 (J2 + J3_decoupled).
   // The canonical internal CRX joint vector uses decoupled J3 in radians.
-  joints_user_rad =
+  const Vec6 command_rad =
       Eigen::Map<const Vec6>(joints_deg) * angle_conv::DegToRad(1.0);
-  joints_user_rad[kJoint3Index] -= joints_user_rad[kJoint2Index];
+  joints_user_rad = CommandToUser(command_rad);
   return joints_user_rad.allFinite();
 }
 
@@ -218,11 +219,10 @@ auto UserJointsRadToRoboDkCoupledDeg(const Vec6 &joints_user_rad,
   }
 
   // Convert back to RoboDK CRX API convention before returning solutions.
-  Vec6 joints_api_rad = joints_user_rad;
-  if (!joints_api_rad.allFinite()) {
+  if (!joints_user_rad.allFinite()) {
     return false;
   }
-  joints_api_rad[kJoint3Index] += joints_api_rad[kJoint2Index];
+  const Vec6 joints_api_rad = UserToCommand(joints_user_rad);
   Eigen::Map<Vec6> joints_map(joints_deg);
   joints_map = joints_api_rad * angle_conv::RadToDeg(1.0);
   return true;

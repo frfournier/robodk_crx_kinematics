@@ -174,8 +174,11 @@ set(CRXKIN_CPP_SOURCES
   "${CMAKE_SOURCE_DIR}/src/crx_polynomial_roots.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_math_helpers.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_pose_helpers.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_robodk_adapter.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_vector_helpers.cpp"
 )
 
 file(GLOB CRXKIN_FORMAT_SOURCES CONFIGURE_DEPENDS
@@ -196,8 +199,8 @@ set_target_properties(crx_kinematics PROPERTIES
 )
 
 target_include_directories(crx_kinematics PRIVATE
-  "${CMAKE_SOURCE_DIR}/include"   
-  "${CMAKE_SOURCE_DIR}/src"       
+  "${CMAKE_SOURCE_DIR}/include" # Public RoboDK C ABI declaration.
+  "${CMAKE_SOURCE_DIR}/src"     # Private headers beside their implementations.
 )
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
@@ -328,7 +331,7 @@ if(BUILD_TESTING)
   )
   # The SVD incidence reference and exceptional classifications are test-only.
   # Keep them out of CRXKIN_CPP_SOURCES and the qmake library source list.
-  target_include_directories(crx_canonical_tests PRIVATE include src tests)
+  target_include_directories(crx_canonical_tests PRIVATE src tests)
   target_link_libraries(crx_canonical_tests PRIVATE Eigen3::Eigen)
   target_compile_definitions(crx_canonical_tests PRIVATE EIGEN_RUNTIME_NO_MALLOC)
   if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
