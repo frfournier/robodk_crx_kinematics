@@ -60,6 +60,11 @@ fail normally. When a recorded witness is recovered, strict XPASS requires
 removing its exception. The underlying discovery/finalization cause remains to
 be isolated; the tests do not attribute all losses to the angle scanner.
 
+These four cases are required regression targets for the new implementation:
+recover the generating posture without a seed, preserve independent FK checks,
+and remove each strict expected-failure mark once production integration fixes
+it. They are not accepted permanent limitations or grounds to weaken assertions.
+
 The same reference checks all seven CAD frames, including synthetic base/tool
 transforms and joint senses, short-buffer rejection, and trailing-buffer
 sentinels. These are derived tests, not additional supported robots.
@@ -199,8 +204,8 @@ Vertical/near-origin wrists, tangencies, ambiguous compatibility and failed
 geometric rechecks return `NeedsRefinement`, with no partial candidate list.
 That status is a handoff requirement, not an implemented refinement solver or
 an unreachable-target result. `NoCandidate` is restricted to a clear numerical
-rejection at this wrist point. Joint recovery and full-pose FK checks are still
-required before integrating this component into production IK.
+rejection at this wrist point. The joint recovery component below performs the
+next canonical step; integration into production IK remains pending.
 
 Unit-axis tolerance is `128*epsilon(double)`, small-direction tolerance is
 `256*epsilon(double)` times the largest arm/wrist length, and relative residual
@@ -219,6 +224,37 @@ by the direct path. The direct path recovers all 128 synthetic canonical FK
 witnesses, including sample 55 that the SVD may leave unresolved. Two-branch,
 ambiguity, tangency, invalid-input and range checks also run under the existing
 Eigen/C++ allocation guards in `crx.canonical`.
+
+## Canonical joint recovery and full-pose validation
+
+`src/crx_joint_recovery.h/.cpp` recover joint candidates for one supplied
+wrist-circle angle. They prepare the normalized circle, reconstruct elbows,
+and recover both base-angle branches using appendix G6. The result holds at
+most four canonical postures (two elbows, two bases), with each joint in
+`[-pi, pi]`. There is no seed input, division by `sin(q5)`, or singularity-based
+override of J3/J6. Vertical, tangent and ambiguous cases keep the existing
+`NeedsRefinement` handoff; no numerical fallback is implied.
+
+Every recovered posture is checked by recomputing the complete canonical FK
+from its joint vector. Callers must supply a positive position tolerance in
+the target's physical length unit and an orientation tolerance in radians.
+Position error is computed in normalized coordinates then rescaled; orientation
+uses the rotation-matrix chordal distance converted to an angle, preserving
+resolution near zero. Results include both errors. A failed reconstruction or
+pose check publishes no partial list and does not widen the supplied tolerances.
+
+The native allocation harness checks 128 generating postures and their base
+flips against an independent homogeneous-transform FK implementation. Additional
+cases cover four-posture output, duplicate prevention, periodic wrist angles,
+signed lengths, length scales `1e-200` and `1e200`, and `q5=0`, near zero and
+`+/-pi` with a nonzero J6. Position and orientation gates are independently
+tested with tight tolerances, alongside invalid inputs and refinement/range
+handoffs. These are synthetic nominal-CRX tests, not validation of the six
+asset-coordinate mappings or calibrated robots.
+
+This component consumes an angle; it does not discover or polish polynomial
+roots. Asset/command-coordinate conversion, limits, turn selection, refinement
+and production integration remain pending. The public C ABI is unchanged.
 
 ## CRX scope and calibration boundary
 
@@ -239,9 +275,10 @@ bounded numerical correction against the actual calibrated FK, followed by
 position/orientation and command-limit validation. It must retain genuine
 calibration parameters rather than snap them to nominal geometry. That path,
 its physical acceptance tolerances, and its singular-case behavior are not yet
-implemented or validated. The immediate priorities are the asset-coordinate
-bridge, joint recovery and full FK checks, rather than more general incidence
-classification.
+implemented or validated. Canonical joint recovery and FK checks now have a
+tested component; the immediate priorities are the asset-coordinate bridge and
+connecting root discovery to validated postures, rather than more general
+incidence classification.
 
 ## Fixture source
 
