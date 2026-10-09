@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include <Eigen/Core>
@@ -12,6 +13,7 @@
 #include "crx_kinematics.h"
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"
+#include "crx_solver.h"
 #include "crx_types.h"
 #include "crx_vector_helpers.h"
 
@@ -130,6 +132,30 @@ auto LogRobotAdapterWarning(const robot_T *robot, const std::string &message)
 } // namespace
 
 namespace crx {
+
+auto IkResultToRoboDkReturn(const IkResult &result) -> int {
+  switch (result.status) {
+  case IkStatus::StrictCandidates:
+  case IkStatus::StrictSeed:
+  case IkStatus::ApproximateSeed:
+    if (result.solutions.empty() ||
+        result.solutions.size() >
+            static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      return -1;
+    }
+    return static_cast<int>(result.solutions.size());
+  case IkStatus::NoCandidate:
+  case IkStatus::NoOutputRequested:
+    return 0;
+  case IkStatus::InvalidInput:
+  case IkStatus::UnsupportedModel:
+  case IkStatus::Unresolved:
+  case IkStatus::NumericalRangeFailure:
+  case IkStatus::WorkLimit:
+    return -1;
+  }
+  return -1;
+}
 
 auto RoboDkDofCount(const robot_T *robot) -> int {
   if (robot == nullptr) {

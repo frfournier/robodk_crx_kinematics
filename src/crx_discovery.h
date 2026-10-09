@@ -19,6 +19,7 @@ struct DiscoveryOptions {
 struct JointDiscovery {
   RecoveryStatus status = RecoveryStatus::InvalidInput;
   std::size_t count = 0;
+  bool used_singular_representatives = false;
   // Bounded storage for roots and analytic boundary crossings after posture
   // deduplication. Capacity exhaustion returns NeedsRefinement, never
   // truncates.

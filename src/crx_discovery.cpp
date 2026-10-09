@@ -192,6 +192,9 @@ auto RealProjection(const Coefficients &coefficients, double t)
 
 auto AppendUnique(const JointRecovery &recovered, JointDiscovery &output)
     -> bool {
+  output.used_singular_representatives =
+      output.used_singular_representatives ||
+      recovered.used_singular_representatives;
   for (std::size_t i = 0; i < recovered.count; ++i) {
     const auto &candidate = recovered.candidates[i];
     bool duplicate = false;

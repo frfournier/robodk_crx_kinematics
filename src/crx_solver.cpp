@@ -890,9 +890,9 @@ auto FinalizeIkCandidates(const std::vector<Vec6> &geometric_solutions,
                           const CrxModelData &model,
                           const PoseIsoRT &target_pose,
                           const Eigen::Quaterniond &target_quaternion,
-                          const Vec6 *approx_joints_rad, int max_solutions,
-                          std::vector<Vec6> &solutions_out) -> int {
-  solutions_out.clear();
+                          const Vec6 *approx_joints_rad, int max_solutions)
+    -> IkResult {
+  IkResult result;
   std::vector<Vec6> command_postures;
   command_postures.reserve(2 * geometric_solutions.size());
   for (const Vec6 &solution : geometric_solutions) {
@@ -912,13 +912,29 @@ auto FinalizeIkCandidates(const std::vector<Vec6> &geometric_solutions,
                                   target_quaternion, model);
       });
   if (selected.status != CommandSelectionStatus::Complete) {
-    return -1;
+    switch (selected.status) {
+    case CommandSelectionStatus::InvalidInput:
+      result.status = IkStatus::InvalidInput;
+      break;
+    case CommandSelectionStatus::RangeFailure:
+      result.status = IkStatus::NumericalRangeFailure;
+      break;
+    case CommandSelectionStatus::WorkLimit:
+      result.status = IkStatus::WorkLimit;
+      break;
+    case CommandSelectionStatus::Complete:
+      break;
+    }
+    return result;
   }
-  solutions_out.reserve(selected.commands.size());
+  result.solutions.reserve(selected.commands.size());
   for (const auto &command : selected.commands) {
-    solutions_out.push_back(CommandToUser(command.command_rad));
+    result.solutions.push_back(CommandToUser(command.command_rad));
   }
-  return static_cast<int>(solutions_out.size());
+  result.truncated = selected.truncated;
+  result.status = result.solutions.empty() ? IkStatus::NoCandidate
+                                           : IkStatus::StrictCandidates;
+  return result;
 }
 
 struct ArmClassificationGeometry {
@@ -1017,20 +1033,22 @@ auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &user_joints_rad,
 }
 
 auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
-                     const Vec6 *approx_joints_rad, int max_solutions,
-                     std::vector<Vec6> &solutions_out) -> int {
-  solutions_out.clear();
+                     const Vec6 *approx_joints_rad, int max_solutions)
+    -> IkResult {
+  IkResult result;
   if (max_solutions <= 0) {
-    return 0;
+    result.status = IkStatus::NoOutputRequested;
+    return result;
   }
   if (!IsModelDataValid(model) || !target_pose.matrix().allFinite() ||
       (approx_joints_rad != nullptr && !approx_joints_rad->allFinite())) {
-    return -1;
+    return result;
   }
 
   CrxParams crx_params;
   if (!ReadCrxParams(model, crx_params)) {
-    return -1;
+    result.status = IkStatus::UnsupportedModel;
+    return result;
   }
 
   const Eigen::Quaterniond target_quaternion(
@@ -1043,7 +1061,8 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   double convention_base_z_shift_mm = 0.0;
   if (!NormalizeProductionDhForAnalyticIk(crx_params,
                                           convention_base_z_shift_mm)) {
-    return -1;
+    result.status = IkStatus::UnsupportedModel;
+    return result;
   }
 
   PoseIsoRT target_pose_06 = target_pose_06_raw;
@@ -1073,7 +1092,8 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   if (!Eigen::Map<const Vec6>(model.joint_senses.data())
            .isApprox(Eigen::Map<const Vec6>(kCrxSenses.data()),
                      numerics::kUnitTolerance)) {
-    return -1;
+    result.status = IkStatus::UnsupportedModel;
+    return result;
   }
   // NormalizeProductionDhForAnalyticIk negates the three wrist offsets
   // for the legacy scanner. Canonical lengths retain the production signs.
@@ -1088,8 +1108,16 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
       discovered.status != canonical::RecoveryStatus::NoCandidate) {
     // Fail explicitly; the polynomial comparison must not conceal a
     // discovery defect by invoking the legacy scanner.
-    return -1;
+    result.status =
+        discovered.status == canonical::RecoveryStatus::InvalidInput
+            ? IkStatus::InvalidInput
+        : discovered.status == canonical::RecoveryStatus::NumericalRangeFailure
+            ? IkStatus::NumericalRangeFailure
+            : IkStatus::Unresolved;
+    return result;
   }
+  result.used_singular_representatives =
+      discovered.used_singular_representatives;
   if (discovered.status == canonical::RecoveryStatus::Candidates) {
     geometric_solutions.reserve(discovered.count);
     for (std::size_t i = 0; i < discovered.count; ++i) {
@@ -1100,7 +1128,8 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
       // Match the scanner's principal geometric domain before finalizing.
       NormalizeVecKeepSignedPi(user);
       if (!IsFkRoundtripValid(user, target_pose, target_quaternion, model)) {
-        return -1;
+        result.status = IkStatus::Unresolved;
+        return result;
       }
       geometric_solutions.push_back(user);
     }
@@ -1115,25 +1144,31 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
       if (ClampCommandToLimits(command, model.lower_limits_rad,
                                model.upper_limits_rad)) {
         const Vec6 approx_fallback_joints_rad = CommandToUser(command);
-        if (IsFkRoundtripValid(approx_fallback_joints_rad, target_pose,
-                               target_quaternion, model) ||
-            IsFkRoundtripValidWithTolerances(
-                approx_fallback_joints_rad, target_pose, target_quaternion,
-                model,
-                (numerics::kApproxFallbackPositionToleranceMm *
-                 numerics::kApproxFallbackPositionToleranceMm),
-                numerics::kApproxFallbackAngleToleranceRad)) {
-          solutions_out.push_back(approx_fallback_joints_rad);
-          return 1;
+        const bool strict = IsFkRoundtripValid(
+            approx_fallback_joints_rad, target_pose, target_quaternion, model);
+        if (strict || IsFkRoundtripValidWithTolerances(
+                          approx_fallback_joints_rad, target_pose,
+                          target_quaternion, model,
+                          (numerics::kApproxFallbackPositionToleranceMm *
+                           numerics::kApproxFallbackPositionToleranceMm),
+                          numerics::kApproxFallbackAngleToleranceRad)) {
+          result.solutions.push_back(approx_fallback_joints_rad);
+          result.status =
+              strict ? IkStatus::StrictSeed : IkStatus::ApproximateSeed;
+          return result;
         }
       }
     }
-    return 0;
+    result.status = IkStatus::NoCandidate;
+    return result;
   }
 
-  return FinalizeIkCandidates(geometric_solutions, model, target_pose,
-                              target_quaternion, approx_for_finalize,
-                              max_solutions, solutions_out);
+  auto finalized = FinalizeIkCandidates(geometric_solutions, model, target_pose,
+                                        target_quaternion, approx_for_finalize,
+                                        max_solutions);
+  finalized.used_singular_representatives =
+      result.used_singular_representatives;
+  return finalized;
 }
 
 } // namespace crx

@@ -30,6 +30,7 @@ struct JointCandidate {
 struct JointRecovery {
   RecoveryStatus status = RecoveryStatus::InvalidInput;
   std::size_t count = 0;
+  bool used_singular_representatives = false;
   std::array<JointCandidate, 4> candidates{}; // Two elbows, two bases each.
 };
 

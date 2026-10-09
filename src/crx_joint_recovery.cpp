@@ -165,6 +165,7 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   const Vec3 target_position = target.translation() / circle.length_scale;
   std::array<JointCandidate, 4> candidates{};
   std::size_t count = 0;
+  bool used_singular_representatives = false;
   for (std::size_t elbow = 0; elbow < elbows.count; ++elbow) {
     // At a vertical wrist point the elbow fixes the base plane. If both arm
     // points are on-axis, use base=0 as a deterministic singular-family
@@ -174,7 +175,9 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
             ? x
             : elbows.points[elbow];
     WristPhase base;
-    NormalizePhase(base_point.y(), base_point.x(), base);
+    if (!NormalizePhase(base_point.y(), base_point.x(), base)) {
+      used_singular_representatives = true;
+    }
     for (const WristPhase &base_phase :
          {base, WristPhase{-base.cosine, -base.sine}}) {
       JointCandidate candidate;
@@ -209,6 +212,7 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   }
   result.candidates = candidates;
   result.count = count;
+  result.used_singular_representatives = used_singular_representatives;
   return result;
 }
 

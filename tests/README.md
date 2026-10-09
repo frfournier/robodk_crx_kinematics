@@ -150,6 +150,46 @@ live opt-in skips and four existing scanner xfails). Existing RoboDK import and
 clang-tidy warnings remain visible. Discardable before binaries, corpus runner,
 logs and command inventory are in `build/comparisons/`.
 
+## Solver outcomes and fallback (#12)
+
+`SolveIkIsometry` returns a private `IkResult`. The adapter maps its status to
+the unchanged C ABI; the six reserved fields remain zero.
+
+| Private status | RoboDK return | Policy |
+| --- | --- | --- |
+| `StrictCandidates` | Returned count | All commands pass full FK at 0.0001 mm / 0.001 degrees. A preserved strict seed may accompany discovered commands. |
+| `StrictSeed` | 1 | An empty numerical search accepted the seed at strict tolerance. |
+| `ApproximateSeed` | 1 | Compatibility policy: only an empty numerical search may accept a legal seed at 0.01 mm / 0.01 degrees. |
+| `NoCandidate` | 0 | No accepted command; this is not certified infeasibility. |
+| `NoOutputRequested` | 0 | Caller capacity is nonpositive. |
+| `InvalidInput`, `UnsupportedModel`, `Unresolved`, `NumericalRangeFailure`, `WorkLimit` | -1 | Request RoboDK's generic solver without publishing partial results or accepting a seed. |
+
+`truncated` records successful output-capacity truncation independently of
+status. Work/range failures do not return a prefix. Approximate acceptance is
+not attempted when discovery produced postures that were subsequently filtered
+by command limits, or when discovery was unresolved. The public ABI cannot
+distinguish approximate success; callers requiring strict accuracy must check
+the returned pose. This preserves the existing compatibility behavior and
+tolerances rather than silently changing the meaning of existing calls.
+
+Singular policy: recovered finite candidates, including zero-wrist-sine cases,
+must pass the same strict full-pose checks. When both arm points lie on the base
+axis, canonical recovery chooses base zero and its base flip, reconstructs the
+wrist from the target rotation, and validates FK. Its private
+`used_singular_representatives` flag records this discovery policy even if later
+command limits filter those representatives. This flag is not a classification
+of all singularities. Ranking applies to the finite commands and admissible seed;
+it does not minimize over a continuous family. Coincident arm spheres,
+undetermined circles, and identically zero residuals remain unresolved handoffs
+when the backend cannot reconstruct them. They are not certified infeasible and
+are not rescued by the polynomial path's seed or legacy scanner.
+
+`crx.solver-scanner` and `crx.solver-polynomial` inspect private outcomes using
+the real solver and adapter, with no new DLL exports. Python outcome regressions
+exercise both DLLs and check buffer boundaries, reserved zeros, empty/failure
+mapping, and approximate-seed compatibility. Existing canonical tests cover
+exceptional incidence and independent FK; these tests do not certify completeness.
+
 ## Command turns, ranking and capacity (#17)
 
 `crx.command-lifts` tests the private `crx_command_lifts` selector against 200

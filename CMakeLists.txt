@@ -314,6 +314,17 @@ endif()
 # Tests and verification utility
 # ------------------------------------------------------------------------------
 if(BUILD_TESTING)
+  # Inspect private outcomes for both backends without adding DLL exports.
+  foreach(_backend scanner polynomial)
+    add_executable(crx_solver_${_backend}_tests
+      tests/test_crx_solver_outcomes.cpp ${CRXKIN_CPP_SOURCES})
+    target_include_directories(crx_solver_${_backend}_tests PRIVATE include src)
+    target_link_libraries(crx_solver_${_backend}_tests PRIVATE Eigen3::Eigen)
+    if(_backend STREQUAL "polynomial")
+      target_compile_definitions(crx_solver_${_backend}_tests PRIVATE CRXKIN_POLYNOMIAL_COMPARISON)
+    endif()
+    add_test(NAME crx.solver-${_backend} COMMAND crx_solver_${_backend}_tests)
+  endforeach()
   add_executable(crx_command_lift_tests
     tests/test_crx_command_lifts.cpp src/crx_command_lifts.cpp
     src/crx_math_helpers.cpp src/crx_math_compat.cpp src/crx_vector_helpers.cpp)
@@ -410,6 +421,7 @@ if(BUILD_TESTING)
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
               --output-on-failure
       DEPENDS crx_kinematics crx_canonical_tests crx_command_lift_tests
+              crx_solver_scanner_tests crx_solver_polynomial_tests
       COMMENT "Running CMake/CTest regression checks"
       USES_TERMINAL
       VERBATIM
