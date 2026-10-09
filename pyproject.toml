@@ -10,7 +10,7 @@ dependencies = [
     "numpy>=2.5.3",
     "pandas>=3.0.6",
     "pytest>=9.1.1",
-    "robodk>=6.0.1",
+    "robodk>=6.0.2",
 ]
 
 [tool.pytest.ini_options]

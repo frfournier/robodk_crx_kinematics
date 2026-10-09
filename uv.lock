@@ -296,10 +296,10 @@ wheels = [
 
 [[package]]
 name = "robodk"
-version = "6.0.1"
+version = "6.0.2"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/ee/b4fd1d2656eacc5b28a60ad1f5f6a4a2925e2a040bcdf1f6e2ef98906941/robodk-6.0.1-py3-none-any.whl", hash = "sha256:8c4efb22ea8d10f9a704a56097d38dcd4e98cad7eadc676a158dc2e431d0543a", size = 125088, upload-time = "2026-07-23T13:43:20.592Z" },
+    { url = "https://files.pythonhosted.org/packages/74/9c/c5e47bf51bd1582c7c4f875a23777cb3477f8ccc39e976d5d81d55feaa74/robodk-6.0.2-py3-none-any.whl", hash = "sha256:9ab243413fbc633e90916c3aa24f861c16e209e663686cfb22f06391e792b503", size = 127700, upload-time = "2026-09-21T07:00:08.077Z" },
 ]
 
 [[package]]
@@ -338,7 +338,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "pandas", specifier = ">=3.0.6" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "robodk", specifier = ">=6.0.1" },
+    { name = "robodk", specifier = ">=6.0.2" },
 ]
 
 [[package]]
