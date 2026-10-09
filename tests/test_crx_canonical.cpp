@@ -1,5 +1,6 @@
 #include "crx_allocation_probe.h"
 #include "crx_canonical.h"
+#include "crx_incidence_tests.h"
 #include "crx_polynomial_roots.h"
 #include "crx_root_tests.h"
 
@@ -361,10 +362,12 @@ auto main(int argc, char **argv) -> int {
     TestPolynomialUtilities();
     TestInvalidAndRangeFailures();
     RunPolynomialRootTests();
+    RunIncidenceReferenceTests();
   }
   Require(crx::test::AllocationCount() == before_kernel,
           "canonical component made a C++ heap allocation");
-  std::puts("Canonical residual/coefficient/root checks passed; zero C++ "
-            "allocations; Eigen guard active.");
+  std::puts(
+      "Canonical residual/coefficient/root/incidence checks passed; zero C++ "
+      "allocations; Eigen guard active.");
   return 0;
 }

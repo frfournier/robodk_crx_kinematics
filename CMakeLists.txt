@@ -312,12 +312,16 @@ if(BUILD_TESTING)
   # the Release DLL's NDEBUG build is not an allocation test.
   add_executable(crx_canonical_tests
     tests/test_crx_canonical.cpp
+    tests/test_crx_incidence_reference.cpp
+    tests/crx_incidence_reference.cpp
     tests/test_crx_polynomial_roots.cpp
     tests/crx_allocation_probe.cpp
     src/crx_canonical.cpp
     src/crx_polynomial_roots.cpp
     src/crx_math_compat.cpp
   )
+  # The SVD incidence reference and exceptional classifications are test-only.
+  # Keep them out of CRXKIN_CPP_SOURCES and the qmake library source list.
   target_include_directories(crx_canonical_tests PRIVATE include src tests)
   target_link_libraries(crx_canonical_tests PRIVATE Eigen3::Eigen)
   target_compile_definitions(crx_canonical_tests PRIVATE EIGEN_RUNTIME_NO_MALLOC)
