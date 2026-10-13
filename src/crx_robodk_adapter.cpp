@@ -15,7 +15,6 @@
 #include "crx_numerics.h"
 #include "crx_solver.h"
 #include "crx_types.h"
-#include "crx_vector_helpers.h"
 
 namespace {
 
@@ -245,7 +244,7 @@ auto RoboDkJointsDegCoupledToUserRad(const real_T *joints_deg,
   // The canonical internal CRX joint vector uses decoupled J3 in radians.
   const Vec6 command_rad =
       Eigen::Map<const Vec6>(joints_deg) * angle_conv::DegToRad(1.0);
-  joints_user_rad = CommandToUser(command_rad);
+  joints_user_rad = RemoveFanucJointCoupling(command_rad);
   return joints_user_rad.allFinite();
 }
 
@@ -259,7 +258,7 @@ auto UserJointsRadToRoboDkCoupledDeg(const Vec6 &joints_user_rad,
   if (!joints_user_rad.allFinite()) {
     return false;
   }
-  const Vec6 joints_api_rad = UserToCommand(joints_user_rad);
+  const Vec6 joints_api_rad = ApplyFanucJointCoupling(joints_user_rad);
   Eigen::Map<Vec6> joints_map(joints_deg);
   joints_map = joints_api_rad * angle_conv::RadToDeg(1.0);
   return true;

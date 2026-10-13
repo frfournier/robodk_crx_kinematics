@@ -167,20 +167,22 @@ endforeach()
 # ------------------------------------------------------------------------------
 # Library target (src/)
 # ------------------------------------------------------------------------------
-set(CRXKIN_CPP_SOURCES
-  "${CMAKE_SOURCE_DIR}/src/crx_command_lifts.cpp"
+set(CRXKIN_CANONICAL_SOURCES
   "${CMAKE_SOURCE_DIR}/src/crx_canonical.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_discovery.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_incidence.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_joint_recovery.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_polynomial_roots.cpp"
+)
+
+set(CRXKIN_CPP_SOURCES
+  ${CRXKIN_CANONICAL_SOURCES}
+  "${CMAKE_SOURCE_DIR}/src/crx_command_lifts.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_helpers.cpp"
-  "${CMAKE_SOURCE_DIR}/src/crx_pose_helpers.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_robodk_adapter.cpp"
-  "${CMAKE_SOURCE_DIR}/src/crx_vector_helpers.cpp"
 )
 
 file(GLOB CRXKIN_FORMAT_SOURCES CONFIGURE_DEPENDS
@@ -327,7 +329,7 @@ if(BUILD_TESTING)
   endforeach()
   add_executable(crx_command_lift_tests
     tests/test_crx_command_lifts.cpp src/crx_command_lifts.cpp
-    src/crx_math_helpers.cpp src/crx_math_compat.cpp src/crx_vector_helpers.cpp)
+    src/crx_math_helpers.cpp src/crx_math_compat.cpp)
   target_include_directories(crx_command_lift_tests PRIVATE src)
   target_link_libraries(crx_command_lift_tests PRIVATE Eigen3::Eigen)
   add_test(NAME crx.command-lifts COMMAND crx_command_lift_tests)
@@ -349,11 +351,7 @@ if(BUILD_TESTING)
   if(WIN32)
     add_executable(crx_discovery_benchmark EXCLUDE_FROM_ALL
       scripts/benchmark_discovery.cpp
-      src/crx_canonical.cpp
-      src/crx_discovery.cpp
-      src/crx_incidence.cpp
-      src/crx_joint_recovery.cpp
-      src/crx_polynomial_roots.cpp
+      ${CRXKIN_CANONICAL_SOURCES}
       src/crx_math_compat.cpp
     )
     target_include_directories(crx_discovery_benchmark PRIVATE src)
@@ -375,11 +373,7 @@ if(BUILD_TESTING)
     tests/crx_incidence_reference.cpp
     tests/test_crx_polynomial_roots.cpp
     tests/crx_allocation_probe.cpp
-    src/crx_canonical.cpp
-    src/crx_discovery.cpp
-    src/crx_incidence.cpp
-    src/crx_joint_recovery.cpp
-    src/crx_polynomial_roots.cpp
+    ${CRXKIN_CANONICAL_SOURCES}
     src/crx_math_compat.cpp
   )
   # The SVD incidence reference and exceptional classifications are test-only.

@@ -23,7 +23,8 @@ auto WrapRad2Pi(double a) -> double {
 }
 
 auto NormalizeRadKeepSignedPi(double a) -> double {
-  double w = std::fmod(a, kTwoPi);
+  // fmod is exactly the input inside one turn, including signed zero.
+  double w = (a > -kTwoPi && a < kTwoPi) ? a : std::fmod(a, kTwoPi);
   if (w > angle_conv::kPi)
     w -= kTwoPi;
   else if (w < -angle_conv::kPi)
@@ -54,6 +55,42 @@ auto SnapToRightAngleFamily(double a, double tol) -> double {
 
 auto AngleDiffAbs(double a, double b) -> double {
   return std::abs(WrapRadPi(a - b));
+}
+
+auto ApplyFanucJointCoupling(const Vec6 &decoupled) -> Vec6 {
+  Vec6 coupled = decoupled;
+  coupled[kJoint3Index] += coupled[kJoint2Index];
+  return coupled;
+}
+
+auto RemoveFanucJointCoupling(const Vec6 &coupled) -> Vec6 {
+  Vec6 decoupled = coupled;
+  decoupled[kJoint3Index] -= decoupled[kJoint2Index];
+  return decoupled;
+}
+
+void NormalizeVecKeepSignedPi(Vec6 &q) {
+  q = q.unaryExpr([](double x) { return NormalizeRadKeepSignedPi(x); });
+}
+
+void NormalizeUserSolutionDomains(Vec6 &q) {
+  const double joint3_raw = q[kJoint3Index];
+  NormalizeVecKeepSignedPi(q);
+  q[kJoint3Index] = joint3_raw;
+}
+
+auto DHM_FromRad(Scalar alpha, Scalar a, Scalar theta, Scalar d) -> PoseIsoRT {
+  // Modified DH: Tx(a) Rx(alpha) Tz(d) Rz(theta).
+  const Scalar sa = std::sin(alpha);
+  const Scalar ca = std::cos(alpha);
+  const Scalar st = std::sin(theta);
+  const Scalar ct = std::cos(theta);
+  PoseIsoRT transform;
+  transform.matrix() << ct, -st, 0.0, a, //
+      ca * st, ca * ct, -sa, -d * sa,    //
+      sa * st, sa * ct, ca, d * ca,      //
+      0.0, 0.0, 0.0, 1.0;
+  return transform;
 }
 
 } // namespace crx

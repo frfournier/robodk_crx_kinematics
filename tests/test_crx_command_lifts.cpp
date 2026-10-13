@@ -1,12 +1,13 @@
 #include "crx_command_lifts.h"
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"
-#include "crx_vector_helpers.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <random>
 
@@ -23,6 +24,43 @@ void Require(bool test, const char *message) {
 }
 
 auto Accept(const Vec6 &) -> bool { return true; }
+
+void AngleNormalizationReference() {
+  const auto check = [](double angle) {
+    double expected = std::fmod(angle, kTau);
+    if (expected > kTau / 2) {
+      expected -= kTau;
+    } else if (expected < -kTau / 2) {
+      expected += kTau;
+    }
+    const double actual = crx::NormalizeRadKeepSignedPi(angle);
+    Require(std::isnan(expected)
+                ? std::isnan(actual)
+                : actual == expected &&
+                      std::signbit(actual) == std::signbit(expected),
+            "angle normalization preserves fmod and signed-zero semantics");
+  };
+  const double infinity = std::numeric_limits<double>::infinity();
+  for (double boundary : {-kTau, -kTau / 2, -0.0, 0.0, kTau / 2, kTau}) {
+    check(boundary);
+    check(std::nextafter(boundary, -infinity));
+    check(std::nextafter(boundary, infinity));
+  }
+  check(infinity);
+  check(-infinity);
+  check(std::numeric_limits<double>::quiet_NaN());
+  // Include subnormals and large turn counts, not just typical robot angles.
+  constexpr unsigned kNormalizationSeed = 20261013;
+  constexpr int kNormalizationTrials = 10000;
+  std::mt19937_64 generator(kNormalizationSeed);
+  for (int trial = 0; trial < kNormalizationTrials; ++trial) {
+    const std::uint64_t bits = generator();
+    double angle = 0;
+    static_assert(sizeof(angle) == sizeof(bits));
+    std::memcpy(&angle, &bits, sizeof(angle));
+    check(angle);
+  }
+}
 
 void ExhaustiveReference() {
   std::mt19937 generator(17019);
@@ -216,10 +254,10 @@ void LateCandidatesAndSeed() {
               result.commands.front().preserved_seed,
           "seed accounted separately");
   const Vec6 command = (Vec6() << 0.0, 1.0, -1.0, 0.0, 0.0, 0.0).finished();
-  Require(crx::numerics::Scalar(crx::CommandToUser(command)[2])
+  Require(crx::numerics::Scalar(crx::RemoveFanucJointCoupling(command)[2])
               .isApproxToConstant(-2.0, crx::numerics::kEpsilon),
           "coupling");
-  Require(crx::UserToCommand(crx::CommandToUser(command))
+  Require(crx::ApplyFanucJointCoupling(crx::RemoveFanucJointCoupling(command))
               .isApprox(command, crx::numerics::kEpsilon),
           "command mapping inverse");
 }
@@ -229,20 +267,21 @@ void CoupledMetricCounterexample() {
   // Independent rounding of the decoupled seed (.49,.49) would choose (0,0).
   Vec6 user_seed = Vec6::Zero();
   user_seed[1] = user_seed[2] = 0.49 * kTau;
-  const Vec6 seed = crx::UserToCommand(user_seed);
+  const Vec6 seed = crx::ApplyFanucJointCoupling(user_seed);
   Vec6 lo = Vec6::Zero(), hi = Vec6::Zero();
   hi[1] = kTau;
   hi[2] = 2.0 * kTau;
   const auto result = crx::SelectCommandLifts(
       {Vec6::Zero()}, lo, hi, &seed, 10, [](const Vec6 &q) {
-        const Vec6 user = crx::CommandToUser(q);
+        const Vec6 user = crx::RemoveFanucJointCoupling(q);
         return user[2] >= -1e-12 && user[2] <= kTau + 1e-12 &&
                q.unaryExpr([](double x) { return std::remainder(x, kTau); })
                        .cwiseAbs()
                        .maxCoeff() < 1e-12;
       });
   Require(result.commands.size() == 4, "coupled finite catalogue");
-  const Vec6 best = crx::CommandToUser(result.commands.front().command_rad);
+  const Vec6 best =
+      crx::RemoveFanucJointCoupling(result.commands.front().command_rad);
   Require(crx::numerics::Scalar(best[1]).isZero(crx::numerics::kEpsilon) &&
               crx::numerics::Scalar(best[2]).isApproxToConstant(
                   kTau, crx::numerics::kEpsilon),
@@ -293,6 +332,7 @@ void RoundoffBoundariesAndOrdering() {
 } // namespace
 
 auto main() -> int {
+  AngleNormalizationReference();
   ExhaustiveReference();
   BoundariesAndFailures();
   LateCandidatesAndSeed();
