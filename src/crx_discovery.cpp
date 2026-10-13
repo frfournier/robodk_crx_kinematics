@@ -13,6 +13,27 @@
 
 namespace crx::canonical {
 namespace {
+// Immutable geometry and acceptance contract for one target.
+struct RecoveryProblem {
+  const Lengths &lengths;
+  const PoseIsoRT &target;
+  const WristCircle &circle;
+  const PoseTolerance &tolerance;
+};
+
+auto ClosestWristAngle(const WristCircle &circle) -> double {
+  return std::atan2(circle.p.dot(circle.w), circle.p.dot(circle.v)) +
+         (circle.lengths.r >= 0 ? angle_conv::kPi : 0.0);
+}
+
+auto NearFoldedArm(const WristCircle &circle, double angle) -> bool {
+  const Vec3 point = circle.p + circle.lengths.r * (circle.v * std::cos(angle) +
+                                                    circle.w * std::sin(angle));
+  return point.norm() <
+         numerics::kFoldedChartArmFraction *
+             std::min(std::abs(circle.lengths.a), std::abs(circle.lengths.b));
+}
+
 struct ElbowResidual {
   double value = 0;
   double derivative = 0;
@@ -209,10 +230,68 @@ auto AppendUnique(const Recovery &recovered, Output &output) -> bool {
   return true;
 }
 
-auto PolishAndRecover(const Lengths &lengths, const PoseIsoRT &target,
-                      const WristCircle &circle, double initial_angle,
-                      const PoseTolerance &tolerance, int budget, double radius,
-                      bool ill_conditioned) -> PolishedRecovery {
+using ElbowEvaluator = bool (*)(const WristCircle &, double, double,
+                                ElbowResidual &);
+
+struct PolishWindow {
+  double initial_angle;
+  int budget;
+  double radius;
+};
+
+auto RefineElbowBranch(const RecoveryProblem &problem,
+                       const JointRecovery &direct, ElbowEvaluator evaluate,
+                       double sign, const PolishWindow &window, double &angle)
+    -> JointRecovery {
+  const auto &[lengths, target, circle, tolerance] = problem;
+  const auto [initial_angle, budget, radius] = window;
+  for (int iteration = 0; iteration <= budget; ++iteration) {
+    ElbowResidual residual;
+    const bool regular = evaluate(circle, angle, sign, residual);
+    auto recovered = iteration == 0 ? direct
+                                    : RecoverJointCandidates(lengths, target,
+                                                             angle, tolerance);
+    if (regular) {
+      KeepElbowBranch(circle, residual, recovered);
+    }
+    if (recovered.status == RecoveryStatus::NumericalRangeFailure) {
+      return {RecoveryStatus::NumericalRangeFailure};
+    }
+    if (recovered.status == RecoveryStatus::Candidates) {
+      return recovered;
+    }
+    if (iteration == budget || !regular ||
+        std::abs(residual.derivative) <= numerics::kDirectionTolerance) {
+      break;
+    }
+    double step =
+        std::clamp(residual.value / residual.derivative,
+                   -numerics::kPolishMaxStepRad, numerics::kPolishMaxStepRad);
+    bool improved = false;
+    for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
+         ++backtrack) {
+      const double trial = std::remainder(angle - step, kTwoPi);
+      ElbowResidual next;
+      if (std::abs(std::remainder(trial - initial_angle, kTwoPi)) <= radius &&
+          evaluate(circle, trial, sign, next) &&
+          std::abs(next.value) < std::abs(residual.value)) {
+        angle = trial;
+        improved = true;
+        break;
+      }
+      step *= 0.5;
+    }
+    if (!improved) {
+      break;
+    }
+  }
+  return {RecoveryStatus::NeedsRefinement};
+}
+
+auto PolishAndRecover(const RecoveryProblem &problem, double initial_angle,
+                      int budget, double radius, bool ill_conditioned)
+    -> PolishedRecovery {
+  const auto &[lengths, target, circle, tolerance] = problem;
   PolishedRecovery accepted;
   const auto direct =
       RecoverJointCandidates(lengths, target, initial_angle, tolerance);
@@ -246,54 +325,16 @@ auto PolishAndRecover(const Lengths &lengths, const PoseIsoRT &target,
     bool have_correction = false;
     for (const double sign : {-1.0, 1.0}) {
       double angle = initial_angle;
-      bool found = false;
-      for (int iteration = 0; iteration <= budget; ++iteration) {
-        ElbowResidual residual;
-        const bool regular = evaluate(circle, angle, sign, residual);
-        auto recovered =
-            iteration == 0
-                ? direct
-                : RecoverJointCandidates(lengths, target, angle, tolerance);
-        if (regular) {
-          KeepElbowBranch(circle, residual, recovered);
-        }
-        if (recovered.status == RecoveryStatus::NumericalRangeFailure) {
-          return {RecoveryStatus::NumericalRangeFailure};
-        }
-        if (recovered.status == RecoveryStatus::Candidates) {
-          if (!AppendUnique(recovered, accepted)) {
-            return {};
-          }
-          found = true;
-          break;
-        }
-        if (iteration == budget || !regular ||
-            std::abs(residual.derivative) <= numerics::kDirectionTolerance) {
-          break;
-        }
-        double step = std::clamp(residual.value / residual.derivative,
-                                 -numerics::kPolishMaxStepRad,
-                                 numerics::kPolishMaxStepRad);
-        bool improved = false;
-        for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
-             ++backtrack) {
-          const double trial = std::remainder(angle - step, kTwoPi);
-          ElbowResidual next;
-          if (std::abs(std::remainder(trial - initial_angle, kTwoPi)) <=
-                  radius &&
-              evaluate(circle, trial, sign, next) &&
-              std::abs(next.value) < std::abs(residual.value)) {
-            angle = trial;
-            improved = true;
-            break;
-          }
-          step *= 0.5;
-        }
-        if (!improved) {
-          break;
-        }
+      const auto branch =
+          RefineElbowBranch(problem, direct, evaluate, sign,
+                            {initial_angle, budget, radius}, angle);
+      if (branch.status == RecoveryStatus::NumericalRangeFailure) {
+        return {RecoveryStatus::NumericalRangeFailure};
       }
-      if (found) {
+      if (branch.status == RecoveryStatus::Candidates) {
+        if (!AppendUnique(branch, accepted)) {
+          return {};
+        }
         continue;
       }
       // Preserve each branch's scalar progress before full-pose correction.
@@ -410,10 +451,102 @@ auto BoundaryPhases(const WristCircle &circle) -> GeometricPhases {
   return result;
 }
 
-auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
-                     const WristCircle &circle, const PoseTolerance &tolerance,
+struct RootNomination {
+  double angle = 0;
+  double radius = numerics::kPolishRadiusRad;
+  bool ill_conditioned = true;
+};
+
+enum class NominationStatus { Ready, Skip, Unresolved };
+
+auto NominateRoot(const HalfAnglePolynomial &polynomial,
+                  const RootResult &roots, std::size_t i,
+                  RootNomination &nomination) -> NominationStatus {
+  auto &[angle, radius, ill_conditioned] = nomination;
+  angle = polynomial.chart_angle + angle_conv::kPi;
+  if (i == roots.count) {
+    const Eigen::Map<const Eigen::Matrix<double, kCoefficientCount, 1>> mapped(
+        polynomial.coefficients.data());
+    return std::abs(polynomial.omitted_point_residual) >
+                   numerics::kUnitTolerance * mapped.cwiseAbs().maxCoeff()
+               ? NominationStatus::Skip
+               : NominationStatus::Ready;
+  }
+  const auto &root = roots.candidates[i];
+  // Conjugates nominate the same phase. Recovery follows both elbow signs.
+  for (std::size_t j = 0; j < i; ++j) {
+    if (numerics::IsRepresentedZero(root.value.real() -
+                                    roots.candidates[j].value.real()) &&
+        numerics::IsRepresentedZero(
+            std::abs(root.value.imag()) -
+            std::abs(roots.candidates[j].value.imag()))) {
+      return NominationStatus::Skip;
+    }
+  }
+  const double relative_imaginary =
+      std::abs(root.value.imag()) / (1 + std::abs(root.value.real()));
+  const auto projected =
+      RealProjection(polynomial.coefficients, root.value.real());
+  // Multiple real roots can split into complex pairs. Projection only
+  // nominates; unsquared geometry and full FK still decide acceptance.
+  if (relative_imaginary > numerics::kElementaryRoundoff &&
+      relative_imaginary > numerics::kNearRealTolerance &&
+      std::abs(projected.value) > numerics::kRootProjectionTolerance) {
+    return NominationStatus::Skip;
+  }
+  if (root.relative_residual > numerics::kRootResidualTolerance) {
+    return NominationStatus::Unresolved;
+  }
+  angle = polynomial.chart_angle + 2 * std::atan(root.value.real());
+  ill_conditioned =
+      relative_imaginary > numerics::kElementaryRoundoff ||
+      std::abs(projected.derivative) <= numerics::kRootSlopeTolerance;
+  if (!ill_conditioned) {
+    for (std::size_t j = 0; j < roots.count; ++j) {
+      if (i == j) {
+        continue;
+      }
+      const double other = polynomial.chart_angle +
+                           2 * std::atan(roots.candidates[j].value.real());
+      radius = std::min(radius, numerics::kNeighborRadiusFraction *
+                                    std::abs(std::remainder(
+                                        angle - other, 2 * angle_conv::kPi)));
+    }
+  }
+  return NominationStatus::Ready;
+}
+
+auto RecoverNearbyBoundary(const RecoveryProblem &problem,
+                           const GeometricPhases &phases,
+                           const RootNomination &nomination)
+    -> PolishedRecovery {
+  const auto &[lengths, target, circle, tolerance] = problem;
+  for (std::size_t i = 0; i < phases.count; ++i) {
+    const auto &phase = phases.values[i];
+    // Only proximity uses an angle; recovery retains exact circle coordinates.
+    const double angle = std::atan2(phase.sine, phase.cosine);
+    if (std::abs(std::remainder(angle - nomination.angle, kTwoPi)) >
+        nomination.radius) {
+      continue;
+    }
+    const auto trial =
+        RecoverJointCandidates(lengths, target, phase, tolerance);
+    if (trial.status == RecoveryStatus::Candidates) {
+      PolishedRecovery recovered;
+      recovered.status = trial.status;
+      if (!AppendUnique(trial, recovered)) {
+        return {};
+      }
+      return recovered;
+    }
+  }
+  return {};
+}
+
+auto DiscoverInChart(const RecoveryProblem &problem,
                      const DiscoveryOptions &options, double chart)
     -> JointDiscovery {
+  const auto &[lengths, target, circle, tolerance] = problem;
   JointDiscovery result;
   HalfAnglePolynomial polynomial;
   if (BuildHalfAnglePolynomial(circle, chart, polynomial) !=
@@ -432,15 +565,8 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
     return result;
   }
   JointDiscovery accepted;
-  const double closest_angle =
-      std::atan2(circle.p.dot(circle.w), circle.p.dot(circle.v)) +
-      (circle.lengths.r >= 0 ? angle_conv::kPi : 0.0);
-  const Vec3 closest_point =
-      circle.p + circle.lengths.r * (circle.v * std::cos(closest_angle) +
-                                     circle.w * std::sin(closest_angle));
-  if (closest_point.norm() <
-      numerics::kFoldedChartArmFraction *
-          std::min(std::abs(circle.lengths.a), std::abs(circle.lengths.b))) {
+  const double closest_angle = ClosestWristAngle(circle);
+  if (NearFoldedArm(circle, closest_angle)) {
     const auto folded = RefineJointCandidates(
         lengths, target, closest_angle, tolerance,
         options.max_polish_iterations, numerics::kPolishRadiusRad);
@@ -461,91 +587,21 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
     }
   }
   for (std::size_t i = 0; i <= roots.count; ++i) {
-    double angle = polynomial.chart_angle + angle_conv::kPi;
-    double radius = numerics::kPolishRadiusRad;
-    bool ill_conditioned = true;
-    if (i == roots.count) {
-      const Eigen::Map<const Eigen::Matrix<double, kCoefficientCount, 1>>
-          mapped(polynomial.coefficients.data());
-      const double scale = mapped.cwiseAbs().maxCoeff();
-      if (std::abs(polynomial.omitted_point_residual) >
-          numerics::kUnitTolerance * scale) {
-        continue;
-      }
-    } else {
-      const auto &root = roots.candidates[i];
-      bool repeated_projection = false;
-      for (std::size_t j = 0; j < i; ++j) {
-        repeated_projection =
-            repeated_projection ||
-            (numerics::IsRepresentedZero(root.value.real() -
-                                         roots.candidates[j].value.real()) &&
-             numerics::IsRepresentedZero(
-                 std::abs(root.value.imag()) -
-                 std::abs(roots.candidates[j].value.imag())));
-      }
-      // A conjugate pair has the identical real nomination, radius and
-      // conditioning. PolishAndRecover already follows both elbow signs.
-      if (repeated_projection) {
-        continue;
-      }
-      const double relative_imaginary =
-          std::abs(root.value.imag()) / (1 + std::abs(root.value.real()));
-      const auto projected =
-          RealProjection(polynomial.coefficients, root.value.real());
-      // Multiple real roots can split into conjugate eigenvalues. Their real
-      // projections are starting guesses only: unsquared geometry and full FK
-      // below, not the imaginary part or polynomial slope, decide acceptance.
-      if (relative_imaginary > numerics::kElementaryRoundoff) {
-        if (relative_imaginary > numerics::kNearRealTolerance &&
-            std::abs(projected.value) > numerics::kRootProjectionTolerance) {
-          continue;
-        }
-      }
-      if (root.relative_residual > numerics::kRootResidualTolerance) {
-        result.status = RecoveryStatus::NeedsRefinement;
-        return result;
-      }
-      angle = polynomial.chart_angle + 2 * std::atan(root.value.real());
-      ill_conditioned =
-          relative_imaginary > numerics::kElementaryRoundoff ||
-          std::abs(projected.derivative) <= numerics::kRootSlopeTolerance;
-      for (std::size_t j = 0; j < roots.count; ++j) {
-        if (i == j || ill_conditioned) {
-          continue;
-        }
-        const double other = polynomial.chart_angle +
-                             2 * std::atan(roots.candidates[j].value.real());
-        radius = std::min(radius, numerics::kNeighborRadiusFraction *
-                                      std::abs(std::remainder(
-                                          angle - other, 2 * angle_conv::kPi)));
-      }
+    RootNomination nomination;
+    const auto status = NominateRoot(polynomial, roots, i, nomination);
+    if (status == NominationStatus::Skip) {
+      continue;
     }
+    if (status == NominationStatus::Unresolved) {
+      result.status = RecoveryStatus::NeedsRefinement;
+      return result;
+    }
+    const auto [angle, radius, ill_conditioned] = nomination;
     auto recovered = PolishAndRecover(
-        lengths, target, circle, std::remainder(angle, 2 * angle_conv::kPi),
-        tolerance, options.max_polish_iterations, radius, ill_conditioned);
+        problem, std::remainder(angle, 2 * angle_conv::kPi),
+        options.max_polish_iterations, radius, ill_conditioned);
     if (recovered.status == RecoveryStatus::NeedsRefinement) {
-      for (std::size_t j = 0; j < boundary_phases.count; ++j) {
-        const auto &boundary = boundary_phases.values[j];
-        // An angle is needed only for a failed root's proximity check; the
-        // recovery itself continues to use the original circle coordinates.
-        const double boundary_angle =
-            std::atan2(boundary.sine, boundary.cosine);
-        if (std::abs(std::remainder(boundary_angle - angle,
-                                    2 * angle_conv::kPi)) <= radius) {
-          const auto trial =
-              RecoverJointCandidates(lengths, target, boundary, tolerance);
-          if (trial.status == RecoveryStatus::Candidates) {
-            recovered = {};
-            recovered.status = trial.status;
-            if (!AppendUnique(trial, recovered)) {
-              result.status = RecoveryStatus::NeedsRefinement;
-              return result;
-            }
-            break;
-          }
-        }
-      }
+      recovered = RecoverNearbyBoundary(problem, boundary_phases, nomination);
     }
     if (recovered.status != RecoveryStatus::Candidates &&
         recovered.status != RecoveryStatus::NoCandidate) {
@@ -561,6 +617,64 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
                                         : RecoveryStatus::Candidates;
   return accepted;
 }
+
+auto ImproveDiscoveryAccuracy(const RecoveryProblem &problem,
+                              const DiscoveryOptions &options,
+                              JointDiscovery result) -> JointDiscovery {
+  const auto &[lengths, target, circle, tolerance] = problem;
+  const auto needs_accuracy = [&](const JointCandidate &candidate) {
+    return candidate.position_error >
+               numerics::kAccurateCorrectionTolerance * circle.length_scale ||
+           candidate.orientation_error > numerics::kAccurateCorrectionTolerance;
+  };
+  if (result.status == RecoveryStatus::Candidates &&
+      options.max_polish_iterations > 0 &&
+      std::any_of(result.candidates.begin(),
+                  result.candidates.begin() + result.count, needs_accuracy)) {
+    JointDiscovery precise;
+    precise.status = result.status;
+    precise.used_singular_representatives =
+        result.used_singular_representatives;
+    for (std::size_t i = 0; i < result.count; ++i) {
+      auto candidate = result.candidates[i];
+      if (needs_accuracy(candidate)) {
+        auto corrected = candidate;
+        const double radius =
+            candidate.position_error > numerics::kPoseCorrectionTolerance *
+                                           circle.length_scale ||
+                    candidate.orientation_error >
+                        numerics::kPoseCorrectionTolerance
+                ? numerics::kPolishRadiusRad
+                : numerics::kAccuracyPostureRadiusRad;
+        const Vec6 lower = candidate.joints.array() - radius;
+        const Vec6 upper = candidate.joints.array() + radius;
+        if (PolishJointCandidate(lengths, target, tolerance,
+                                 std::min(options.max_polish_iterations,
+                                          numerics::kAccuracyIterations),
+                                 corrected, &lower, &upper, true) &&
+            corrected.position_error <=
+                std::max(candidate.position_error,
+                         numerics::kAccurateCorrectionTolerance *
+                             circle.length_scale) &&
+            corrected.orientation_error <=
+                std::max(candidate.orientation_error,
+                         numerics::kAccurateCorrectionTolerance)) {
+          candidate = corrected;
+        }
+      }
+      JointRecovery one;
+      one.count = 1;
+      one.candidates[0] = candidate;
+      if (!AppendUnique(one, precise)) {
+        JointDiscovery unresolved;
+        unresolved.status = RecoveryStatus::NeedsRefinement;
+        return unresolved;
+      }
+    }
+    result = precise;
+  }
+  return result;
+}
 } // namespace
 
 auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
@@ -568,10 +682,7 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                              const DiscoveryOptions &options)
     -> JointDiscovery {
   JointDiscovery result;
-  if (!std::isfinite(tolerance.position) || tolerance.position <= 0 ||
-      !std::isfinite(tolerance.orientation) || tolerance.orientation <= 0 ||
-      tolerance.orientation >= angle_conv::kPi ||
-      options.max_polish_iterations < 0 ||
+  if (!tolerance.IsValid() || options.max_polish_iterations < 0 ||
       options.max_polish_iterations > numerics::kMaxPolishIterations) {
     return result;
   }
@@ -594,79 +705,16 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   }
   // Re-express the same polynomial in another half-angle chart when roots
   // near the omitted point make geometric polishing ill-conditioned.
-  const double closest_wrist =
-      std::atan2(circle.p.dot(circle.w), circle.p.dot(circle.v)) +
-      (circle.lengths.r >= 0 ? angle_conv::kPi : 0.0);
-  const Vec3 closest =
-      circle.p + circle.lengths.r * (circle.v * std::cos(closest_wrist) +
-                                     circle.w * std::sin(closest_wrist));
+  const RecoveryProblem problem{lengths, target, circle, tolerance};
+  const double closest_wrist = ClosestWristAngle(circle);
   const double first_chart =
-      closest.norm() < numerics::kFoldedChartArmFraction *
-                           std::min(std::abs(circle.lengths.a),
-                                    std::abs(circle.lengths.b))
-          ? closest_wrist
-          : 0.0;
+      NearFoldedArm(circle, closest_wrist) ? closest_wrist : 0.0;
   for (const double chart :
        {first_chart, angle_conv::kPi / 2, angle_conv::kPi / 4,
         -angle_conv::kPi / 4, 0.0, closest_wrist}) {
-    result =
-        DiscoverInChart(lengths, target, circle, tolerance, options, chart);
+    result = DiscoverInChart(problem, options, chart);
     if (result.status != RecoveryStatus::NeedsRefinement) {
-      const auto needs_accuracy = [&](const JointCandidate &candidate) {
-        return candidate.position_error >
-                   numerics::kAccurateCorrectionTolerance *
-                       circle.length_scale ||
-               candidate.orientation_error >
-                   numerics::kAccurateCorrectionTolerance;
-      };
-      if (result.status == RecoveryStatus::Candidates &&
-          options.max_polish_iterations > 0 &&
-          std::any_of(result.candidates.begin(),
-                      result.candidates.begin() + result.count,
-                      needs_accuracy)) {
-        JointDiscovery precise;
-        precise.status = result.status;
-        precise.used_singular_representatives =
-            result.used_singular_representatives;
-        for (std::size_t i = 0; i < result.count; ++i) {
-          auto candidate = result.candidates[i];
-          if (needs_accuracy(candidate)) {
-            auto corrected = candidate;
-            const double radius =
-                candidate.position_error > numerics::kPoseCorrectionTolerance *
-                                               circle.length_scale ||
-                        candidate.orientation_error >
-                            numerics::kPoseCorrectionTolerance
-                    ? numerics::kPolishRadiusRad
-                    : numerics::kAccuracyPostureRadiusRad;
-            const Vec6 lower = candidate.joints.array() - radius;
-            const Vec6 upper = candidate.joints.array() + radius;
-            if (PolishJointCandidate(lengths, target, tolerance,
-                                     std::min(options.max_polish_iterations,
-                                              numerics::kAccuracyIterations),
-                                     corrected, &lower, &upper, true) &&
-                corrected.position_error <=
-                    std::max(candidate.position_error,
-                             numerics::kAccurateCorrectionTolerance *
-                                 circle.length_scale) &&
-                corrected.orientation_error <=
-                    std::max(candidate.orientation_error,
-                             numerics::kAccurateCorrectionTolerance)) {
-              candidate = corrected;
-            }
-          }
-          JointRecovery one;
-          one.count = 1;
-          one.candidates[0] = candidate;
-          if (!AppendUnique(one, precise)) {
-            JointDiscovery unresolved;
-            unresolved.status = RecoveryStatus::NeedsRefinement;
-            return unresolved;
-          }
-        }
-        result = precise;
-      }
-      return result;
+      return ImproveDiscoveryAccuracy(problem, options, result);
     }
   }
   return result;
