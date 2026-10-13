@@ -62,79 +62,22 @@ void AngleNormalizationReference() {
   }
 }
 
-void ExhaustiveReference() {
-  std::mt19937 generator(17019);
-  std::uniform_real_distribution<double> phase_value(-2.5, 2.5);
-  std::uniform_real_distribution<double> seed_value(-12.0, 12.0);
-  for (int trial = 0; trial < 200; ++trial) {
-    Vec6 phase, seed, lo, hi;
-    for (int axis = 0; axis < 6; ++axis) {
-      phase[axis] = phase_value(generator);
-      seed[axis] = seed_value(generator);
-      lo[axis] = axis < 3 ? -9.0 : -3.0;
-      hi[axis] = axis < 3 ? 10.0 : 3.0;
-    }
-    // Exhaustive bounded integer oracle: test commands directly, without
-    // deriving the implementation's ceil/floor intervals.
-    std::vector<Vec6> expected;
-    for (int a = -2; a <= 2; ++a) {
-      for (int b = -2; b <= 2; ++b) {
-        for (int c = -2; c <= 2; ++c) {
-          Vec6 q = phase;
-          q[0] += kTau * a;
-          q[1] += kTau * b;
-          q[2] += kTau * c;
-          if ((q.array() >= lo.array()).all() &&
-              (q.array() <= hi.array()).all()) {
-            expected.push_back(q);
-          }
-        }
-      }
-    }
-    const bool seeded = trial % 2 == 0;
-    std::sort(expected.begin(), expected.end(),
-              [&](const Vec6 &a, const Vec6 &b) {
-                if (seeded) {
-                  if ((a - seed).squaredNorm() < (b - seed).squaredNorm()) {
-                    return true;
-                  }
-                  if ((b - seed).squaredNorm() < (a - seed).squaredNorm()) {
-                    return false;
-                  }
-                }
-                return std::lexicographical_compare(a.data(), a.data() + 6,
-                                                    b.data(), b.data() + 6);
-              });
-    for (int capacity : {1, 7, 64}) {
-      const auto actual = crx::SelectCommandLifts(
-          {phase, phase + Vec6::Constant(kTau)}, lo, hi,
-          seeded ? &seed : nullptr, capacity, [&](const Vec6 &q) {
-            // This synthetic target consists of precisely one periodic posture.
-            return (q - phase)
-                       .unaryExpr(
-                           [](double x) { return std::remainder(x, kTau); })
-                       .cwiseAbs()
-                       .maxCoeff() < 1e-10;
-          });
-      Require(actual.status == CommandSelectionStatus::Complete,
-              "reference status");
-      Require(actual.geometric_postures == 1 && actual.feasible_postures == 1,
-              "phase deduplication");
-      Require(actual.valid_lifts == expected.size(), "all lifts counted");
-      Require(actual.commands.size() ==
-                  std::min(expected.size(), static_cast<std::size_t>(capacity)),
-              "capacity");
-      Require(actual.truncated ==
-                  (expected.size() > static_cast<std::size_t>(capacity)),
-              "truncation metadata");
-      for (std::size_t i = 0; i < actual.commands.size(); ++i) {
-        Require((actual.commands[i].command_rad - expected[i])
-                        .cwiseAbs()
-                        .maxCoeff() < 1e-11,
-                "finite reference ranking");
-      }
-    }
-  }
+void SelectionMetadata() {
+  // Python exhaustively checks commands, ranking and capacity through both
+  // DLLs. Retain only selection bookkeeping that is absent from the C ABI.
+  const Vec6 phase = Vec6::Zero();
+  const Vec6 lo = Vec6::Constant(-kTau);
+  const Vec6 hi = Vec6::Constant(kTau);
+  constexpr std::size_t kExpectedLifts =
+      729; // Three turns on each of six axes.
+  const auto result = crx::SelectCommandLifts(
+      {phase, phase + Vec6::Constant(kTau)}, lo, hi, nullptr, 1, Accept);
+  Require(result.status == CommandSelectionStatus::Complete,
+          "metadata selection completed");
+  Require(result.geometric_postures == 1 && result.feasible_postures == 1,
+          "periodic input postures deduplicated");
+  Require(result.valid_lifts == kExpectedLifts && result.truncated,
+          "all 3^6 lifts counted despite capacity one");
 }
 
 void BoundariesAndFailures() {
@@ -333,7 +276,7 @@ void RoundoffBoundariesAndOrdering() {
 
 auto main() -> int {
   AngleNormalizationReference();
-  ExhaustiveReference();
+  SelectionMetadata();
   BoundariesAndFailures();
   LateCandidatesAndSeed();
   CoupledMetricCounterexample();

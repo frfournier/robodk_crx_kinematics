@@ -7,11 +7,6 @@ from crx_reference import reference_fk
 from crx_test_support import _call_command_ik, _to_fk_api_joints_deg
 
 
-@pytest.fixture(params=["kinematics_lib", "polynomial_kinematics_lib"])
-def outcome_lib(request):
-    return request.getfixturevalue(request.param)
-
-
 def call(lib, robot, target, seed=None, capacity=8, alternatives=True):
     command_seed = _to_fk_api_joints_deg(seed) if seed is not None else None
     count, best, _ = _call_command_ik(
@@ -21,14 +16,14 @@ def call(lib, robot, target, seed=None, capacity=8, alternatives=True):
 
 
 @pytest.mark.parametrize("capacity", [0, -1])
-def test_no_output_requested(outcome_lib, crx_10ia, capacity):
+def test_no_output_requested(solver_lib, crx_10ia, capacity):
     target, _ = reference_fk(crx_10ia, [0.] * 6)
-    assert call(outcome_lib, crx_10ia, target, capacity=capacity)[0] == 0
+    assert call(solver_lib, crx_10ia, target, capacity=capacity)[0] == 0
 
 
 @pytest.mark.parametrize("seeded", [False, True])
 @pytest.mark.parametrize("failure", ["invalid", "unsupported", "work", "range", "empty"])
-def test_failure_mapping_and_untouched_buffers(outcome_lib, crx_10ia, seeded, failure):
+def test_failure_mapping_and_untouched_buffers(solver_lib, crx_10ia, seeded, failure):
     seed = [20., -40., 45., 30., -50., -60.]
     target, _ = reference_fk(crx_10ia, seed)
     expected = -1
@@ -44,7 +39,7 @@ def test_failure_mapping_and_untouched_buffers(outcome_lib, crx_10ia, seeded, fa
     else:
         target[0, 3] = 10000.
         expected = 0
-    assert call(outcome_lib, crx_10ia, target, seed if seeded else None)[0] == expected
+    assert call(solver_lib, crx_10ia, target, seed if seeded else None)[0] == expected
 
 
 @pytest.mark.parametrize("alternatives", [False, True])
@@ -77,7 +72,7 @@ def test_approximate_seed_still_obeys_command_limits(kinematics_lib, crx_10ia):
     assert call(kinematics_lib, crx_10ia, target, seed)[0] == 0
 
 
-@pytest.mark.parametrize("offset", [.00005, .005, .02])
+@pytest.mark.parametrize("offset", [.00005, .005, .0099, .0101, .02])
 @pytest.mark.parametrize("seeded", [False, True])
 def test_boundary_refinement_and_unresolved_seed_policy(
     polynomial_kinematics_lib, crx_10ia, offset, seeded,
@@ -100,11 +95,14 @@ def test_boundary_refinement_and_unresolved_seed_policy(
 
 
 @pytest.mark.parametrize("offset,expected", [(.00005, 1), (.0099, 1), (.0101, 0)])
-def test_empty_search_position_thresholds(kinematics_lib, crx_10ia, offset, expected):
+@pytest.mark.parametrize("seeded", [False, True])
+def test_empty_search_position_thresholds(kinematics_lib, crx_10ia, offset, expected, seeded):
     seed = [0., 90., 0., 0., 0., 0.]
     target, _ = reference_fk(crx_10ia, seed)
     target[0, 3] += offset
-    assert call(kinematics_lib, crx_10ia, target, seed)[0] == expected
+    assert call(kinematics_lib, crx_10ia, target, seed if seeded else None)[0] == (
+        expected if seeded else 0
+    )
 
 
 @pytest.mark.parametrize("angle,expected", [(.0099, 1), (.0101, 0)])
@@ -119,10 +117,10 @@ def test_empty_search_orientation_thresholds(kinematics_lib, crx_10ia, angle, ex
     assert call(kinematics_lib, crx_10ia, target, seed)[0] == expected
 
 
-def test_filtered_discovery_does_not_enable_approximate_seed(outcome_lib, crx_10ia):
+def test_filtered_discovery_does_not_enable_approximate_seed(solver_lib, crx_10ia):
     witness = [20., -40., 45., 30., -50., -60.]
     target, _ = reference_fk(crx_10ia, witness)
-    assert call(outcome_lib, crx_10ia, target)[0] > 0
+    assert call(solver_lib, crx_10ia, target)[0] > 0
     seed = witness.copy()
     seed[0] += .0001
     approximate, _ = reference_fk(crx_10ia, seed)
@@ -132,4 +130,4 @@ def test_filtered_discovery_does_not_enable_approximate_seed(outcome_lib, crx_10
     for axis, command in enumerate(_to_fk_api_joints_deg(seed)):
         crx_10ia.data[30][axis] = command
         crx_10ia.data[31][axis] = command
-    assert call(outcome_lib, crx_10ia, target, seed)[0] == 0
+    assert call(solver_lib, crx_10ia, target, seed)[0] == 0
