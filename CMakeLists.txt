@@ -359,6 +359,10 @@ if(BUILD_TESTING)
     target_include_directories(crx_discovery_benchmark PRIVATE src)
     target_link_libraries(crx_discovery_benchmark PRIVATE Eigen3::Eigen)
     add_dependencies(crx_discovery_benchmark crx_kinematics)
+    # Equal-scope snapshot: both implementations use their complete C ABI.
+    add_executable(crx_solver_benchmark EXCLUDE_FROM_ALL
+      scripts/benchmark_solvers.cpp)
+    add_dependencies(crx_solver_benchmark crx_kinematics crx_kinematics_polynomial)
   endif()
   # Compile the internal comparison kernel directly into an assertion-enabled
   # harness. These definitions must cover every Eigen-using translation unit;
