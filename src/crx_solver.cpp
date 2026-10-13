@@ -223,6 +223,16 @@ auto NormalizeProductionDhForAnalyticIk(CrxParams &params,
   // structural assumption matches.
   base_z_shift_mm = 0.0;
   const double tol = numerics::kRightAngleSnapToleranceRad;
+  // Captured nominal zero offsets carry subtraction roundoff proportional to
+  // the robot's length scale. Keep the physical FK acceptance gate unchanged.
+  double length_scale = 1.0;
+  for (std::size_t i = 0; i < params.a.size(); ++i) {
+    length_scale =
+        std::max({length_scale, std::abs(params.a[i]), std::abs(params.d[i])});
+  }
+  const double length_tol =
+      std::max(numerics::kDhLengthToleranceMm,
+               numerics::kElementaryRoundoff * length_scale);
 
   const bool alpha_ok = AngleDiffAbs(params.alpha_rad[0], 0.0) < tol &&
                         AngleDiffAbs(params.alpha_rad[1], -kHalfPi) < tol &&
@@ -238,18 +248,15 @@ auto NormalizeProductionDhForAnalyticIk(CrxParams &params,
                         AngleDiffAbs(params.theta0_rad[4], 0.0) < tol &&
                         AngleDiffAbs(params.theta0_rad[5], 0.0) < tol;
 
-  const bool a_ok = std::abs(params.a[0]) <= numerics::kDhLengthToleranceMm &&
-                    std::abs(params.a[1]) <= numerics::kDhLengthToleranceMm &&
-                    params.a[2] > 0.0 &&
-                    std::abs(params.a[3]) <= numerics::kDhLengthToleranceMm &&
-                    std::abs(params.a[4]) <= numerics::kDhLengthToleranceMm &&
-                    std::abs(params.a[5]) <= numerics::kDhLengthToleranceMm;
+  const bool a_ok = std::abs(params.a[0]) <= length_tol &&
+                    std::abs(params.a[1]) <= length_tol && params.a[2] > 0.0 &&
+                    std::abs(params.a[3]) <= length_tol &&
+                    std::abs(params.a[4]) <= length_tol &&
+                    std::abs(params.a[5]) <= length_tol;
 
   const bool d_ok =
-      params.d[0] > 0.0 &&
-      std::abs(params.d[1]) <= numerics::kDhLengthToleranceMm &&
-      std::abs(params.d[2]) <= numerics::kDhLengthToleranceMm &&
-      params.d[3] > 0.0 &&
+      params.d[0] > 0.0 && std::abs(params.d[1]) <= length_tol &&
+      std::abs(params.d[2]) <= length_tol && params.d[3] > 0.0 &&
       params.d[4] <= -numerics::kDhLengthToleranceMm && // Pass-1 Fix #2
       params.d[5] > 0.0;
 
