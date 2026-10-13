@@ -110,6 +110,13 @@ inline constexpr double kPolishMaxStepRad = .25;
 // 1e-9/sqrt(eps)/1e-7; near-family candidate counts vary. This avoids spending
 // most mixed-singularity SVD updates polishing an already acceptable posture.
 inline constexpr double kPoseCorrectionTolerance = kSqrtEpsilon;
+// Improve already discovered postures after deduplication. Preserve nearby
+// singular-family representatives with a small joint-space trust region;
+// nominations that exhausted discovery's accuracy budget retain its radius.
+// These are work/accuracy targets, never relaxed FK acceptance tolerances.
+inline constexpr double kAccurateCorrectionTolerance = 1e-12;
+inline constexpr double kAccuracyPostureRadiusRad = 1e-4;
+inline constexpr int kAccuracyIterations = 6;
 // Keep neighboring simple-root neighborhoods disjoint, with a half-gap left.
 inline constexpr double kNeighborRadiusFraction = .25;
 // N1017 folded-arm offsets 0.. .01 rad: .001.. .1 preserve counts;

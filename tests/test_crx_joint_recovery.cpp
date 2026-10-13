@@ -351,6 +351,20 @@ void TestBoundedPoseCorrection() {
             "corrected candidate passes independent transform-product FK");
     Require(!PolishJointCandidate(lengths, target, tolerance, 0, candidate),
             "zero correction budget does no hidden work");
+    JointCandidate accurate;
+    accurate.joints = q.array() + 1e-5;
+    const Vec6 nearby_lower = q.array() - 1e-4;
+    const Vec6 nearby_upper = q.array() + 1e-4;
+    Require(PolishJointCandidate(lengths, target, {scale * 1e-4, 1e-3}, 6,
+                                 accurate, &nearby_lower, &nearby_upper, true),
+            "local accuracy pass succeeds inside its posture window");
+    const auto precise = Forward(lengths, accurate.joints).pose;
+    Require(
+        ((precise.translation() - target.translation()) / scale).norm() <
+                1e-11 &&
+            (precise.linear() - target.linear()).norm() < 1e-11 &&
+            (accurate.joints - q).cwiseAbs().maxCoeff() < 1e-4,
+        "accuracy target improves on loose acceptance without posture drift");
     const Vec6 excluded = q.array() + crx::numerics::kPolishMaxStepRad;
     Require(!PolishJointCandidate(lengths, target, tolerance,
                                   crx::numerics::kPolishIterations, candidate,

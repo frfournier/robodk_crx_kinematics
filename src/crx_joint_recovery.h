@@ -70,10 +70,13 @@ auto RefineJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
     -> JointRecovery;
 
 // Canonical command coordinates; optional limits constrain every trial.
+// improve_accuracy uses a tighter stopping target, truncated singular
+// directions and a damped step on stalled updates, within the same budget.
 auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
                           const PoseTolerance &tolerance, int budget,
                           JointCandidate &candidate,
                           const Vec6 *lower = nullptr,
-                          const Vec6 *upper = nullptr) -> bool;
+                          const Vec6 *upper = nullptr,
+                          bool improve_accuracy = false) -> bool;
 
 } // namespace crx::canonical

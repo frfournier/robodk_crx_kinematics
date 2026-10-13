@@ -474,6 +474,21 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
       }
     } else {
       const auto &root = roots.candidates[i];
+      bool repeated_projection = false;
+      for (std::size_t j = 0; j < i; ++j) {
+        repeated_projection =
+            repeated_projection ||
+            (numerics::IsRepresentedZero(root.value.real() -
+                                         roots.candidates[j].value.real()) &&
+             numerics::IsRepresentedZero(
+                 std::abs(root.value.imag()) -
+                 std::abs(roots.candidates[j].value.imag())));
+      }
+      // A conjugate pair has the identical real nomination, radius and
+      // conditioning. PolishAndRecover already follows both elbow signs.
+      if (repeated_projection) {
+        continue;
+      }
       const double relative_imaginary =
           std::abs(root.value.imag()) / (1 + std::abs(root.value.real()));
       const auto projected =
@@ -597,6 +612,60 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
     result =
         DiscoverInChart(lengths, target, circle, tolerance, options, chart);
     if (result.status != RecoveryStatus::NeedsRefinement) {
+      const auto needs_accuracy = [&](const JointCandidate &candidate) {
+        return candidate.position_error >
+                   numerics::kAccurateCorrectionTolerance *
+                       circle.length_scale ||
+               candidate.orientation_error >
+                   numerics::kAccurateCorrectionTolerance;
+      };
+      if (result.status == RecoveryStatus::Candidates &&
+          options.max_polish_iterations > 0 &&
+          std::any_of(result.candidates.begin(),
+                      result.candidates.begin() + result.count,
+                      needs_accuracy)) {
+        JointDiscovery precise;
+        precise.status = result.status;
+        precise.used_singular_representatives =
+            result.used_singular_representatives;
+        for (std::size_t i = 0; i < result.count; ++i) {
+          auto candidate = result.candidates[i];
+          if (needs_accuracy(candidate)) {
+            auto corrected = candidate;
+            const double radius =
+                candidate.position_error > numerics::kPoseCorrectionTolerance *
+                                               circle.length_scale ||
+                        candidate.orientation_error >
+                            numerics::kPoseCorrectionTolerance
+                    ? numerics::kPolishRadiusRad
+                    : numerics::kAccuracyPostureRadiusRad;
+            const Vec6 lower = candidate.joints.array() - radius;
+            const Vec6 upper = candidate.joints.array() + radius;
+            if (PolishJointCandidate(lengths, target, tolerance,
+                                     std::min(options.max_polish_iterations,
+                                              numerics::kAccuracyIterations),
+                                     corrected, &lower, &upper, true) &&
+                corrected.position_error <=
+                    std::max(candidate.position_error,
+                             numerics::kAccurateCorrectionTolerance *
+                                 circle.length_scale) &&
+                corrected.orientation_error <=
+                    std::max(candidate.orientation_error,
+                             numerics::kAccurateCorrectionTolerance)) {
+              candidate = corrected;
+            }
+          }
+          JointRecovery one;
+          one.count = 1;
+          one.candidates[0] = candidate;
+          if (!AppendUnique(one, precise)) {
+            JointDiscovery unresolved;
+            unresolved.status = RecoveryStatus::NeedsRefinement;
+            return unresolved;
+          }
+        }
+        result = precise;
+      }
       return result;
     }
   }

@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <limits>
 
+#include <Eigen/Cholesky>
+#include <Eigen/LU>
 #include <Eigen/SVD>
 
 namespace crx::canonical {
@@ -127,7 +129,7 @@ auto MapIncidenceStatus(IncidenceStatus status) -> RecoveryStatus {
 auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
                           const PoseTolerance &tolerance, int budget,
                           JointCandidate &candidate, const Vec6 *lower,
-                          const Vec6 *upper) -> bool {
+                          const Vec6 *upper, bool improve_accuracy) -> bool {
   WristCircle circle;
   if (PrepareWristCircle(lengths, target, circle) != PreparationStatus::Ready ||
       budget <= 0 || budget > numerics::kMaxPolishIterations ||
@@ -158,7 +160,8 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
   }
   Vec6 error = residual(q);
   for (int iteration = 0; iteration < budget; ++iteration) {
-    if (error.isZero(numerics::kPoseCorrectionTolerance) &&
+    if (error.isZero(improve_accuracy ? numerics::kAccurateCorrectionTolerance
+                                      : numerics::kPoseCorrectionTolerance) &&
         error.head<3>().norm() * circle.length_scale <= tolerance.position &&
         error.tail<3>().norm() <= tolerance.orientation) {
       break;
@@ -182,8 +185,21 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
       jacobian.block<3, 1>(3, joint) = axes[joint];
     }
     auto solve = [&]() -> Vec6 {
-      return jacobian.jacobiSvd<Eigen::ComputeFullU | Eigen::ComputeFullV>()
-          .solve(error);
+      const Eigen::PartialPivLU<Eigen::Matrix<double, 6, 6>> lu(jacobian);
+      if (lu.rcond() > numerics::kSqrtEpsilon) {
+        const Vec6 correction = lu.solve(error);
+        if (correction.allFinite() &&
+            (jacobian * correction - error).norm() <=
+                numerics::kGeometryTolerance * error.norm()) {
+          return correction;
+        }
+      }
+      auto svd =
+          jacobian.jacobiSvd<Eigen::ComputeFullU | Eigen::ComputeFullV>();
+      if (improve_accuracy) {
+        svd.setThreshold(numerics::kSqrtEpsilon);
+      }
+      return svd.solve(error);
     };
     Vec6 step = solve();
     if (lower != nullptr && upper != nullptr) {
@@ -202,28 +218,41 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
     if (!step.allFinite()) {
       return false;
     }
-    const double largest = step.cwiseAbs().maxCoeff();
-    if (largest > numerics::kPolishMaxStepRad) {
-      step *= numerics::kPolishMaxStepRad / largest;
-    }
-    bool improved = false;
-    for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
-         ++backtrack) {
-      Vec6 trial = q + step;
-      if (lower != nullptr && upper != nullptr) {
-        trial = trial.cwiseMax(*lower).cwiseMin(*upper);
+    const auto advance = [&](Vec6 correction) {
+      const double largest = correction.cwiseAbs().maxCoeff();
+      if (largest > numerics::kPolishMaxStepRad) {
+        correction *= numerics::kPolishMaxStepRad / largest;
       }
-      const Vec6 next = residual(trial);
-      if (next.allFinite() && next.squaredNorm() < error.squaredNorm()) {
-        q = trial;
-        error = next;
-        improved = true;
+      for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
+           ++backtrack) {
+        Vec6 trial = q + correction;
+        if (lower != nullptr && upper != nullptr) {
+          trial = trial.cwiseMax(*lower).cwiseMin(*upper);
+        }
+        const Vec6 next = residual(trial);
+        if (next.allFinite() && next.squaredNorm() < error.squaredNorm()) {
+          q = trial;
+          error = next;
+          return true;
+        }
+        correction *= .5;
+      }
+      return false;
+    };
+    if (!advance(step)) {
+      if (!improve_accuracy) {
         break;
       }
-      step *= .5;
-    }
-    if (!improved) {
-      break;
+      // Near a multiple root, the Newton direction can be dominated by a
+      // nearly null joint motion. A damped least-squares descent gives the
+      // next iteration a usable local linearization without changing gates.
+      Eigen::Matrix<double, 6, 6> normal = jacobian.transpose() * jacobian;
+      normal.diagonal().array() +=
+          std::max(numerics::kEpsilon, .001 * error.norm());
+      const Vec6 damped = normal.ldlt().solve(jacobian.transpose() * error);
+      if (!damped.allFinite() || !advance(damped)) {
+        break;
+      }
     }
   }
   candidate.position_error = error.head<3>().norm() * circle.length_scale;
