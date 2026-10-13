@@ -9,9 +9,8 @@ import ctypes
 import numpy as np
 import pytest
 
-from crx_test_support import RobotT
+from crx_test_support import RobotT, check_solver_pose
 from fixtures.generate_solver_cases import corpus
-from test_crx_solver_fixtures import check_generated_solver_pose as _check_pose
 
 MODELS, REFERENCES, ALL_CASES = corpus(64, 28, 20261010)
 CASES = [{**case, "name": "holdout:20261010:" + case["name"]}
@@ -49,11 +48,12 @@ def scaled_models(request):
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])
-def test_family_holdout(request, scaled_models, case):
+def test_family_holdout(polynomial_kinematics_lib, scaled_models, case):
     scale, models = scaled_models
     target = np.array(case["target"])
     target[:3, 3] *= scale
-    commands = _check_pose(request, models, "polynomial", {**case, "target": target}, False)
+    commands = check_solver_pose(
+        polynomial_kinematics_lib, models, {**case, "target": target}, False)
     if case["group"] == "random":
         # Regular-pose branch coverage, not just existence of any valid answer.
         # Keep the established .009-degree witness-matching convention.
