@@ -9,10 +9,7 @@ import pytest
 
 from crx_test_support import RobotT, _set_row
 from crx_asset_reference import derive_model, forward_model
-from crx_reference import missing_postures, reference_fk, xyzwpr
-from test_crx_discovery import (
-    discovery_joints, test_seed_free_discovery as _check_seed_free_discovery,
-)
+from crx_reference import discovery_joints, missing_postures, reference_fk, xyzwpr
 from crx_test_support import _call_ik, _to_c_array, _to_fk_api_joints_deg
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -32,12 +29,6 @@ def check_results(robot, target, result):
         command = np.array(_to_fk_api_joints_deg(solution))
         assert np.all(command >= np.array(robot.data[30][:6]) - 1e-10)
         assert np.all(command <= np.array(robot.data[31][:6]) + 1e-10)
-
-
-@pytest.mark.parametrize("case_id", range(64))
-def test_seed_free_witnesses_through_api(polynomial_kinematics_lib, crx_10ia, case_id):
-    # The four production defects are ordinary passing requirements here.
-    _check_seed_free_discovery(polynomial_kinematics_lib, crx_10ia, case_id)
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])

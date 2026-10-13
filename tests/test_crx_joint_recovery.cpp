@@ -441,17 +441,8 @@ void TestTargetOnlyDiscovery() {
               crx::numerics::Scalar(polynomial.omitted_point_residual)
                   .isZero(crx::numerics::kEpsilon),
           "exact degree-seven chart with an omitted root");
-  const auto endpoints =
-      DiscoverJointCandidates(endpoint_lengths, endpoint, {1e-9, 1e-9});
-  Require(endpoints.status == RecoveryStatus::Candidates &&
-              endpoints.count == 8,
-          "omitted point contributes its two postures");
-  bool has_endpoint = false;
-  for (std::size_t i = 0; i < endpoints.count; ++i) {
-    has_endpoint = has_endpoint || std::abs(endpoints.candidates[i].joints[5] +
-                                            kPi / 2) < 1e-10;
-  }
-  Require(has_endpoint, "pi wrist-circle root retained");
+  // End-to-end omitted-point recovery is checked by Python's
+  // test_exact_omitted_point_is_not_lost through the allocation-guarded probe.
 }
 } // namespace
 

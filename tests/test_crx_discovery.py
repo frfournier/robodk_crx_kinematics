@@ -9,7 +9,7 @@ import ctypes
 import numpy as np
 import pytest
 
-from crx_reference import missing_postures, reference_fk
+from crx_reference import discovery_joints, missing_postures, reference_fk
 from crx_test_support import _call_fk, _call_ik, _to_c_array, _to_fk_api_joints_deg
 
 
@@ -21,33 +21,26 @@ class MissingPostureError(AssertionError):
 # exception when discovery is fixed; other failures are never swallowed.
 KNOWN_MISSING_POSTURES = {8, 36, 42, 57}
 DISCOVERY_CASES = [
-    (
-        pytest.param(
-            case_id,
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=MissingPostureError,
-                reason="#2/#8/#17: legacy IK misses this seed-free witness",
-            ),
-        )
-        if case_id in KNOWN_MISSING_POSTURES else case_id
+    pytest.param(
+        backend, case_id,
+        marks=pytest.mark.xfail(
+            strict=True, raises=MissingPostureError,
+            reason="#2/#8/#17: legacy IK misses this seed-free witness",
+        ) if backend == "kinematics_lib" and case_id in KNOWN_MISSING_POSTURES else (),
+        id=f"{backend}-{case_id}",
     )
+    for backend in ("kinematics_lib", "polynomial_kinematics_lib")
     for case_id in range(64)
 ]
 
 
-def discovery_joints(case_id):
-    # Deterministic derived probes, away from command turn boundaries.
-    # The legacy callback fixture remains the model input until asset extraction.
-    return np.random.default_rng(case_id).uniform(-150.0, 150.0, size=6).tolist()
-
-
-@pytest.mark.parametrize("case_id", DISCOVERY_CASES)
-def test_seed_free_discovery(kinematics_lib, crx_10ia, case_id):
+@pytest.mark.parametrize("backend,case_id", DISCOVERY_CASES)
+def test_seed_free_discovery(request, crx_10ia, backend, case_id):
+    library = request.getfixturevalue(backend)
     witness = discovery_joints(case_id)
     target, _ = reference_fk(crx_10ia, witness)
     count, _, solutions = _call_ik(
-        kinematics_lib,
+        library,
         crx_10ia,
         target.ravel(order="F").tolist(),
         approx=None,

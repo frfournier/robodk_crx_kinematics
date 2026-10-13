@@ -1,16 +1,14 @@
 """Target-only discovery: Python owns model mapping and independent FK oracles."""
 
 import json
-import os
 from pathlib import Path
-import subprocess
 
 import numpy as np
 import pytest
 
+from crx_fixture_support import MERGED_ELBOW_PAIRS
 from crx_asset_reference import canonical_forward, derive_model, rigid_inverse
-from crx_reference import reference_fk, translation, xyzwpr
-from test_crx_discovery import discovery_joints
+from crx_reference import discovery_joints, reference_fk, translation, xyzwpr
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = json.loads((ROOT / "tests/fixtures/crx_asset_frames.json").read_text())["assets"]
@@ -18,24 +16,13 @@ FIXTURES = json.loads((ROOT / "tests/fixtures/CRX10iA-solutions.json").read_text
 
 
 @pytest.fixture(scope="module")
-def discover():
-    configured = os.environ.get("CRXKIN_ROOT_PROBE_PATH")
-    path = Path(configured) if configured else ROOT / "build/Release/crx_canonical_tests.exe"
-    if configured:
-        assert path.is_file(), f"Configured native probe is missing: {path}"
-    elif not path.is_file():
-        pytest.skip("Build crx_canonical_tests or set CRXKIN_ROOT_PROBE_PATH")
-
+def discover(canonical_probe):
     def run(lengths, target, position_tolerance=1e-6, orientation_tolerance=1e-9):
         # Only lengths, target and physical acceptance tolerances cross into
         # C++. No expected angle, generating posture or solver seed is sent.
         values = [*lengths, *np.asarray(target)[:3, :].flat,
                   position_tolerance, orientation_tolerance]
-        completed = subprocess.run(
-            [str(path), "--discover", *(repr(float(value)) for value in values)],
-            check=True, capture_output=True, text=True, timeout=20,
-        )
-        return json.loads(completed.stdout)
+        return canonical_probe("--discover", values)
     return run
 
 
@@ -210,33 +197,6 @@ def test_exact_omitted_point_is_not_lost(discover):
     result = discover(lengths, target)
     check_discovery(result, lengths, target, [q])
     assert len(result["solutions"]) == 8
-
-
-# Reproductions from a deterministic near-double-root sweep (seed 20261013).
-# Independent sphere/base-plane branches were polished with the upstream
-# NumPy reference at 26e27c3dae5b2a3c84e1e35fb9faf4c113439e46. Canonical
-# radians are stored here; no reference solver is needed to run these tests.
-# The target is derived from one witness only, never passed with an IK seed.
-MERGED_ELBOW_PAIRS = [
-    (
-        [1.2846196877740317, 0.014575964159554644, 0.7431200420044268,
-         -3.3341878330183563e-08, 0.05221572955259335, 2.293367093214428],
-        [1.284619687774032, 0.8422522582116572, 2.398472620156496,
-         2.4858111807875285e-09, -0.7754605545473734, 2.293367058142878],
-    ),
-    (
-        [-0.718138546639957, -0.9028352204259087, 1.3992252847326752,
-         -7.098671053282173e-08, -1.1604247273379276, 1.3903144867892374],
-        [-0.7181385466399571, -0.7312641586451563, 1.742367407185094,
-         -6.699400072564219e-08, -1.3319957880095936, 1.3903144743156668],
-    ),
-    (
-        [1.1595086470403193, -1.4974839103438753, 1.1947661103463019,
-         1.1290627321119101e-08, -1.4859141154799533, -1.4828980072447888],
-        [1.1595086470403193, -1.1214536970315663, 1.9468265368449182,
-         1.1744233722926812e-08, -1.8619443286662605, -1.482898002916359],
-    ),
-]
 
 
 @pytest.mark.parametrize("q,alternate", MERGED_ELBOW_PAIRS)
