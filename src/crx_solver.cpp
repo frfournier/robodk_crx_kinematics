@@ -21,6 +21,7 @@
 
 #ifdef CRXKIN_POLYNOMIAL_COMPARISON
 #include "crx_discovery.h"
+#include "crx_joint_recovery.h"
 #endif
 
 namespace crx {
@@ -1166,6 +1167,41 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   auto finalized = FinalizeIkCandidates(geometric_solutions, model, target_pose,
                                         target_quaternion, approx_for_finalize,
                                         max_solutions);
+#ifdef CRXKIN_POLYNOMIAL_COMPARISON
+  if (finalized.status == IkStatus::NoCandidate) {
+    // Rounded Cartesian targets at a limit can have their exact geometric
+    // posture just outside the command box (MIN_Z). Nominate the nearest box
+    // point only within one bounded joint update, then solve the original pose
+    // with active limits. This is strict FK correction, never limit slack or
+    // the approximate empty-search seed policy.
+    std::vector<Vec6> constrained;
+    for (const Vec6 &user : geometric_solutions) {
+      canonical::JointCandidate candidate;
+      candidate.joints = UserToCommand(user);
+      const Vec6 middle = (model.lower_limits_rad + model.upper_limits_rad) / 2;
+      candidate.joints +=
+          kTwoPi *
+          ((middle - candidate.joints) / kTwoPi).array().round().matrix();
+      const Vec6 clamped = candidate.joints.cwiseMax(model.lower_limits_rad)
+                               .cwiseMin(model.upper_limits_rad);
+      if ((clamped - candidate.joints).cwiseAbs().maxCoeff() >
+          numerics::kPolishMaxStepRad) {
+        continue;
+      }
+      candidate.joints = clamped;
+      if (canonical::PolishJointCandidate(
+              lengths, target_pose_06, tolerance, numerics::kPolishIterations,
+              candidate, &model.lower_limits_rad, &model.upper_limits_rad)) {
+        constrained.push_back(CommandToUser(candidate.joints));
+      }
+    }
+    if (!constrained.empty()) {
+      finalized = FinalizeIkCandidates(constrained, model, target_pose,
+                                       target_quaternion, approx_for_finalize,
+                                       max_solutions);
+    }
+  }
+#endif
   finalized.used_singular_representatives =
       result.used_singular_representatives;
   return finalized;

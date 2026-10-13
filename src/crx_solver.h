@@ -28,8 +28,9 @@ enum class IkStatus {
 struct IkResult {
   IkStatus status = IkStatus::InvalidInput;
   bool truncated = false;
-  // Canonical discovery used a deterministic free-base representative. This
-  // describes discovery, even if command limits remove that representative.
+  // Canonical discovery used deterministic base/folded-family representatives.
+  // This describes discovery, even if command limits remove that
+  // representative.
   bool used_singular_representatives = false;
   std::vector<Vec6> solutions;
 };

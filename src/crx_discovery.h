@@ -11,6 +11,9 @@
 
 namespace crx::canonical {
 
+// Four analytic circle crossings, with at most two phases per crossing.
+inline constexpr std::size_t kBoundaryPhaseCapacity = 4 * 2;
+
 struct DiscoveryOptions {
   RootOptions roots{};
   int max_polish_iterations = numerics::kPolishIterations;
@@ -23,7 +26,14 @@ struct JointDiscovery {
   // Bounded storage for roots and analytic boundary crossings after posture
   // deduplication. Capacity exhaustion returns NeedsRefinement, never
   // truncates.
-  std::array<JointCandidate, 36> candidates{};
+  // Every polynomial nomination (including the omitted point), every boundary
+  // phase, and the target-derived folded nomination can survive deduplication.
+  // Size from those work bounds, not an exact-geometric solution-count theorem.
+  static constexpr std::size_t kCapacity =
+      kCoefficientCount * JointRecovery::kRefinementCapacity +
+      kBoundaryPhaseCapacity * JointRecovery::kDirectCapacity +
+      JointRecovery::kRefinementCapacity;
+  std::array<JointCandidate, kCapacity> candidates{};
 };
 
 // Target -> polynomial and analytic boundary crossings -> wrist angles ->

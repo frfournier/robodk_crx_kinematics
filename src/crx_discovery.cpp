@@ -19,6 +19,72 @@ struct ElbowResidual {
   double derivative = 0;
 };
 
+// Alternate elimination order: intersect the two arm spheres with the wrist
+// plane and polish the remaining base-plane constraint. Unlike azimuth from
+// x.xy(), the unsquared cross-product residual is smooth at the base axis.
+auto EvaluateWristPlaneResidual(const WristCircle &circle, double angle,
+                                ElbowResidual &output) -> bool {
+  const Vec3 u = circle.v * std::cos(angle) + circle.w * std::sin(angle);
+  const Vec3 du = -circle.v * std::sin(angle) + circle.w * std::cos(angle);
+  const Vec3 x = circle.p + circle.lengths.r * u;
+  const Vec3 dx = circle.lengths.r * du;
+  const double distance = x.norm();
+  if (distance <= numerics::kDirectionTolerance) {
+    return false;
+  }
+  const Vec3 radial = x / distance;
+  const double dd = radial.dot(dx);
+  const Vec3 dradial = (dx - radial * dd) / distance;
+  const double dot = radial.dot(u);
+  const double ddot = dradial.dot(u) + radial.dot(du);
+  const Vec3 transverse = u - dot * radial;
+  const double sine = transverse.norm();
+  if (sine <= numerics::kDirectionTolerance) {
+    return false;
+  }
+  const Vec3 direction = transverse / sine;
+  const Vec3 dtransverse = du - ddot * radial - dot * dradial;
+  const double dsine = direction.dot(dtransverse);
+  const Vec3 ddirection = (dtransverse - direction * dsine) / sine;
+  const double a = circle.lengths.a;
+  const double b = circle.lengths.b;
+  const double along =
+      ((a - b) * (a + b) + distance * distance) / (2 * distance);
+  const double dalong = (x.dot(dx) - along * dd) / distance;
+  const double across = (x.dot(u) - along * dot) / sine;
+  const double dacross =
+      (dx.dot(u) + x.dot(du) - dalong * dot - along * ddot - across * dsine) /
+      sine;
+  const Vec3 center = along * radial + across * direction;
+  const Vec3 dcenter = dalong * radial + along * dradial + dacross * direction +
+                       across * ddirection;
+  const double height2 = a * a - center.squaredNorm();
+  if (height2 <= numerics::kFourthRootEpsilon * a * a) {
+    return false;
+  }
+  const double height = std::sqrt(height2);
+  const double dheight = -center.dot(dcenter) / height;
+  const Vec3 normal = radial.cross(direction);
+  const Vec3 dnormal = dradial.cross(direction) + radial.cross(ddirection);
+  double best_step = std::numeric_limits<double>::infinity();
+  for (const double sign : {-1.0, 1.0}) {
+    const Vec3 elbow = center + sign * height * normal;
+    const Vec3 delbow = dcenter + sign * (dheight * normal + height * dnormal);
+    const double value = x.cross(elbow).z();
+    const double derivative = (dx.cross(elbow) + x.cross(delbow)).z();
+    if (!std::isfinite(value) || !std::isfinite(derivative) ||
+        numerics::Scalar(derivative).isZero(numerics::kDirectionTolerance)) {
+      continue;
+    }
+    const double step = std::abs(value / derivative);
+    if (step < best_step) {
+      best_step = step;
+      output = {value, derivative};
+    }
+  }
+  return std::isfinite(best_step);
+}
+
 // Differentiate the unsquared wrist constraint on the two sphere/base-plane
 // intersections. Using f/f' on the squared elimination polynomial loses useful
 // digits near a double root. This calculation is only for polishing; acceptance
@@ -118,49 +184,67 @@ auto PolishAndRecover(const Lengths &lengths, const PoseIsoRT &target,
                       const PoseTolerance &tolerance, int budget, double radius)
     -> JointRecovery {
   const double initial_angle = angle;
-  for (int iteration = 0; iteration <= budget; ++iteration) {
-    const auto recovered =
-        RecoverJointCandidates(lengths, target, angle, tolerance);
-    if (recovered.status == RecoveryStatus::Candidates ||
-        recovered.status == RecoveryStatus::NumericalRangeFailure) {
-      return recovered;
-    }
-    if (OutsideArmShell(circle, initial_angle, radius)) {
-      JointRecovery empty;
-      empty.status = RecoveryStatus::NoCandidate;
-      return empty;
-    }
-    ElbowResidual residual;
-    if (iteration == budget ||
-        !EvaluateElbowResidual(circle, angle, residual) ||
-        std::abs(residual.derivative) <= numerics::kDirectionTolerance) {
-      break;
-    }
-    double step =
-        std::clamp(residual.value / residual.derivative,
-                   -numerics::kPolishMaxStepRad, numerics::kPolishMaxStepRad);
-    bool improved = false;
-    for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
-         ++backtrack) {
-      const double trial = std::remainder(angle - step, 2 * angle_conv::kPi);
-      ElbowResidual next;
-      if (std::abs(std::remainder(trial - initial_angle,
-                                  2 * angle_conv::kPi)) <= radius &&
-          EvaluateElbowResidual(circle, trial, next) &&
-          std::abs(next.value) < std::abs(residual.value)) {
-        angle = trial;
-        improved = true;
+  // Keep one residual chart throughout a line search. Switching between the
+  // wrist-plane and base-plane residuals mid-backtrack compares different
+  // functions and can manufacture a false minimum at the chart boundary.
+  for (const auto evaluate :
+       {EvaluateWristPlaneResidual, EvaluateElbowResidual}) {
+    angle = initial_angle;
+    for (int iteration = 0; iteration <= budget; ++iteration) {
+      const auto recovered =
+          RecoverJointCandidates(lengths, target, angle, tolerance);
+      if (recovered.status == RecoveryStatus::Candidates ||
+          recovered.status == RecoveryStatus::NumericalRangeFailure) {
+        return recovered;
+      }
+      if (OutsideArmShell(circle, initial_angle, radius)) {
+        JointRecovery empty;
+        empty.status = RecoveryStatus::NoCandidate;
+        return empty;
+      }
+      ElbowResidual residual;
+      if (iteration == budget || !evaluate(circle, angle, residual) ||
+          std::abs(residual.derivative) <= numerics::kDirectionTolerance) {
         break;
       }
-      step *= 0.5;
+      double step =
+          std::clamp(residual.value / residual.derivative,
+                     -numerics::kPolishMaxStepRad, numerics::kPolishMaxStepRad);
+      bool improved = false;
+      for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
+           ++backtrack) {
+        const double trial = std::remainder(angle - step, 2 * angle_conv::kPi);
+        ElbowResidual next;
+        if (std::abs(std::remainder(trial - initial_angle,
+                                    2 * angle_conv::kPi)) <= radius &&
+            evaluate(circle, trial, next) &&
+            std::abs(next.value) < std::abs(residual.value)) {
+          angle = trial;
+          improved = true;
+          break;
+        }
+        step *= 0.5;
+      }
+      if (!improved) {
+        break;
+      }
     }
-    if (!improved) {
-      break;
+    // Preserve the scalar polisher's progress. Near folding, a one-ULP phase
+    // correction can be unavailable even though its reconstructed posture is
+    // already an excellent full-pose initial value. Correct that posture before
+    // trying target-derived singular representatives from the original guess.
+    const double remaining =
+        radius - std::abs(std::remainder(angle - initial_angle, kTwoPi));
+    if (remaining > 0) {
+      const auto corrected = RefineJointCandidates(
+          lengths, target, angle, tolerance, budget, remaining, false);
+      if (corrected.status == RecoveryStatus::Candidates) {
+        return corrected;
+      }
     }
   }
-  JointRecovery unresolved;
-  unresolved.status = RecoveryStatus::NeedsRefinement;
-  return unresolved;
+  return RefineJointCandidates(lengths, target, initial_angle, tolerance,
+                               budget, radius);
 }
 
 // Bounded Horner evaluation at the real projection. Reverse the polynomial
@@ -219,7 +303,7 @@ auto AppendUnique(const JointRecovery &recovered, JointDiscovery &output)
 }
 
 struct GeometricPhases {
-  std::array<WristPhase, 8> values{};
+  std::array<WristPhase, kBoundaryPhaseCapacity> values{};
   std::size_t count = 0;
 };
 
@@ -287,6 +371,24 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
     return result;
   }
   JointDiscovery accepted;
+  const double closest_angle =
+      std::atan2(circle.p.dot(circle.w), circle.p.dot(circle.v)) +
+      (circle.lengths.r >= 0 ? angle_conv::kPi : 0.0);
+  const Vec3 closest_point =
+      circle.p + circle.lengths.r * (circle.v * std::cos(closest_angle) +
+                                     circle.w * std::sin(closest_angle));
+  if (closest_point.norm() <
+      numerics::kFoldedChartArmFraction *
+          std::min(std::abs(circle.lengths.a), std::abs(circle.lengths.b))) {
+    const auto folded = RefineJointCandidates(
+        lengths, target, closest_angle, tolerance,
+        options.max_polish_iterations, numerics::kPolishRadiusRad);
+    if (folded.status == RecoveryStatus::Candidates &&
+        !AppendUnique(folded, accepted)) {
+      result.status = RecoveryStatus::NeedsRefinement;
+      return result;
+    }
+  }
   const auto boundary_phases = BoundaryPhases(circle);
   for (std::size_t i = 0; i < boundary_phases.count; ++i) {
     const auto boundary = RecoverJointCandidates(
@@ -319,7 +421,7 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
       // below, not the imaginary part or polynomial slope, decide acceptance.
       if (relative_imaginary > numerics::kElementaryRoundoff) {
         if (relative_imaginary > numerics::kNearRealTolerance &&
-            std::abs(projected.value) > numerics::kRootResidualTolerance) {
+            std::abs(projected.value) > numerics::kRootProjectionTolerance) {
           continue;
         }
       }
@@ -399,6 +501,15 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                         : RecoveryStatus::NumericalRangeFailure;
     return result;
   }
+  // Below binary64 resolution, a rounded zero residual is not evidence of
+  // the requested accuracy. The 1e-30 position/orientation regression can
+  // otherwise depend on which equivalent FK evaluation happens to round to
+  // zero. Preserve the explicit refinement outcome at this known scale.
+  if (tolerance.position < numerics::kEpsilon * circle.length_scale ||
+      tolerance.orientation < numerics::kEpsilon) {
+    result.status = RecoveryStatus::NeedsRefinement;
+    return result;
+  }
   // Re-express the same polynomial in another half-angle chart when roots
   // near the omitted point make geometric polishing ill-conditioned.
   const double closest_wrist =
@@ -415,7 +526,7 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
           : 0.0;
   for (const double chart :
        {first_chart, angle_conv::kPi / 2, angle_conv::kPi / 4,
-        -angle_conv::kPi / 4, closest_wrist}) {
+        -angle_conv::kPi / 4, 0.0, closest_wrist}) {
     result =
         DiscoverInChart(lengths, target, circle, tolerance, options, chart);
     if (result.status != RecoveryStatus::NeedsRefinement) {

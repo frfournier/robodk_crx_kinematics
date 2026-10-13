@@ -70,7 +70,13 @@ void TestBranchesAndFallback() {
   ExpectStatus(1, 1, x, Vec3::UnitZ(), IncidenceStatus::NoCandidate);
   ExpectStatus(1, 1, Vec3(3, 0, 0), u, IncidenceStatus::NoCandidate);
   ExpectStatus(1, 0.5, Vec3(0.1, 0, 0), u, IncidenceStatus::NoCandidate);
-  ExpectStatus(1, 1, Vec3::Zero(), u, IncidenceStatus::NeedsRefinement);
+  const auto coincident = FindElbowCandidates(1, 1, Vec3::Zero(), u);
+  Require(coincident.status == IncidenceStatus::PointCandidates &&
+              coincident.count == 2 && coincident.used_singular_representatives,
+          "coincident spheres return explicit family representatives");
+  for (const auto &point : coincident.points) {
+    CheckWitness(1, 1, Vec3::Zero(), u, point);
+  }
   for (const Vec3 wrist : {Vec3(0, 0, 1), Vec3(1e-15, 0, 1)}) {
     const auto vertical = FindElbowCandidates(1, 1, wrist, u);
     Require(vertical.status == IncidenceStatus::PointCandidates &&

@@ -204,10 +204,10 @@ void TestFourPosturesAndHandoffs() {
             "periodic wrist angle");
   }
   target.translation().x() = 0;
-  const auto deferred = RecoverJointCandidates(lengths, target, 0, tolerance);
-  Require(deferred.status == RecoveryStatus::NeedsRefinement &&
-              deferred.count == 0,
-          "coincident arm spheres still require a family policy");
+  const auto coincident = RecoverJointCandidates(lengths, target, 0, tolerance);
+  Require(coincident.used_singular_representatives,
+          "coincident arm spheres use the documented representative policy");
+  CheckCandidates(lengths, target, coincident, tolerance);
   target.translation().x() = 2;
   const auto tangent = RecoverJointCandidates(lengths, target, 0, tolerance);
   Require(tangent.status == RecoveryStatus::Candidates && tangent.count == 2,
@@ -324,6 +324,41 @@ auto CheckDiscoveryWitness(const Lengths &lengths, const Vec6 &q, int sample)
   return unpolished.status == RecoveryStatus::NeedsRefinement;
 }
 
+void TestBoundedPoseCorrection() {
+  for (const double scale : {1e-100, 1.0, 1e100}) {
+    const Lengths lengths{2 * scale, 1.5 * scale, .25 * scale, .375 * scale};
+    Vec6 q;
+    q << .4, -.7, .8, .6, -.9, -1.2;
+    const auto target = Forward(lengths, q).pose;
+    const PoseTolerance tolerance{scale * crx::numerics::kGeometryTolerance,
+                                  crx::numerics::kGeometryTolerance};
+    JointCandidate candidate;
+    candidate.joints = q.array() + crx::numerics::kPolishMaxStepRad / 4;
+    const auto allocations = crx::test::AllocationCount();
+    const bool previous = Eigen::internal::is_malloc_allowed();
+    Eigen::internal::set_is_malloc_allowed(false);
+    const bool solved =
+        PolishJointCandidate(lengths, target, tolerance,
+                             crx::numerics::kPolishIterations, candidate);
+    Eigen::internal::set_is_malloc_allowed(previous);
+    Require(solved && allocations == crx::test::AllocationCount(),
+            "bounded SVD correction is allocation-free across scales");
+    const auto actual = Forward(lengths, candidate.joints).pose;
+    Require(((actual.translation() - target.translation()) / scale).norm() <=
+                    crx::numerics::kGeometryTolerance &&
+                (actual.linear() - target.linear()).norm() <=
+                    2 * crx::numerics::kGeometryTolerance,
+            "corrected candidate passes independent transform-product FK");
+    Require(!PolishJointCandidate(lengths, target, tolerance, 0, candidate),
+            "zero correction budget does no hidden work");
+    const Vec6 excluded = q.array() + crx::numerics::kPolishMaxStepRad;
+    Require(!PolishJointCandidate(lengths, target, tolerance,
+                                  crx::numerics::kPolishIterations, candidate,
+                                  &excluded, &excluded),
+            "active bounds cannot publish an inaccurate fixed command");
+  }
+}
+
 void TestTargetOnlyDiscovery() {
   int polished_cases = 0;
   for (int sample = 1; sample <= 128; ++sample) {
@@ -410,6 +445,7 @@ void RunJointRecoveryTests() {
   TestGeneratedAndZeroWristSine();
   TestFourPosturesAndHandoffs();
   TestInvalidAndTightTolerance();
+  TestBoundedPoseCorrection();
   TestTargetOnlyDiscovery();
 }
 

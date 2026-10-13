@@ -128,6 +128,19 @@ void CheckEmptySearchPolicy() {
       const auto found =
           crx::SolveIkIsometry(model, moved, seeded ? &seed : nullptr, 64);
 #ifdef CRXKIN_POLYNOMIAL_COMPARISON
+      if (delta < crx::numerics::kSolutionPositionToleranceMm) {
+        Require(found.status == IkStatus::StrictCandidates &&
+                    !found.solutions.empty(),
+                "bounded correction resolves strict boundary targets without a "
+                "seed");
+        for (const auto &solution : found.solutions) {
+          const auto pose = Target(model, solution);
+          Require((pose.translation() - moved.translation()).norm() <=
+                      crx::numerics::kSolutionPositionToleranceMm,
+                  "strict boundary correction independently closes position");
+        }
+        continue;
+      }
       const auto expected = IkStatus::Unresolved;
 #else
       const auto expected = !seeded || delta > .01 ? IkStatus::NoCandidate

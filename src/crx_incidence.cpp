@@ -47,7 +47,24 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
   const double horizontal = std::hypot(x.x(), x.y());
   const double scale = std::max({std::abs(a), std::abs(b), distance});
   if (distance <= numerics::kDirectionTolerance * scale) {
-    result.status = IncidenceStatus::NeedsRefinement;
+    if (!numerics::Scalar(std::abs(a))
+             .isApproxToConstant(std::abs(b), numerics::kDirectionTolerance)) {
+      result.status = IncidenceStatus::NeedsRefinement;
+      return result;
+    }
+    // Coincident arm spheres: intersect their common sphere with the wrist
+    // plane. Horizontal antipodes give deterministic, finite family
+    // representatives without constructing the undefined x/|x| direction.
+    Vec3 direction = Vec3::UnitZ().cross(u);
+    if (direction.isZero(numerics::kDirectionTolerance)) {
+      direction = Vec3::UnitX();
+    } else {
+      direction.normalize();
+    }
+    result.points = {a * direction, -a * direction};
+    result.count = 2;
+    result.used_singular_representatives = true;
+    result.status = IncidenceStatus::PointCandidates;
     return result;
   }
   const Vec3 radial = x / distance;
@@ -66,6 +83,43 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
       -numerics::kIncidenceAmbiguityFactor * height_tolerance) {
     result.status = IncidenceStatus::NoCandidate;
     return result;
+  }
+  const Vec3 wrist_perpendicular = u - radial.dot(u) * radial;
+  const double wrist_sine = wrist_perpendicular.norm();
+  if (wrist_sine > horizontal / distance &&
+      height_squared > numerics::kFourthRootEpsilon * height_scale) {
+    // Choose the better conditioned plane pair. Intersect the arm circle
+    // with the wrist plane first; test the vertical base plane afterward.
+    // This remains regular when the wrist point approaches the base axis.
+    const Vec3 direction = wrist_perpendicular / wrist_sine;
+    const double transverse = (x.dot(u) - along * radial.dot(u)) / wrist_sine;
+    const Vec3 center = along * radial + transverse * direction;
+    const double remaining = a_squared - center.squaredNorm();
+    if (remaining < -numerics::kIncidenceAmbiguityFactor * height_tolerance) {
+      result.status = IncidenceStatus::NoCandidate;
+      return result;
+    }
+    if (remaining > numerics::kFourthRootEpsilon * a_squared) {
+      const Vec3 offset = std::sqrt(remaining) * radial.cross(direction);
+      for (const Vec3 &elbow : {Vec3(center + offset), Vec3(center - offset)}) {
+        if (!SphereMatches(a_squared, elbow) ||
+            !SphereMatches(b_squared, elbow - x)) {
+          result.status = IncidenceStatus::NeedsRefinement;
+          result.count = 0;
+          return result;
+        }
+        const double base_lever =
+            std::max(horizontal, std::hypot(elbow.x(), elbow.y()));
+        if (std::abs(x.cross(elbow).z()) <=
+            numerics::kIncidenceResidualTolerance * base_lever *
+                std::min(std::abs(a), std::abs(b))) {
+          result.points[result.count++] = elbow;
+        }
+      }
+      result.status = result.count == 0 ? IncidenceStatus::NoCandidate
+                                        : IncidenceStatus::PointCandidates;
+      return result;
+    }
   }
   if (horizontal <= numerics::kDirectionTolerance * scale) {
     // On the base axis, the base plane is determined by the elbow instead.

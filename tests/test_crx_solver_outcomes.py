@@ -97,17 +97,24 @@ def test_approximate_seed_still_obeys_command_limits(kinematics_lib, crx_10ia):
 
 @pytest.mark.parametrize("offset", [.00005, .005, .02])
 @pytest.mark.parametrize("seeded", [False, True])
-def test_unresolved_discovery_cannot_be_masked_by_seed(
+def test_boundary_refinement_and_unresolved_seed_policy(
     polynomial_kinematics_lib, crx_10ia, offset, seeded,
 ):
     seed = [0., 90., 0., 0., 0., 0.]
     target, _ = reference_fk(crx_10ia, seed)
     target[0, 3] += offset
-    # The polynomial path reports unresolved geometry here, unlike the legacy
-    # scanner's empty search. Even a seed within strict tolerance cannot turn
-    # that handoff into success. The native test checks the private status.
-    assert call(polynomial_kinematics_lib, crx_10ia, target,
-                seed if seeded else None)[0] == -1
+    count, command = call(polynomial_kinematics_lib, crx_10ia, target,
+                          seed if seeded else None)
+    if offset < 1e-4:  # Public strict position contract.
+        assert count > 0
+        user = command.copy()
+        user[2] -= user[1]
+        actual, _ = reference_fk(crx_10ia, user)
+        assert np.linalg.norm(actual[:3, 3] - target[:3, 3]) <= 1e-4
+        np.testing.assert_allclose(actual[:3, :3], target[:3, :3], atol=2e-5, rtol=0)
+    else:
+        # A nearby seed cannot mask unresolved geometry outside the strict gate.
+        assert count == -1
 
 
 @pytest.mark.parametrize("offset,expected", [(.00005, 1), (.0099, 1), (.0101, 0)])

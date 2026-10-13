@@ -28,10 +28,14 @@ struct JointCandidate {
 };
 
 struct JointRecovery {
+  static constexpr std::size_t kDirectCapacity = 2 * 2;
+  static constexpr std::size_t kRefinementCapacity = 2 * kDirectCapacity;
   RecoveryStatus status = RecoveryStatus::InvalidInput;
   std::size_t count = 0;
   bool used_singular_representatives = false;
-  std::array<JointCandidate, 4> candidates{}; // Two elbows, two bases each.
+  // Two geometric charts, each with two elbows and two base branches.
+  // Direct incidence recovery uses at most the first four entries.
+  std::array<JointCandidate, kRefinementCapacity> candidates{};
 };
 
 // Unit-circle coordinates in the prepared wrist basis (v, w). Keeping these
@@ -56,5 +60,20 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
 auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                             const WristPhase &phase,
                             const PoseTolerance &tolerance) -> JointRecovery;
+
+// Bounded full-pose correction of a geometric nomination. No random/joint-seed
+// search: accepted postures must remain in the nominated wrist-phase window.
+auto RefineJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
+                           double wrist_angle, const PoseTolerance &tolerance,
+                           int budget, double radius,
+                           bool singular_representatives = true)
+    -> JointRecovery;
+
+// Canonical command coordinates; optional limits constrain every trial.
+auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
+                          const PoseTolerance &tolerance, int budget,
+                          JointCandidate &candidate,
+                          const Vec6 *lower = nullptr,
+                          const Vec6 *upper = nullptr) -> bool;
 
 } // namespace crx::canonical

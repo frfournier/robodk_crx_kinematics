@@ -83,6 +83,14 @@ inline constexpr double kJointPhaseToleranceRad = 1e-10;
 // N1017: stable counts at 1e-10..1e-8. Lower settings alter chart/handoff
 // decisions; retain the conservative lower edge, with strict FK still final.
 inline constexpr double kRootResidualTolerance = 1e-10;
+// Real-projection nomination has a roundoff budget distinct from the
+// eigensolver's complex-root backward residual. The 20261010 mixed-singular
+// holdout (indices 20/27) has genuine complex pairs with projected residuals
+// 1e-11: the old shared 1e-10 threshold incorrectly required recovering them.
+// Premerge 9082-pose sweep (2026-10-09): sampled 512/1024/2048 epsilon
+// preserve all statuses and counts; 4096 epsilon loses three scaled holdout
+// solves. Retain the lower end of that plateau; raw evidence: build/premerge.
+inline constexpr double kRootProjectionTolerance = 512 * kEpsilon;
 // N1017: 1e-9 loses 16 PERCH/ABBES-TABLE5 witnesses; sqrt(eps) matches
 // 1e-8..1e-6. A repeated-root perturbation naturally has sqrt(eps) scale.
 inline constexpr double kRootSlopeTolerance = kSqrtEpsilon;
@@ -93,11 +101,21 @@ inline constexpr double kNearRealTolerance = 64 * kSqrtEpsilon;
 // .05 rad is a rounded, bounded neighborhood, not an accuracy tolerance.
 inline constexpr double kPolishRadiusRad = .05;
 // N1017: .1..1 rad preserve counts; retain the rounded .25-rad step cap.
+// Premerge 9082-pose full-pose correction sweep: .125/.25/.5 all retain strict
+// solves and independent FK validity; retain .25 as the bounded work policy.
 inline constexpr double kPolishMaxStepRad = .25;
+// Stop full-pose correction at sqrt(epsilon) in normalized coordinates only
+// after both physical pose tolerances hold. The 9082-pose premerge sweep
+// (2026-10-09, build/premerge/stopping) retained every solve and valid FK at
+// 1e-9/sqrt(eps)/1e-7; near-family candidate counts vary. This avoids spending
+// most mixed-singularity SVD updates polishing an already acceptable posture.
+inline constexpr double kPoseCorrectionTolerance = kSqrtEpsilon;
 // Keep neighboring simple-root neighborhoods disjoint, with a half-gap left.
 inline constexpr double kNeighborRadiusFraction = .25;
 // N1017 folded-arm offsets 0.. .01 rad: .001.. .1 preserve counts;
 // .0001 changes one. One percent is a rounded chart-switch scale.
+// Premerge 9082-pose correction sweep: .001.. .05 preserve strict solves/FK;
+// near-family counts vary. Retain the existing rounded one-percent scale.
 inline constexpr double kFoldedChartArmFraction = .01;
 // N1017: .8.. .95 preserve counts; .99/1 change one/two catalogues.
 // Require a rounded 5% norm improvement to avoid marginal balancing work.
@@ -150,6 +168,9 @@ inline constexpr double kConfigWristZeroRad = angle_conv::DegToRad(.01);
 // Bounded work policies; finite lists do not certify branch completeness.
 inline constexpr int kScannerIntervals = 960;
 inline constexpr int kScannerRefineIterations = 100;
+// Premerge 9082-pose sweep: eight loses a scaled holdout; 16/24/32/64 solve
+// every reachable target. Retain 24; higher budgets change near-family
+// candidate counts but do not improve measured solve rate. Not completeness.
 inline constexpr int kPolishIterations = 24;
 inline constexpr int kMaxPolishIterations = 64;
 inline constexpr int kPolishBacktracks = 8;
