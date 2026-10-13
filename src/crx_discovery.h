@@ -28,9 +28,10 @@ struct JointDiscovery {
   // truncates.
   // Every polynomial nomination (including the omitted point), every boundary
   // phase, and the target-derived folded nomination can survive deduplication.
+  // Each polynomial phase polishes both elbow branches independently.
   // Size from those work bounds, not an exact-geometric solution-count theorem.
   static constexpr std::size_t kCapacity =
-      kCoefficientCount * JointRecovery::kRefinementCapacity +
+      kCoefficientCount * 2 * JointRecovery::kRefinementCapacity +
       kBoundaryPhaseCapacity * JointRecovery::kDirectCapacity +
       JointRecovery::kRefinementCapacity;
   std::array<JointCandidate, kCapacity> candidates{};

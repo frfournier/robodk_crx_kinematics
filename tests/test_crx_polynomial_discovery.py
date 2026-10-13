@@ -210,3 +210,54 @@ def test_exact_omitted_point_is_not_lost(discover):
     result = discover(lengths, target)
     check_discovery(result, lengths, target, [q])
     assert len(result["solutions"]) == 8
+
+
+# Reproductions from a deterministic near-double-root sweep (seed 20261013).
+# Independent sphere/base-plane branches were polished with the upstream
+# NumPy reference at 26e27c3dae5b2a3c84e1e35fb9faf4c113439e46. Canonical
+# radians are stored here; no reference solver is needed to run these tests.
+# The target is derived from one witness only, never passed with an IK seed.
+MERGED_ELBOW_PAIRS = [
+    (
+        [1.2846196877740317, 0.014575964159554644, 0.7431200420044268,
+         -3.3341878330183563e-08, 0.05221572955259335, 2.293367093214428],
+        [1.284619687774032, 0.8422522582116572, 2.398472620156496,
+         2.4858111807875285e-09, -0.7754605545473734, 2.293367058142878],
+    ),
+    (
+        [-0.718138546639957, -0.9028352204259087, 1.3992252847326752,
+         -7.098671053282173e-08, -1.1604247273379276, 1.3903144867892374],
+        [-0.7181385466399571, -0.7312641586451563, 1.742367407185094,
+         -6.699400072564219e-08, -1.3319957880095936, 1.3903144743156668],
+    ),
+    (
+        [1.1595086470403193, -1.4974839103438753, 1.1947661103463019,
+         1.1290627321119101e-08, -1.4859141154799533, -1.4828980072447888],
+        [1.1595086470403193, -1.1214536970315663, 1.9468265368449182,
+         1.1744233722926812e-08, -1.8619443286662605, -1.482898002916359],
+    ),
+]
+
+
+@pytest.mark.parametrize("q,alternate", MERGED_ELBOW_PAIRS)
+@pytest.mark.parametrize("scale", [.001, 1, 1000])
+def test_near_double_root_retains_both_elbow_postures(discover, q, alternate, scale):
+    lengths = np.array([540, 540, 160, 150]) * scale
+    target = canonical_forward(lengths, q)
+    witnesses = [np.array(q), np.array(alternate)]
+    for witness in witnesses[:]:
+        flipped = witness.copy()
+        flipped[:4] = [witness[0] - np.pi, -witness[1],
+                       np.pi - witness[2], witness[3] - np.pi]
+        witnesses.append(flipped)
+    for witness in witnesses:
+        np.testing.assert_allclose(canonical_forward(lengths, witness), target,
+                                   atol=1e-8 * scale, rtol=0)
+    # Both elbows and their base flips are distinct, so one returned posture
+    # cannot satisfy two witness checks. This guards the oracle as well as IK.
+    for index, witness in enumerate(witnesses):
+        for previous in witnesses[:index]:
+            delta = (witness - previous + np.pi) % (2 * np.pi) - np.pi
+            assert np.max(abs(delta)) > 1e-3
+    result = discover(lengths, target)
+    check_discovery(result, lengths, target, witnesses, joint_tolerance=1e-6)

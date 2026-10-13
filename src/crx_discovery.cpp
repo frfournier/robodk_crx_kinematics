@@ -10,20 +10,21 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <limits>
 
 namespace crx::canonical {
 namespace {
 struct ElbowResidual {
   double value = 0;
   double derivative = 0;
+  Vec3 center = Vec3::Zero();
+  Vec3 side = Vec3::Zero();
 };
 
 // Alternate elimination order: intersect the two arm spheres with the wrist
 // plane and polish the remaining base-plane constraint. Unlike azimuth from
 // x.xy(), the unsquared cross-product residual is smooth at the base axis.
 auto EvaluateWristPlaneResidual(const WristCircle &circle, double angle,
-                                ElbowResidual &output) -> bool {
+                                double sign, ElbowResidual &output) -> bool {
   const Vec3 u = circle.v * std::cos(angle) + circle.w * std::sin(angle);
   const Vec3 du = -circle.v * std::sin(angle) + circle.w * std::cos(angle);
   const Vec3 x = circle.p + circle.lengths.r * u;
@@ -66,30 +67,18 @@ auto EvaluateWristPlaneResidual(const WristCircle &circle, double angle,
   const double dheight = -center.dot(dcenter) / height;
   const Vec3 normal = radial.cross(direction);
   const Vec3 dnormal = dradial.cross(direction) + radial.cross(ddirection);
-  double best_step = std::numeric_limits<double>::infinity();
-  for (const double sign : {-1.0, 1.0}) {
-    const Vec3 elbow = center + sign * height * normal;
-    const Vec3 delbow = dcenter + sign * (dheight * normal + height * dnormal);
-    const double value = x.cross(elbow).z();
-    const double derivative = (dx.cross(elbow) + x.cross(delbow)).z();
-    if (!std::isfinite(value) || !std::isfinite(derivative) ||
-        numerics::Scalar(derivative).isZero(numerics::kDirectionTolerance)) {
-      continue;
-    }
-    const double step = std::abs(value / derivative);
-    if (step < best_step) {
-      best_step = step;
-      output = {value, derivative};
-    }
-  }
-  return std::isfinite(best_step);
+  const Vec3 elbow = center + sign * height * normal;
+  const Vec3 delbow = dcenter + sign * (dheight * normal + height * dnormal);
+  output = {x.cross(elbow).z(), (dx.cross(elbow) + x.cross(delbow)).z(), center,
+            sign * normal};
+  return std::isfinite(output.value) && std::isfinite(output.derivative);
 }
 
 // Differentiate the unsquared wrist constraint on the two sphere/base-plane
 // intersections. Using f/f' on the squared elimination polynomial loses useful
 // digits near a double root. This calculation is only for polishing; acceptance
 // remains in RecoverJointCandidates, including its independent full-pose FK.
-auto EvaluateElbowResidual(const WristCircle &circle, double angle,
+auto EvaluateElbowResidual(const WristCircle &circle, double angle, double sign,
                            ElbowResidual &output) -> bool {
   const Vec3 u = circle.v * std::cos(angle) + circle.w * std::sin(angle);
   const Vec3 du = -circle.v * std::sin(angle) + circle.w * std::cos(angle);
@@ -139,32 +128,14 @@ auto EvaluateElbowResidual(const WristCircle &circle, double angle,
   }
   const double height = std::sqrt(height2);
   const double dheight = -along * dalong / height;
-  ElbowResidual best{std::numeric_limits<double>::infinity(), 0};
-  double best_step = std::numeric_limits<double>::infinity();
-  for (const double sign : {-1.0, 1.0}) {
-    const Vec3 forearm = along * radial + sign * height * perpendicular - x;
-    const Vec3 dforearm =
-        dalong * radial + along * dradial +
-        sign * (dheight * perpendicular + height * dperpendicular) - dx;
-    const double value = forearm.dot(u);
-    const double derivative = dforearm.dot(u) + forearm.dot(du);
-    if (!std::isfinite(value) || !std::isfinite(derivative)) {
-      return false;
-    }
-    // Near a multiple root, the other elbow can have a smaller residual but
-    // an almost flat, nonzero constraint. Prefer the nearest Newton correction
-    // instead of getting trapped polishing that incompatible elbow branch.
-    const double step =
-        numerics::Scalar(derivative).isZero(numerics::kDirectionTolerance)
-            ? std::numeric_limits<double>::infinity()
-            : std::abs(value / derivative);
-    if (step < best_step) {
-      best = {value, derivative};
-      best_step = step;
-    }
-  }
-  output = best;
-  return std::isfinite(best_step);
+  const Vec3 center = along * radial;
+  const Vec3 forearm = center + sign * height * perpendicular - x;
+  const Vec3 dforearm =
+      dalong * radial + along * dradial +
+      sign * (dheight * perpendicular + height * dperpendicular) - dx;
+  output = {forearm.dot(u), dforearm.dot(u) + forearm.dot(du), center,
+            sign * perpendicular};
+  return std::isfinite(output.value) && std::isfinite(output.derivative);
 }
 
 auto OutsideArmShell(const WristCircle &circle, double angle, double radius)
@@ -179,72 +150,190 @@ auto OutsideArmShell(const WristCircle &circle, double angle, double radius)
          (distance > a + b + margin || distance < std::abs(a - b) - margin);
 }
 
-auto PolishAndRecover(const Lengths &lengths, const PoseIsoRT &target,
-                      const WristCircle &circle, double angle,
-                      const PoseTolerance &tolerance, int budget, double radius)
-    -> JointRecovery {
-  const double initial_angle = angle;
-  // Keep one residual chart throughout a line search. Switching between the
-  // wrist-plane and base-plane residuals mid-backtrack compares different
-  // functions and can manufacture a false minimum at the chart boundary.
-  for (const auto evaluate :
-       {EvaluateWristPlaneResidual, EvaluateElbowResidual}) {
-    angle = initial_angle;
-    for (int iteration = 0; iteration <= budget; ++iteration) {
-      const auto recovered =
-          RecoverJointCandidates(lengths, target, angle, tolerance);
-      if (recovered.status == RecoveryStatus::Candidates ||
-          recovered.status == RecoveryStatus::NumericalRangeFailure) {
-        return recovered;
-      }
-      if (OutsideArmShell(circle, initial_angle, radius)) {
-        JointRecovery empty;
-        empty.status = RecoveryStatus::NoCandidate;
-        return empty;
-      }
-      ElbowResidual residual;
-      if (iteration == budget || !evaluate(circle, angle, residual) ||
-          std::abs(residual.derivative) <= numerics::kDirectionTolerance) {
-        break;
-      }
-      double step =
-          std::clamp(residual.value / residual.derivative,
-                     -numerics::kPolishMaxStepRad, numerics::kPolishMaxStepRad);
-      bool improved = false;
-      for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
-           ++backtrack) {
-        const double trial = std::remainder(angle - step, 2 * angle_conv::kPi);
-        ElbowResidual next;
-        if (std::abs(std::remainder(trial - initial_angle,
-                                    2 * angle_conv::kPi)) <= radius &&
-            evaluate(circle, trial, next) &&
-            std::abs(next.value) < std::abs(residual.value)) {
-          angle = trial;
-          improved = true;
-          break;
-        }
-        step *= 0.5;
-      }
-      if (!improved) {
-        break;
-      }
-    }
-    // Preserve the scalar polisher's progress. Near folding, a one-ULP phase
-    // correction can be unavailable even though its reconstructed posture is
-    // already an excellent full-pose initial value. Correct that posture before
-    // trying target-derived singular representatives from the original guess.
-    const double remaining =
-        radius - std::abs(std::remainder(angle - initial_angle, kTwoPi));
-    if (remaining > 0) {
-      const auto corrected = RefineJointCandidates(
-          lengths, target, angle, tolerance, budget, remaining, false);
-      if (corrected.status == RecoveryStatus::Candidates) {
-        return corrected;
-      }
+// A successful reconstruction of the other elbow must not stop this branch's
+// Newton solve. The separating plane is meaningful only for distinct elbows;
+// the tangency chart leaves side zero and keeps its existing joint recovery.
+void KeepElbowBranch(const WristCircle &circle, const ElbowResidual &branch,
+                     JointRecovery &recovered) {
+  std::size_t count = 0;
+  for (std::size_t i = 0; i < recovered.count; ++i) {
+    const auto &candidate = recovered.candidates[i];
+    const auto &q = candidate.joints;
+    const double shoulder = std::sin(q[1]);
+    const Vec3 elbow =
+        circle.lengths.a * Vec3(std::cos(q[0]) * shoulder,
+                                std::sin(q[0]) * shoulder, std::cos(q[1]));
+    if ((elbow - branch.center).dot(branch.side) >= 0) {
+      recovered.candidates[count++] = candidate;
     }
   }
-  return RefineJointCandidates(lengths, target, initial_angle, tolerance,
-                               budget, radius);
+  recovered.count = count;
+  if (count == 0 && recovered.status == RecoveryStatus::Candidates) {
+    recovered.status = RecoveryStatus::NeedsRefinement;
+  }
+}
+
+struct PolishedRecovery {
+  RecoveryStatus status = RecoveryStatus::NeedsRefinement;
+  std::size_t count = 0;
+  bool used_singular_representatives = false;
+  std::array<JointCandidate, 2 * JointRecovery::kRefinementCapacity>
+      candidates{};
+};
+
+template <typename Recovery, typename Output>
+auto AppendUnique(const Recovery &recovered, Output &output) -> bool {
+  output.used_singular_representatives =
+      output.used_singular_representatives ||
+      recovered.used_singular_representatives;
+  for (std::size_t i = 0; i < recovered.count; ++i) {
+    const auto &candidate = recovered.candidates[i];
+    bool duplicate = false;
+    for (std::size_t j = 0; j < output.count; ++j) {
+      const double difference =
+          (candidate.joints - output.candidates[j].joints)
+              .unaryExpr([](double angle) {
+                return std::remainder(angle, 2 * angle_conv::kPi);
+              })
+              .cwiseAbs()
+              .maxCoeff();
+      duplicate = duplicate || difference <= numerics::kJointPhaseToleranceRad;
+    }
+    if (!duplicate) {
+      if (output.count == output.candidates.size()) {
+        return false;
+      }
+      output.candidates[output.count++] = candidate;
+    }
+  }
+  return true;
+}
+
+auto PolishAndRecover(const Lengths &lengths, const PoseIsoRT &target,
+                      const WristCircle &circle, double initial_angle,
+                      const PoseTolerance &tolerance, int budget, double radius,
+                      bool ill_conditioned) -> PolishedRecovery {
+  PolishedRecovery accepted;
+  const auto direct =
+      RecoverJointCandidates(lengths, target, initial_angle, tolerance);
+  if (direct.status == RecoveryStatus::NumericalRangeFailure) {
+    return {RecoveryStatus::NumericalRangeFailure};
+  }
+  // A well-conditioned root already has its own disjoint polishing window.
+  // Preserve direct recovery there. For a multiple-root nomination, a single
+  // recovered elbow is insufficient: follow both branches unless direct
+  // incidence already recovered both elbows (and their two base postures).
+  if (direct.status == RecoveryStatus::Candidates &&
+      (!ill_conditioned || direct.count == JointRecovery::kDirectCapacity)) {
+    accepted.status = RecoveryStatus::Candidates;
+    if (!AppendUnique(direct, accepted)) {
+      return {};
+    }
+    return accepted;
+  }
+  if (direct.status != RecoveryStatus::Candidates &&
+      OutsideArmShell(circle, initial_angle, radius)) {
+    accepted.status = RecoveryStatus::NoCandidate;
+    return accepted;
+  }
+  // Keep both the geometric chart and the elbow sign fixed throughout every
+  // Newton solve and line search. A split double root can nominate the same
+  // phase twice; choosing the nearest correction each time loses one elbow.
+  for (const auto evaluate :
+       {EvaluateWristPlaneResidual, EvaluateElbowResidual}) {
+    JointRecovery cached_correction;
+    double corrected_angle = 0;
+    bool have_correction = false;
+    for (const double sign : {-1.0, 1.0}) {
+      double angle = initial_angle;
+      bool found = false;
+      for (int iteration = 0; iteration <= budget; ++iteration) {
+        ElbowResidual residual;
+        const bool regular = evaluate(circle, angle, sign, residual);
+        auto recovered =
+            iteration == 0
+                ? direct
+                : RecoverJointCandidates(lengths, target, angle, tolerance);
+        if (regular) {
+          KeepElbowBranch(circle, residual, recovered);
+        }
+        if (recovered.status == RecoveryStatus::NumericalRangeFailure) {
+          return {RecoveryStatus::NumericalRangeFailure};
+        }
+        if (recovered.status == RecoveryStatus::Candidates) {
+          if (!AppendUnique(recovered, accepted)) {
+            return {};
+          }
+          found = true;
+          break;
+        }
+        if (iteration == budget || !regular ||
+            std::abs(residual.derivative) <= numerics::kDirectionTolerance) {
+          break;
+        }
+        double step = std::clamp(residual.value / residual.derivative,
+                                 -numerics::kPolishMaxStepRad,
+                                 numerics::kPolishMaxStepRad);
+        bool improved = false;
+        for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
+             ++backtrack) {
+          const double trial = std::remainder(angle - step, kTwoPi);
+          ElbowResidual next;
+          if (std::abs(std::remainder(trial - initial_angle, kTwoPi)) <=
+                  radius &&
+              evaluate(circle, trial, sign, next) &&
+              std::abs(next.value) < std::abs(residual.value)) {
+            angle = trial;
+            improved = true;
+            break;
+          }
+          step *= 0.5;
+        }
+        if (!improved) {
+          break;
+        }
+      }
+      if (found) {
+        continue;
+      }
+      // Preserve each branch's scalar progress before full-pose correction.
+      const double remaining =
+          radius - std::abs(std::remainder(angle - initial_angle, kTwoPi));
+      if (remaining > 0) {
+        // Both fixed-sign solves can stall at the identical phase. Full-pose
+        // correction already tries both elbows; reuse that exact calculation
+        // before selecting this sign. Nearby phases must still be corrected
+        // separately, regardless of the joint deduplication tolerance.
+        if (!have_correction ||
+            !numerics::IsRepresentedZero(angle - corrected_angle)) {
+          cached_correction = RefineJointCandidates(
+              lengths, target, angle, tolerance, budget, remaining, false);
+          corrected_angle = angle;
+          have_correction = true;
+        }
+        auto corrected = cached_correction;
+        ElbowResidual residual;
+        if (evaluate(circle, angle, sign, residual)) {
+          KeepElbowBranch(circle, residual, corrected);
+        }
+        if (corrected.status == RecoveryStatus::Candidates &&
+            !AppendUnique(corrected, accepted)) {
+          return {};
+        }
+      }
+    }
+    if (accepted.count > 0) {
+      accepted.status = RecoveryStatus::Candidates;
+      return accepted;
+    }
+  }
+  const auto fallback = RefineJointCandidates(lengths, target, initial_angle,
+                                              tolerance, budget, radius);
+  accepted.status = fallback.status;
+  if (!AppendUnique(fallback, accepted)) {
+    return {};
+  }
+  return accepted;
 }
 
 // Bounded Horner evaluation at the real projection. Reverse the polynomial
@@ -272,34 +361,6 @@ auto RealProjection(const Coefficients &coefficients, double t)
   bound = std::max(1.0, bound);
   return {evaluation.value / bound,
           evaluation.derivative * (1 + argument * argument) / (2 * bound)};
-}
-
-auto AppendUnique(const JointRecovery &recovered, JointDiscovery &output)
-    -> bool {
-  output.used_singular_representatives =
-      output.used_singular_representatives ||
-      recovered.used_singular_representatives;
-  for (std::size_t i = 0; i < recovered.count; ++i) {
-    const auto &candidate = recovered.candidates[i];
-    bool duplicate = false;
-    for (std::size_t j = 0; j < output.count; ++j) {
-      const double difference =
-          (candidate.joints - output.candidates[j].joints)
-              .unaryExpr([](double angle) {
-                return std::remainder(angle, 2 * angle_conv::kPi);
-              })
-              .cwiseAbs()
-              .maxCoeff();
-      duplicate = duplicate || difference <= numerics::kJointPhaseToleranceRad;
-    }
-    if (!duplicate) {
-      if (output.count == output.candidates.size()) {
-        return false;
-      }
-      output.candidates[output.count++] = candidate;
-    }
-  }
-  return true;
 }
 
 struct GeometricPhases {
@@ -402,6 +463,7 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
   for (std::size_t i = 0; i <= roots.count; ++i) {
     double angle = polynomial.chart_angle + angle_conv::kPi;
     double radius = numerics::kPolishRadiusRad;
+    bool ill_conditioned = true;
     if (i == roots.count) {
       const Eigen::Map<const Eigen::Matrix<double, kCoefficientCount, 1>>
           mapped(polynomial.coefficients.data());
@@ -430,7 +492,7 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
         return result;
       }
       angle = polynomial.chart_angle + 2 * std::atan(root.value.real());
-      const bool ill_conditioned =
+      ill_conditioned =
           relative_imaginary > numerics::kElementaryRoundoff ||
           std::abs(projected.derivative) <= numerics::kRootSlopeTolerance;
       for (std::size_t j = 0; j < roots.count; ++j) {
@@ -446,7 +508,7 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
     }
     auto recovered = PolishAndRecover(
         lengths, target, circle, std::remainder(angle, 2 * angle_conv::kPi),
-        tolerance, options.max_polish_iterations, radius);
+        tolerance, options.max_polish_iterations, radius, ill_conditioned);
     if (recovered.status == RecoveryStatus::NeedsRefinement) {
       for (std::size_t j = 0; j < boundary_phases.count; ++j) {
         const auto &boundary = boundary_phases.values[j];
@@ -459,7 +521,12 @@ auto DiscoverInChart(const Lengths &lengths, const PoseIsoRT &target,
           const auto trial =
               RecoverJointCandidates(lengths, target, boundary, tolerance);
           if (trial.status == RecoveryStatus::Candidates) {
-            recovered = trial;
+            recovered = {};
+            recovered.status = trial.status;
+            if (!AppendUnique(trial, recovered)) {
+              result.status = RecoveryStatus::NeedsRefinement;
+              return result;
+            }
             break;
           }
         }
