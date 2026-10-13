@@ -3,6 +3,10 @@
 import ctypes
 from typing import List, Tuple
 
+import numpy as np
+
+from crx_asset_reference import forward_models
+
 
 ROBOT_STRIDE = 20
 # Adapter warnings read the ASCII name at row 90, across up to 59 doubles.
@@ -106,3 +110,43 @@ def _call_joints_config(
     config = (ctypes.c_double * 3)(*initial)
     status = lib.Joints2Config(joints, config, ctypes.byref(robot))
     return int(status), _from_c_array(config, 3)
+
+
+class MissingFixtureSolve(AssertionError):
+    """Recorded no-solution/handoff; never a malformed or inaccurate output."""
+
+
+def check_solver_pose(library, generated_models, case, seeded, expected_failure=None):
+    capacity, stride = 64, 12
+    models, references, robots = generated_models
+    model_id = case["model"]
+    target = np.asarray(case["target"])
+    pose = (ctypes.c_double * 16)(*target.ravel(order="F"))
+    best = (ctypes.c_double * 6)()
+    output = (ctypes.c_double * (capacity * stride))()
+    seed = (ctypes.c_double * 6)(*case["seed_deg"]) if seeded else None
+    count = library.SolveIK(pose, best, output, capacity, seed,
+                            ctypes.byref(robots[model_id]))
+    assert count <= capacity
+    if not case["reachable"]:
+        assert count <= 0, "accepted a target outside the arm's total reach"
+        return
+    if count <= 0:
+        if expected_failure is not None:
+            assert count == expected_failure, "recorded failure changed ABI outcome"
+        raise MissingFixtureSolve(f"{case['name']}: reachable pose returned {count}")
+    # Validate best and every candidate, regardless of whether a miss on this
+    # case was recorded. Invalid returns raise ordinary assertions, never xfail.
+    commands = np.vstack([np.asarray(best), np.asarray(output).reshape(capacity, stride)[:count, :6]])
+    assert np.isfinite(commands).all()
+    np.testing.assert_allclose(commands[0], commands[1], atol=np.finfo(float).eps, rtol=0)
+    actual = forward_models(references[model_id], commands)
+    position = np.linalg.norm(actual[:, :3, 3] - target[:3, 3], axis=1)
+    angle = np.degrees(2*np.arcsin(np.minimum(
+        1, np.linalg.norm(actual[:, :3, :3] - target[:3, :3], axis=(1, 2))/(2*np.sqrt(2)))))
+    assert np.all(position <= 1e-4), position
+    assert np.all(angle <= 1e-3), angle
+    low, high = models[model_id]["robot"][[30, 31], :6]
+    allowance = 128*np.finfo(float).eps*np.maximum(1, np.maximum(abs(low), abs(high)))
+    assert np.all(commands >= low - allowance) and np.all(commands <= high + allowance)
+    return commands

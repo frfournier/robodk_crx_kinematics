@@ -66,3 +66,9 @@ def missing_postures(expected, actual, tolerance_deg=0.009):
         ):
             missing.append(posture)
     return missing
+
+
+def discovery_joints(case_id):
+    # Deterministic derived probes, away from command turn boundaries.
+    # The legacy callback fixture remains the model input until asset extraction.
+    return np.random.default_rng(case_id).uniform(-150.0, 150.0, size=6).tolist()

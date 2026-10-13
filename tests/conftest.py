@@ -1,8 +1,11 @@
 import ctypes
+import json
+import math
 import os
+import subprocess
 import sys
 from pathlib import Path
-import math
+
 import pytest
 
 
@@ -97,6 +100,31 @@ def polynomial_kinematics_lib(request):
     if configured or request.config.getoption("--require-solver-reliability"):
         assert path.is_file(), f"Configured comparison DLL is missing: {path}"
     return _load_kinematics_library(path)
+
+
+@pytest.fixture(params=["kinematics_lib", "polynomial_kinematics_lib"])
+def solver_lib(request):
+    """Run shared ABI contracts against each solver backend."""
+    return request.getfixturevalue(request.param)
+
+
+@pytest.fixture(scope="session")
+def canonical_probe():
+    configured = os.environ.get("CRXKIN_ROOT_PROBE_PATH")
+    path = (Path(configured) if configured else
+            Path(__file__).resolve().parents[1] / "build/Release/crx_canonical_tests.exe")
+    if configured:
+        assert path.is_file(), f"Configured native probe is missing: {path}"
+    elif not path.is_file():
+        pytest.skip("Build crx_canonical_tests or set CRXKIN_ROOT_PROBE_PATH")
+
+    def run(mode, values):
+        completed = subprocess.run(
+            [str(path), mode, *(repr(float(value)) for value in values)],
+            check=True, capture_output=True, text=True, timeout=20,
+        )
+        return json.loads(completed.stdout)
+    return run
 
 
 kRobotBaseXyzwprRow = 9
