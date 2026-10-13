@@ -11,6 +11,7 @@ namespace crx::canonical {
 struct PoseTolerance {
   double position = 0.0;    // Same physical length unit as lengths and target.
   double orientation = 0.0; // Radians.
+  auto IsValid() const -> bool;
 };
 
 enum class RecoveryStatus {

@@ -17,9 +17,26 @@
 namespace crx::canonical {
 namespace {
 
-auto FlangeConvention() -> Mat3 {
+// Right-multiply by a fixed-axis rotation using only the affected columns.
+// Keep (1 - cosine) + cosine on the fixed axis: rounding it to exactly one
+// changes polishing at singularities compared with Eigen's AngleAxis matrix.
+auto RotateLocalX(const Mat3 &rotation, double angle) -> Mat3 {
+  const double sine = std::sin(angle);
+  const double cosine = std::cos(angle);
   Mat3 result;
-  result << 0, 0, 1, 0, -1, 0, 1, 0, 0;
+  result.col(0) = ((1 - cosine) + cosine) * rotation.col(0);
+  result.col(1) = cosine * rotation.col(1) + sine * rotation.col(2);
+  result.col(2) = -sine * rotation.col(1) + cosine * rotation.col(2);
+  return result;
+}
+
+auto RotateLocalY(const Mat3 &rotation, double angle) -> Mat3 {
+  const double sine = std::sin(angle);
+  const double cosine = std::cos(angle);
+  Mat3 result;
+  result.col(0) = cosine * rotation.col(0) - sine * rotation.col(2);
+  result.col(1) = ((1 - cosine) + cosine) * rotation.col(1);
+  result.col(2) = sine * rotation.col(0) + cosine * rotation.col(2);
   return result;
 }
 
@@ -93,20 +110,100 @@ auto RecoverAtBase(const WristPhase &base, const Lengths &lengths,
   return q.allFinite();
 }
 
+struct JointRotations {
+  Mat3 r1, r2, r3, r4, r5;
+
+  explicit JointRotations(const Vec6 &q) {
+    const double sine = std::sin(q[0]);
+    const double cosine = std::cos(q[0]);
+    r1 << cosine, -sine, 0, sine, cosine, 0, 0, 0, (1 - cosine) + cosine;
+    r2 = RotateLocalY(r1, q[1]);
+    r3 = RotateLocalY(r2, -q[2]);
+    r4 = RotateLocalX(r3, -q[3]);
+    r5 = RotateLocalY(r4, -q[4]);
+  }
+};
+
+auto OrientationError(const Mat3 &actual, const Mat3 &target) -> double {
+  // Chordal distance retains resolution near zero rotation error.
+  return 2 * std::asin(std::min(1.0, (actual - target).norm() /
+                                         (2 * std::sqrt(2.0))));
+}
+
 // Recompute from the recovered joint vector, not the elbow/wrist intermediates.
 auto ForwardPose(const Lengths &lengths, const Vec6 &q) -> PoseIsoRT {
-  const Mat3 r1 = Eigen::AngleAxisd(q[0], Vec3::UnitZ()).toRotationMatrix();
-  const Mat3 r2 = r1 * Eigen::AngleAxisd(q[1], Vec3::UnitY());
-  const Mat3 r3 = r2 * Eigen::AngleAxisd(-q[2], Vec3::UnitY());
-  const Mat3 r4 = r3 * Eigen::AngleAxisd(-q[3], Vec3::UnitX());
-  const Mat3 r5 = r4 * Eigen::AngleAxisd(-q[4], Vec3::UnitY());
+  const auto [r1, r2, r3, r4, r5] = JointRotations(q);
   PoseIsoRT pose = PoseIsoRT::Identity();
-  pose.linear() =
-      r5 * Eigen::AngleAxisd(-q[5], Vec3::UnitX()) * FlangeConvention();
+  const Mat3 r6 = RotateLocalX(r5, -q[5]);
+  pose.linear().col(0) = r6.col(2);
+  pose.linear().col(1) = -r6.col(1);
+  pose.linear().col(2) = r6.col(0);
   pose.translation() = lengths.a * r2.col(2) +
                        r4 * Vec3(lengths.b, -lengths.r, 0) +
                        lengths.c * r5.col(0);
   return pose;
+}
+
+using Jacobian = Eigen::Matrix<double, 6, 6>;
+
+auto BuildJacobian(const Lengths &l, const Vec6 &q) -> Jacobian {
+  const auto [r1, r2, r3, r4, r5] = JointRotations(q);
+  const Vec3 elbow = l.a * r2.col(2);
+  const Vec3 wrist = elbow + r4 * Vec3(l.b, -l.r, 0);
+  const Vec3 flange = wrist + l.c * r5.col(0);
+  const std::array<Vec3, 6> axes{Vec3::UnitZ(), r1.col(1),  -r2.col(1),
+                                 -r3.col(0),    -r4.col(1), -r5.col(0)};
+  const std::array<Vec3, 6> origins{Vec3::Zero(), Vec3::Zero(), elbow,
+                                    elbow,        wrist,        flange};
+  Eigen::Matrix<double, 6, 6> jacobian;
+  for (int joint = 0; joint < 6; ++joint) {
+    jacobian.block<3, 1>(0, joint) = axes[joint].cross(flange - origins[joint]);
+    jacobian.block<3, 1>(3, joint) = axes[joint];
+  }
+  return jacobian;
+}
+
+auto SolveJointStep(const Jacobian &jacobian, const Vec6 &error,
+                    bool improve_accuracy) -> Vec6 {
+  const Eigen::PartialPivLU<Eigen::Matrix<double, 6, 6>> lu(jacobian);
+  if (lu.rcond() > numerics::kSqrtEpsilon) {
+    const Vec6 correction = lu.solve(error);
+    if (correction.allFinite() &&
+        (jacobian * correction - error).norm() <=
+            numerics::kGeometryTolerance * error.norm()) {
+      return correction;
+    }
+  }
+  auto svd = jacobian.jacobiSvd<Eigen::ComputeFullU | Eigen::ComputeFullV>();
+  if (improve_accuracy) {
+    svd.setThreshold(numerics::kSqrtEpsilon);
+  }
+  return svd.solve(error);
+}
+
+template <typename Residual>
+auto AdvanceJointStep(Vec6 &q, Vec6 &error, Vec6 correction,
+                      const Residual &residual, const Vec6 *lower,
+                      const Vec6 *upper) -> bool {
+  const double largest = correction.cwiseAbs().maxCoeff();
+  if (largest > numerics::kPolishMaxStepRad) {
+    correction *= numerics::kPolishMaxStepRad / largest;
+  }
+  for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
+       ++backtrack) {
+    Vec6 trial = q + correction;
+    if (lower != nullptr && upper != nullptr) {
+      trial = trial.cwiseMax(*lower).cwiseMin(*upper);
+    }
+    const Vec6 next = residual(trial);
+    if (next.allFinite() && next.squaredNorm() < error.squaredNorm()) {
+      q = trial;
+      error = next;
+      return true;
+    }
+    correction *= .5;
+  }
+  return false;
 }
 
 auto MapIncidenceStatus(IncidenceStatus status) -> RecoveryStatus {
@@ -126,6 +223,12 @@ auto MapIncidenceStatus(IncidenceStatus status) -> RecoveryStatus {
 }
 } // namespace
 
+auto PoseTolerance::IsValid() const -> bool {
+  return std::isfinite(position) && position > 0 &&
+         std::isfinite(orientation) && orientation > 0 &&
+         orientation < angle_conv::kPi;
+}
+
 auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
                           const PoseTolerance &tolerance, int budget,
                           JointCandidate &candidate, const Vec6 *lower,
@@ -133,9 +236,7 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
   WristCircle circle;
   if (PrepareWristCircle(lengths, target, circle) != PreparationStatus::Ready ||
       budget <= 0 || budget > numerics::kMaxPolishIterations ||
-      !candidate.joints.allFinite() || !std::isfinite(tolerance.position) ||
-      !std::isfinite(tolerance.orientation) || tolerance.position <= 0 ||
-      tolerance.orientation <= 0 || tolerance.orientation >= angle_conv::kPi ||
+      !candidate.joints.allFinite() || !tolerance.IsValid() ||
       (lower == nullptr) != (upper == nullptr)) {
     return false;
   }
@@ -166,42 +267,8 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
         error.tail<3>().norm() <= tolerance.orientation) {
       break;
     }
-    const Mat3 r1 = Eigen::AngleAxisd(q[0], Vec3::UnitZ()).toRotationMatrix();
-    const Mat3 r2 = r1 * Eigen::AngleAxisd(q[1], Vec3::UnitY());
-    const Mat3 r3 = r2 * Eigen::AngleAxisd(-q[2], Vec3::UnitY());
-    const Mat3 r4 = r3 * Eigen::AngleAxisd(-q[3], Vec3::UnitX());
-    const Mat3 r5 = r4 * Eigen::AngleAxisd(-q[4], Vec3::UnitY());
-    const Vec3 elbow = l.a * r2.col(2);
-    const Vec3 wrist = elbow + r4 * Vec3(l.b, -l.r, 0);
-    const Vec3 flange = wrist + l.c * r5.col(0);
-    const std::array<Vec3, 6> axes{Vec3::UnitZ(), r1.col(1),  -r2.col(1),
-                                   -r3.col(0),    -r4.col(1), -r5.col(0)};
-    const std::array<Vec3, 6> origins{Vec3::Zero(), Vec3::Zero(), elbow,
-                                      elbow,        wrist,        flange};
-    Eigen::Matrix<double, 6, 6> jacobian;
-    for (int joint = 0; joint < 6; ++joint) {
-      jacobian.block<3, 1>(0, joint) =
-          axes[joint].cross(flange - origins[joint]);
-      jacobian.block<3, 1>(3, joint) = axes[joint];
-    }
-    auto solve = [&]() -> Vec6 {
-      const Eigen::PartialPivLU<Eigen::Matrix<double, 6, 6>> lu(jacobian);
-      if (lu.rcond() > numerics::kSqrtEpsilon) {
-        const Vec6 correction = lu.solve(error);
-        if (correction.allFinite() &&
-            (jacobian * correction - error).norm() <=
-                numerics::kGeometryTolerance * error.norm()) {
-          return correction;
-        }
-      }
-      auto svd =
-          jacobian.jacobiSvd<Eigen::ComputeFullU | Eigen::ComputeFullV>();
-      if (improve_accuracy) {
-        svd.setThreshold(numerics::kSqrtEpsilon);
-      }
-      return svd.solve(error);
-    };
-    Vec6 step = solve();
+    Jacobian jacobian = BuildJacobian(l, q);
+    Vec6 step = SolveJointStep(jacobian, error, improve_accuracy);
     if (lower != nullptr && upper != nullptr) {
       bool active = false;
       for (int joint = 0; joint < 6; ++joint) {
@@ -212,34 +279,13 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
         }
       }
       if (active) {
-        step = solve();
+        step = SolveJointStep(jacobian, error, improve_accuracy);
       }
     }
     if (!step.allFinite()) {
       return false;
     }
-    const auto advance = [&](Vec6 correction) {
-      const double largest = correction.cwiseAbs().maxCoeff();
-      if (largest > numerics::kPolishMaxStepRad) {
-        correction *= numerics::kPolishMaxStepRad / largest;
-      }
-      for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
-           ++backtrack) {
-        Vec6 trial = q + correction;
-        if (lower != nullptr && upper != nullptr) {
-          trial = trial.cwiseMax(*lower).cwiseMin(*upper);
-        }
-        const Vec6 next = residual(trial);
-        if (next.allFinite() && next.squaredNorm() < error.squaredNorm()) {
-          q = trial;
-          error = next;
-          return true;
-        }
-        correction *= .5;
-      }
-      return false;
-    };
-    if (!advance(step)) {
+    if (!AdvanceJointStep(q, error, step, residual, lower, upper)) {
       if (!improve_accuracy) {
         break;
       }
@@ -250,7 +296,8 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
       normal.diagonal().array() +=
           std::max(numerics::kEpsilon, .001 * error.norm());
       const Vec6 damped = normal.ldlt().solve(jacobian.transpose() * error);
-      if (!damped.allFinite() || !advance(damped)) {
+      if (!damped.allFinite() ||
+          !AdvanceJointStep(q, error, damped, residual, lower, upper)) {
         break;
       }
     }
@@ -260,9 +307,7 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
   // to zero. Use the same full-matrix closure gate as direct recovery so an
   // unrealistically tight caller tolerance cannot publish that posture.
   candidate.orientation_error =
-      2 * std::asin(std::min(
-              1.0, (ForwardPose(l, q).linear() - target.linear()).norm() /
-                       (2 * std::sqrt(2.0))));
+      OrientationError(ForwardPose(l, q).linear(), target.linear());
   if (!error.allFinite() || candidate.position_error > tolerance.position ||
       candidate.orientation_error > tolerance.orientation) {
     return false;
@@ -410,10 +455,7 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   if (!std::isfinite(phase.cosine) || !std::isfinite(phase.sine) ||
       std::abs(phase.cosine * phase.cosine + phase.sine * phase.sine - 1.0) >
           numerics::kUnitTolerance ||
-      !std::isfinite(tolerance.position) ||
-      !std::isfinite(tolerance.orientation) || tolerance.position <= 0.0 ||
-      tolerance.orientation <= 0.0 ||
-      tolerance.orientation >= angle_conv::kPi) {
+      !tolerance.IsValid()) {
     return result;
   }
   WristCircle circle;
@@ -461,12 +503,8 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
       candidate.position_error =
           (forward.translation() - target_position).norm() *
           circle.length_scale;
-      // Chordal rotation distance gives 2*asin(||R-Rtarget||F/(2*sqrt(2))).
-      // Unlike acos(trace), this retains resolution near zero rotation error.
       candidate.orientation_error =
-          2.0 *
-          std::asin(std::min(1.0, (forward.linear() - target.linear()).norm() /
-                                      (2.0 * std::sqrt(2.0))));
+          OrientationError(forward.linear(), target.linear());
       if (!forward.matrix().allFinite() ||
           !std::isfinite(candidate.position_error) ||
           !std::isfinite(candidate.orientation_error)) {
