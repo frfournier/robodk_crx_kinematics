@@ -51,6 +51,45 @@ guarantee. Calibrated geometry and remaining continuous-family cases are still
 pending. The four strict production xfails remain until production switches;
 the comparison DLL must recover those same witnesses without exceptions.
 
+## Complete-solver benchmark snapshot
+
+`scripts/benchmark_solvers.py` and the opt-in `crx_solver_benchmark` target
+compare the current legacy scanner DLL with the integrated polynomial DLL
+through the same `SolveIK` C ABI. Unlike `benchmark_discovery`, both sides
+include adaptation, discovery, limits/turns, final FK checks and result packing.
+The legacy baseline is the current scanner implementation, not a released
+v0.3.x binary. There is no generic-solver fallback in these measurements.
+
+```powershell
+cmake --preset windows-clang-release-tidy
+cmake --build --preset windows-clang-release-tidy --target crx_solver_benchmark
+uv run python scripts/benchmark_solvers.py --output build/solver-performance-snapshot-20261009
+```
+
+Use a new output directory for another run. Defaults cover 4,313 poses from six
+captured assets: 1,536 random targets, 2,304 wrist/elbow/base-axis/mixed/joint-limit
+challenges, 25 fixtures, 64 legacy witnesses and 384 unreachable controls. Both
+unseeded and nearby-seed modes use nine rounds of eight calls per pose/path;
+timing is native, warmed, interleaved and pinned to one allowed logical CPU.
+Latency percentiles describe per-pose batch times, not individual-call tails.
+
+Strict solve rate requires a valid best command and all returned commands to
+pass independent captured-DH FK at 0.0001 mm / 0.001 degree, plus command limits.
+The report separates witness recovery, invalid returns, ABI fallback requests,
+capacity hits and speed on common successful targets. Exact/near-singular input
+offsets are explicit in the corpus; `stress-offsets.csv` exposes their individual
+solve rates. Report, raw timing/error CSVs, source archive, frozen binaries and
+hash/CPU/build metadata stay together in the snapshot directory. The benchmark
+adds no timed work to normal tests and changes no solver policy or deployment.
+
+The completed reliability fixes and pre-removal checks are recorded in
+`notes/solver-premerge-validation-2026-10-09.md`. Final matched-capacity snapshots
+are `build/solver-premerge-final-20261009/` (64) and
+`build/solver-premerge-final-capacity1-20261009/` (1). Earlier snapshots are
+preserved, including the first reliable implementation before the measured
+correction-stopping optimization. Use the final report for current accuracy and
+latency: successful near-family correction changes the old worst-error tail.
+
 ## Numerical constants and sensitivity evidence
 
 `src/crx_numerics.h` owns numerical guards, search thresholds, physical pose
@@ -712,6 +751,249 @@ pose once:
 ```
 
 ## Regenerating fixtures
+
+### Complete-solver stress corpus
+
+`fixtures/generate_solver_cases.py` owns the 2026-10-09 performance corpus.
+It shares asset/recorded-pose construction with `generate_discovery_cases.py`;
+both benchmark scripts import these generators instead of maintaining separate
+pose lists. The default v1 corpus in `fixtures/crx_solver_cases.json` contains
+4,313 stable case IDs: 1,536 random targets, 2,304 singularity/limit challenges,
+384 unreachable controls, 25 recorded fixtures and 64 legacy witnesses, across
+six captured assets. It preserves every original target, seed, witness and
+perturbation; only newline encoding may differ from the historical snapshot.
+No existing CSV, captured asset or fixture JSON was changed.
+
+```powershell
+uv run python tests/fixtures/generate_solver_cases.py --check
+# Regenerate only after intentionally reviewing a generator change:
+uv run python tests/fixtures/generate_solver_cases.py
+uv run pytest tests/test_crx_solver_fixtures.py
+```
+
+The regression runs both complete DLLs with and without nearby seeds, validates
+every returned command and the best result against independent captured-DH FK,
+checks command limits, and rejects unreachable controls. Strict pose tolerances
+remain 0.0001 mm / 0.001 degrees. Stable IDs include asset, challenge and index;
+the JSON retains the offset and generating witness for diagnosis.
+
+`fixtures/crx_solver_known_failures.json` retains the exact 140 scanner misses
+and their ABI outcomes. All 258 polynomial exceptions have been removed after
+strict recovery passed. Routine runs mark only the remaining scanner
+IDs as strict expected failures, and only for missing solutions: an inaccurate
+return, changed failure code, new miss or unexpected recovery fails the test.
+Remove a resolved ID from the ledger after confirming its fix. The ledger is
+**defect tracking, not a reliability acceptance threshold**. DLL hashes identify
+the measured baseline; the corpus hash is checked with LF-normalized newlines.
+
+The readiness gate disables every expected-failure exception and requires both
+DLLs to exist. The release workflow runs it for the polynomial DLL as the
+`crx.polynomial-reliability` CTest target; selecting both backends also exposes
+the retained legacy defects:
+
+```powershell
+uv run pytest tests/test_crx_solver_fixtures.py --require-solver-reliability -k polynomial
+# Focused regression for the original 46.61% base-axis result:
+uv run pytest tests/test_crx_solver_fixtures.py --require-solver-reliability -k "polynomial and no-seed and base_axis"
+```
+
+The polynomial gate now passes **8,626 checks** (both seed modes), including
+all 384 base-axis targets per mode. Recovery uses better-conditioned sphere/
+plane intersection and base reconstruction, deterministic folded-family
+representatives, bounded full-pose correction and strict limit-aware correction
+for rounded Cartesian targets. Final FK tolerances remain unchanged. The
+historical investigation is in `notes/solver-failure-investigation-2026-10-09.md`;
+the completed validation is in `notes/solver-premerge-validation-2026-10-09.md`.
+
+`test_crx_solver_family.py` uses the same generators with independent seed
+20261010 and tests 1,560 new targets at length scales .001, 1 and 1000. These
+4,680 checks require unseeded strict solves and independently validate every
+command; regular random poses also require the generating posture among the
+returned branches. Captured structural-zero roundoff is snapped before scaling
+using the existing model encoding budget. Rounded recorded Cartesian targets
+are excluded from scaling. This suite has no known-failure exceptions.
+
+```powershell
+uv run pytest tests/test_crx_solver_family.py tests/test_crx_solver_fixtures.py --require-solver-reliability -k "polynomial or family_holdout"
+```
+
+The combined gate passes 13,306 checks. A discardable 9,082-pose numerical
+sensitivity sweep additionally checks root projection, folded chart radius,
+iteration count, maximum joint step and incidence budgets. Its source and raw
+results are in `build/premerge/sensitivity/` and `build/premerge/sensitivity.cpp`;
+retained values cite the observed ranges in `src/crx_numerics.h`. At the selected
+settings all 8,194 reachable targets solve with independently valid FK and all
+888 unreachable controls are rejected. This canonical sweep complements the
+full-DLL gates; it does not establish continuous-family completeness.
+
+### Elbow branches near double roots
+
+`test_near_double_root_retains_both_elbow_postures` in
+`test_crx_polynomial_discovery.py` checks three targets at length scales
+.001, 1 and 1000. Each target requires both isolated elbow postures and their
+base flips, with independent FK checks and joint matching at 1e-6 radians.
+The target alone enters discovery; the witnesses are never supplied as seeds.
+The saved pre-change solver misses an elbow on seven of these nine checks.
+
+The witnesses came from separate sphere/base-plane branch reconstruction using
+the [upstream reference](https://github.com/mattj23/crx-kinematics/blob/26e27c3dae5b2a3c84e1e35fb9faf4c113439e46/derivation/crx/ik_reference.py).
+The [linear-method derivation](https://github.com/mattj23/crx-kinematics/blob/26e27c3dae5b2a3c84e1e35fb9faf4c113439e46/docs/LINEAR_METHOD.md)
+and [Rust branch polisher](https://github.com/mattj23/crx-kinematics/blob/26e27c3dae5b2a3c84e1e35fb9faf4c113439e46/crx-kinematics/src/ik/geometry.rs)
+motivate keeping each elbow sign fixed during Newton iteration and backtracking.
+Our implementation retains analytic derivatives, conditioned geometric charts,
+bounded correction, and the existing physical acceptance tolerances.
+
+```powershell
+uv run pytest tests/test_crx_polynomial_discovery.py -k near_double_root
+```
+
+These checks test branch recovery, beyond the existence of any valid solution.
+They do not establish exhaustive coverage of continuous singular families.
+
+The 2026-10-13 paired complete-DLL benchmark compares the polynomial solver
+before and after this change, using the same 4,313 targets, both seed modes,
+capacity 64, nine rounds of eight calls, three warmups, and one pinned thread.
+Both versions solve all 3,929 reachable targets and reject all 384 unreachable
+controls per mode; every output passes independent FK and command limits.
+Unseeded witness recovery increases from 3,679 to 3,722 of 3,983 witnesses.
+The final Release workflow passes all seven CTest targets, including these nine
+regressions and the existing strict reliability and scale checks.
+
+| Unseeded group | Before median / p95 (us) | After median / p95 (us) | Mean latency ratio |
+|---|---:|---:|---:|
+| Random | 27.26 / 38.85 | 28.02 / 43.57 | 1.134x |
+| Base axis | 36.22 / 60.19 | 50.01 / 411.96 | 2.571x |
+| Mixed singularities | 304.45 / 1044.40 | 326.77 / 1039.53 | 1.167x |
+| All reachable | 28.77 / 331.86 | 29.75 / 378.50 | 1.250x |
+
+The additional branch work has a measurable cost, particularly in the base-axis
+tail. Percentiles describe per-pose batch medians; the balanced stress corpus
+does not represent a measured production workload. Capacity-limit returns
+increase from 141 to 145 unseeded targets, so command lists remain finite samples
+near singular families. Frozen binaries, sources, hashes, and raw results are in
+`build/branch-polish/final/`; `build/branch-polish/report.txt` and `commands.txt`
+record validation, reproduction commands, warnings, and skipped checks. No
+production backend switch or deployment was performed.
+
+### Accuracy and complete-DLL polishing (2026-10-13)
+
+This follow-up uses the working-tree polynomial DLL **after** the merged-elbow
+fix as its baseline. It skips identical conjugate-root projections only after
+the first projection has visited both elbow signs, uses a residual-checked LU
+step with SVD fallback, and applies at most six additional accuracy iterations
+after posture deduplication. The accuracy pass constrains joint motion, truncates
+nearly null directions, and tries damped descent on stalled steps. A failed
+accuracy improvement retains the accepted candidate. Physical acceptance stays
+at **0.0001 mm / 0.001 degree**, including independent command-limit checks.
+Nominal-zero DH recognition now accounts for length-scaled subtraction roundoff;
+the public C ABI and backend selection are unchanged.
+
+`crx_accuracy_stress.json` is an intentional new, frozen test-data artifact:
+3,024 independently generated reachable targets, seed 2026101301, all six
+captured models at 0.001x, 1x and 1000x length scales. Targets come from captured
+transform-product FK, with continuous logarithmic singularity offsets and legal
+command witnesses. No IK result selects or removes an input. The original
+4,313-pose corpus, recorded CSV fixtures, assets and failure ledger are unchanged.
+
+The paired final measurements use identical targets/seeds, three warmups,
+five rounds of three complete DLL calls, one pinned thread, shuffled pose order,
+and alternating DLL order. The table gives per-pose median / p95 batch latency
+in microseconds; it includes failures rather than allowing their exclusion to
+improve reported solve rates. Both seed modes are recorded in the raw reports.
+
+| Unseeded corpus/group | Before median / p95 (us) | After median / p95 (us) |
+|---|---:|---:|
+| Existing reachable, 3,929 poses | 32.60 / 416.53 | 32.77 / 356.55 |
+| Existing challenges, 2,304 poses | 38.22 / 573.11 | 38.05 / 502.26 |
+| Existing base axis, 384 poses | 55.37 / 449.42 | 52.43 / 117.25 |
+| Existing mixed singularities, 384 poses | 354.90 / 1156.05 | 319.92 / 848.48 |
+| Independent stress, 3,024 poses | 32.77 / 509.76 | 35.75 / 486.13 |
+
+An additional nine-round run times individual complete DLL calls (one call per
+sample). Its command dump is byte-identical to the independently validated
+paired run. This confirms the base-axis p95 improvement beyond batch means:
+
+| Unseeded individual calls | Before median / p95 / maximum (us) | After median / p95 / maximum (us) |
+|---|---:|---:|
+| Existing base axis | 63.10 / 477.25 / 5034.40 | 57.80 / 136.10 / 2561.70 |
+| Existing mixed singularities | 372.80 / 1315.48 / 4651.50 | 335.55 / 960.42 / 8435.50 |
+| Independent base axis | 53.20 / 523.71 / 5337.70 | 59.85 / 168.29 / 2830.60 |
+| Independent mixed singularities | 362.20 / 831.70 / 3123.90 | 384.65 / 792.68 / 3199.00 |
+
+Maximum observed call latency does not improve uniformly. Individual samples,
+including these outliers and p99 values, are retained in `single-call-timings.csv`
+and `build/ik-accuracy/single-call-summary.json`.
+
+All 3,929 existing reachable targets remain strict solves in both seed modes;
+all 384 unreachable controls remain rejected. Independent stress improves from
+**2,519/3,024 (83.3003%) to 3,023/3,024 (99.9669%)** in both modes. The 504
+additional solves are the formerly rejected 1000x CRX-5iA, CRX-25iA and CRX-30iA
+model inputs. The other models/scales retain their solve counts. Stress median
+latency rises as these formerly fast failures become full solves; on targets
+strictly solved by both DLLs, mean latency improves by 1.26x unseeded and 1.27x
+with a nearby seed. Existing overall median latency is essentially unchanged.
+
+Every positive-return best command and every listed command passed independent
+transform-product FK and joint limits. Error distributions below cover unseeded
+challenging outputs with capacity 64; different returned posture counts mean
+these are conditional output distributions. The JSON also reports errors on
+the common-success target subset and best-command errors.
+
+| Corpus / metric | Before p50 / p95 / maximum | After p50 / p95 / maximum |
+|---|---:|---:|
+| Existing challenges, position (mm) | 7.94e-13 / 3.24e-6 / 9.73e-5 | 7.22e-13 / 8.29e-7 / 9.27e-5 |
+| Existing challenges, orientation (deg) | 6.31e-14 / 6.58e-7 / 1.73e-5 | 5.95e-14 / 1.50e-7 / 3.27e-6 |
+| Independent challenges, position (mm) | 7.28e-13 / 2.69e-6 / 9.92e-5 | 2.31e-12 / 2.36e-7 / 9.12e-5 |
+| Independent challenges, orientation (deg) | 6.29e-14 / 6.81e-7 / 9.44e-4 | 6.20e-14 / 1.60e-7 / 3.09e-4 |
+
+All existing per-pose witness hits are preserved: 3,722/3,983 unseeded and
+3,725/3,983 seeded. Nine additional complete-DLL regressions check both merged
+elbows and both base postures at all three scales with capacity 64; the original
+nine target-only regressions also pass. Independent stress witness recovery at
+capacity 512 rises from 2,484 to 2,992 of 3,024, preserving every baseline hit in
+both modes, with no capacity-limit returns. At capacity 64, stress unseeded hits
+rise from 2,456 to 2,945, but some individual hits move into the truncated tail:
+capacity-limit returns rise from 154 to 222. This is a finite command-list limit,
+not evidence of exhaustive coverage of continuous singular families.
+
+One stress target remains explicitly unresolved in both modes:
+`Fanuc-CRX-10iA-L-Custom.robot@0.001:base_axis:12` (return -1). It remains in every
+denominator and in the frozen regression's explicit unresolved set. Neither a
+seed fallback nor weaker accuracy counts as a solve.
+
+Two experiments were benchmarked separately against the baseline, at the same
+stress inputs and five-round/three-call settings:
+
+| Isolated experiment | Before median / p95 (us) | Experiment median / p95 (us) | Decision |
+|---|---:|---:|---|
+| Adaptive geometric chart order | 33.33 / 518.83 | 33.17 / 545.91 | Not retained: worse p95, unchanged strict solves |
+| Hessenberg companion QR fast path | 34.43 / 529.37 | 34.30 / 531.41 | Not retained: no useful complete-DLL gain; identical commands |
+
+The alternatives' sources, DLLs and raw results are preserved in
+`build/ik-accuracy/chart-final-stress/` and `root-only-stress/`. Final paired
+snapshots are in `final-existing/`, `final-stress/` and `final-branches/`; each
+contains the exact input, binaries, source archive, hashes, timings, commands,
+independent errors, per-pose outcomes and JSON distributions. `commands.txt`
+records all verification commands, exploratory runs and superseded experiments.
+
+The full `windows-clang-release-verify` workflow passes all seven CTest targets:
+22,519 Python checks pass, 89 live RoboDK checks remain intentionally skipped
+(no deployment), and 284 existing legacy-backend expected failures remain.
+The separate polynomial reliability gate passes all 8,626 checks without
+expected-failure exceptions. Clang-tidy diagnostics and the RoboDK Python
+deprecation warning remain visible; no lint rules or tolerances were weakened.
+
+Reproduce from saved before/after DLLs, or save a fresh baseline before editing:
+
+```powershell
+uv run --locked python tests/fixtures/generate_accuracy_stress.py --check
+uv run --locked pytest tests/test_crx_accuracy_stress.py
+uv run --locked python scripts/benchmark_accuracy.py --before build/ik-accuracy/baseline/crx_kinematics_polynomial.dll --corpus existing --output build/new-existing
+uv run --locked python scripts/benchmark_accuracy.py --before build/ik-accuracy/baseline/crx_kinematics_polynomial.dll --output build/new-stress
+uv run --locked python scripts/benchmark_accuracy.py --before build/ik-accuracy/baseline/crx_kinematics_polynomial.dll --capacity 512 --rounds 1 --repeats 1 --output build/new-branches
+```
+
+### Recorded CSV fixtures
 
 After editing the CSV, regenerate the JSON from the repository root:
 
