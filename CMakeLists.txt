@@ -415,6 +415,16 @@ if(BUILD_TESTING)
       set_tests_properties(crx.polynomial-api PROPERTIES
         ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics_polynomial>"
       )
+      # Readiness must not be satisfied by recording new expected failures.
+      add_test(
+        NAME crx.polynomial-reliability
+        COMMAND "${CRXKIN_UV_EXECUTABLE}" run --locked pytest
+                tests/test_crx_solver_fixtures.py --require-solver-reliability -k polynomial
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      )
+      set_tests_properties(crx.polynomial-reliability PROPERTIES
+        ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_POLYNOMIAL_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics_polynomial>"
+      )
     endif()
 
     add_custom_target(check

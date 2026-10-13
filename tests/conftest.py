@@ -18,6 +18,10 @@ DOFS = 6
 
 def pytest_addoption(parser):
     parser.addoption(
+        "--require-solver-reliability", action="store_true", default=False,
+        help="Treat every generated reachable-pose miss as a failure, including recorded defects",
+    )
+    parser.addoption(
         "--run-robodk",
         action="store_true",
         default=False,
@@ -94,16 +98,19 @@ def _load_kinematics_library(lib):
 
 
 @pytest.fixture(scope="session")
-def kinematics_lib():
-    return _load_kinematics_library(_library_path())
+def kinematics_lib(request):
+    path = _library_path()
+    if request.config.getoption("--require-solver-reliability"):
+        assert path is not None and path.is_file(), f"Reliability gate requires the DLL: {path}"
+    return _load_kinematics_library(path)
 
 
 @pytest.fixture(scope="session")
-def polynomial_kinematics_lib():
+def polynomial_kinematics_lib(request):
     configured = os.environ.get("CRXKIN_POLYNOMIAL_LIBRARY_PATH")
     path = (Path(configured) if configured else
             _library_path().with_name("crx_kinematics_polynomial.dll"))
-    if configured:
+    if configured or request.config.getoption("--require-solver-reliability"):
         assert path.is_file(), f"Configured comparison DLL is missing: {path}"
     return _load_kinematics_library(path)
 

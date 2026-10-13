@@ -70,3 +70,16 @@ def canonical_forward(lengths, q):
             @ rotation(1, -q[2]) @ rotation(0, -q[3]) @ translation(b, -r, 0)
             @ rotation(1, -q[4]) @ translation(c, 0, 0)
             @ rotation(0, -q[5]) @ fixed)
+
+
+def forward_models(model, commands_deg):
+    """Batched independent modified-DH transform products from captured frames."""
+    motion = np.radians(commands_deg) @ model["motion_map"].T
+    poses = np.broadcast_to(model["base"], (len(commands_deg), 4, 4)).copy()
+    for joint, (alpha, a, theta, d) in enumerate(model["dh"]):
+        angles = theta + motion[:, joint]
+        rz = np.broadcast_to(np.eye(4), poses.shape).copy()
+        rz[:, 0, 0] = rz[:, 1, 1] = np.cos(angles)
+        rz[:, 1, 0], rz[:, 0, 1] = np.sin(angles), -np.sin(angles)
+        poses = poses @ (rotation(0, alpha) @ translation(a, 0, 0)) @ rz @ translation(0, 0, d)
+    return poses @ model["tool"]
