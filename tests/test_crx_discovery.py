@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from crx_reference import missing_postures, reference_fk
-from test_crx_kinematics import _call_fk, _call_ik, _to_c_array, _to_fk_api_joints_deg
+from crx_test_support import _call_fk, _call_ik, _to_c_array, _to_fk_api_joints_deg
 
 
 class MissingPostureError(AssertionError):

@@ -3,6 +3,12 @@
 The test suite covers the native C ABI, fixture-based forward and inverse
 kinematics, version metadata, and live RoboDK integration.
 
+Discovery tests use recorded poses or independent FK targets without supplying
+the generating posture as the IK seed. Exact-seed FK/IK roundtrips can pass by
+returning the seed, so seed preservation is covered by focused policy tests.
+CAD poses and link frames are checked against independent references and captured
+asset frames. Live RoboDK tests check recorded FK poses and configurations.
+
 - `test_crx_kinematics.py` exercises the compiled library directly through
   `ctypes`.
 - `test_crx_robolink_kinematics.py` validates the library through a live RoboDK

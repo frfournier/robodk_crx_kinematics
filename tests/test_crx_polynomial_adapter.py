@@ -7,13 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import RobotT, _set_row
+from crx_test_support import RobotT, _set_row
 from crx_asset_reference import derive_model, forward_model
 from crx_reference import missing_postures, reference_fk, xyzwpr
 from test_crx_discovery import (
     discovery_joints, test_seed_free_discovery as _check_seed_free_discovery,
 )
-from test_crx_kinematics import _call_ik, _to_c_array, _to_fk_api_joints_deg
+from crx_test_support import _call_ik, _to_c_array, _to_fk_api_joints_deg
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 ASSETS = json.loads((FIXTURE_DIR / "crx_asset_frames.json").read_text())["assets"]

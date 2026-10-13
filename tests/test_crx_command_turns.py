@@ -10,9 +10,9 @@ import itertools
 import numpy as np
 import pytest
 
-from conftest import _set_row
+from crx_test_support import _set_row
 from crx_reference import reference_fk
-from test_crx_kinematics import _to_c_array
+from crx_test_support import _call_command_ik, _to_c_array
 
 
 @pytest.fixture(params=["kinematics_lib", "polynomial_kinematics_lib"])
@@ -27,25 +27,12 @@ def target_for_command(robot, command):
 
 
 def solve(lib, robot, target, seed=None, capacity=64, alternatives=True):
-    best = (ctypes.c_double * 6)(*([12345.] * 6))
-    output = (ctypes.c_double * (12 * max(0, capacity) + 12))(
-        *([12345.] * (12 * max(0, capacity) + 12)))
-    count = lib.SolveIK(
-        _to_c_array(target.ravel(order="F")), best,
-        output if alternatives else None, capacity,
-        _to_c_array(seed) if seed is not None else None, ctypes.byref(robot),
+    count, best, commands = _call_command_ik(
+        lib, robot, target.ravel(order="F"), seed, capacity, alternatives,
     )
     if count <= 0:
-        assert list(best) == [12345.] * 6
-        assert list(output) == [12345.] * len(output)
         return count, [], []
-    assert count <= capacity
-    commands = [list(output[12*i:12*i+6]) for i in range(count)] if alternatives else []
     if alternatives:
-        assert list(best) == commands[0]
-        for i in range(count):
-            assert list(output[12*i+6:12*i+12]) == [0.] * 6
-        assert list(output[12*count:]) == [12345.] * (len(output) - 12*count)
         for q in commands:
             assert np.all(np.array(q) >= np.array(robot.data[30][:6]) - 1e-10)
             assert np.all(np.array(q) <= np.array(robot.data[31][:6]) + 1e-10)

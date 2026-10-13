@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from crx_asset_reference import forward_models
-from conftest import RobotT
+from crx_test_support import RobotT
 from fixtures.generate_accuracy_stress import corpus
 from test_crx_polynomial_discovery import MERGED_ELBOW_PAIRS
 

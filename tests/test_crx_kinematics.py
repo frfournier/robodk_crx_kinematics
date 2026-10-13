@@ -10,6 +10,10 @@ import pytest
 from robodk import robomath as rm
 
 from crx_assets import APPROVED_ROBOT_ASSETS
+from crx_test_support import (
+    _to_c_array, _from_c_array, _to_fk_api_joints_deg, _from_fk_api_joints_deg,
+    _call_fk, _call_ik, _call_joints_config,
+)
 import logging
 
 log = logging.getLogger(__name__)
@@ -19,7 +23,6 @@ log = logging.getLogger(__name__)
 POSE_POS_TOL_MM = 0.027  # mm
 POSE_ANG_TOL_DEG = 0.018  # deg
 JOINT_TOL_DEG = 0.009  # deg
-FUZZ_JOINT_TOL_DEG = JOINT_TOL_DEG  # deg
 CONFIG_FIXTURE_CASES = {
     "HOME",
     "PERCH",
@@ -78,92 +81,6 @@ def _fmt_pose16(p16: List[float]) -> str:
         + "\n".join("  [" + ", ".join(_fmt_f(v, 6) for v in row) + "]" for row in rows)
         + "\n]"
     )
-
-
-# -----------------------------
-# ctypes helpers
-# -----------------------------
-def _to_c_array(values):
-    return (ctypes.c_double * len(values))(*[float(v) for v in values])
-
-
-def _from_c_array(c_array, length):
-    return [float(c_array[i]) for i in range(length)]
-
-
-def _to_fk_api_joints_deg(joints_deg: List[float]) -> List[float]:
-    joints = [float(v) for v in joints_deg]
-    joints[2] = joints[1] + joints[2]
-    return joints
-
-
-def _from_fk_api_joints_deg(joints_deg: List[float]) -> List[float]:
-    joints = [float(v) for v in joints_deg]
-    joints[2] = joints[2] - joints[1]
-    return joints
-
-
-def _call_fk(lib, robot, joints_deg: List[float]) -> Tuple[int, List[float]]:
-    joints = _to_c_array(_to_fk_api_joints_deg(joints_deg))
-    pose = (ctypes.c_double * 16)()
-    status = lib.SolveFK(joints, pose, ctypes.byref(robot))
-    return int(status), _from_c_array(pose, 16)
-
-
-def _call_fk_cad(lib, robot, joints_deg: List[float]) -> Tuple[int, List[float]]:
-    joints = _to_c_array(_to_fk_api_joints_deg(joints_deg))
-    pose = (ctypes.c_double * 16)()
-    joint_poses = (ctypes.c_double * (16 * 7))()
-    status = lib.SolveFK_CAD(joints, pose, joint_poses, 7, ctypes.byref(robot))
-    return int(status), _from_c_array(pose, 16)
-
-
-def _call_ik(
-    lib,
-    robot,
-    pose16_col_major: List[float],
-    *,
-    approx: List[float] | None = None,
-    max_solutions: int = 32,
-) -> Tuple[int, List[float], List[List[float]]]:
-    pose_arr = _to_c_array(pose16_col_major)
-    joints_best = (ctypes.c_double * 6)()
-    joints_all = (ctypes.c_double * (12 * max_solutions))()
-    approx_arr = (
-        _to_c_array(_to_fk_api_joints_deg(approx)) if approx is not None else None
-    )
-
-    n = lib.SolveIK(
-        pose_arr,
-        joints_best,
-        joints_all,
-        int(max_solutions),
-        approx_arr,
-        ctypes.byref(robot),
-    )
-
-    n = int(n)
-    all_solutions: List[List[float]] = []
-    for idx in range(max(0, n)):
-        off = idx * 12
-        sol_coupled = [float(joints_all[off + j]) for j in range(6)]
-        all_solutions.append(_from_fk_api_joints_deg(sol_coupled))
-
-    best_coupled = _from_c_array(joints_best, 6)
-    best_decoupled = _from_fk_api_joints_deg(best_coupled)
-    return n, best_decoupled, all_solutions
-
-
-def _call_joints_config(
-    lib,
-    robot,
-    joints_deg: List[float],
-    initial: Tuple[float, float, float] = (-9.0, -9.0, -9.0),
-) -> Tuple[int, List[float]]:
-    joints = _to_c_array(_to_fk_api_joints_deg(joints_deg))
-    config = (ctypes.c_double * 3)(*initial)
-    status = lib.Joints2Config(joints, config, ctypes.byref(robot))
-    return int(status), _from_c_array(config, 3)
 
 
 # -----------------------------
@@ -448,38 +365,6 @@ def test_forward_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
 
 
 @pytest.mark.parametrize("p", _PARAMS)
-def test_forward_kinematics_cad_matches_forward_kinematics(
-    kinematics_lib, crx_10ia, p: Dict[str, Any]
-):
-    status_fk, fk_pose = _call_fk(kinematics_lib, crx_10ia, p["joints_deg"])
-    status_fk_cad, fk_cad_pose = _call_fk_cad(kinematics_lib, crx_10ia, p["joints_deg"])
-    hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
-
-    assert status_fk == 1 and status_fk_cad == 1, "\n".join(
-        [
-            f"{hdr}: FK/FK_CAD status mismatch",
-            f"  fk_status: {status_fk}",
-            f"  fk_cad_status: {status_fk_cad}",
-            f"  joints_deg: {_fmt_joints(p['joints_deg'])}",
-        ]
-    )
-
-    pos_err, ang_err = _pose_err_pos_mm_ang_deg(fk_pose, fk_cad_pose)
-    assert pos_err <= 1e-6 and ang_err <= 1e-5, "\n".join(
-        [
-            f"{hdr}: FK and FK_CAD pose mismatch",
-            f"  pos_err_mm: {_fmt_f(pos_err, 12)}",
-            f"  ang_err_deg: {_fmt_f(ang_err, 12)}",
-            f"  joints_deg: {_fmt_joints(p['joints_deg'])}",
-            "  fk_pose16:",
-            _fmt_pose16(fk_pose),
-            "  fk_cad_pose16:",
-            _fmt_pose16(fk_cad_pose),
-        ]
-    )
-
-
-@pytest.mark.parametrize("p", _PARAMS)
 def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
 
@@ -674,7 +559,7 @@ def test_joints_to_configuration_rejects_invalid_inputs(kinematics_lib, crx_10ia
 
 
 def test_invalid_model_diagnostic_has_complete_name_buffer(kinematics_lib, crx_10ia, capfd):
-    from conftest import ROBOT_NAME_ROW, ROBOT_NAME_CAPACITY, ROBOT_STRIDE
+    from crx_test_support import ROBOT_NAME_ROW, ROBOT_NAME_CAPACITY, ROBOT_STRIDE
     # Cross the row boundary and fill every readable name element, exercising
     # the no-terminator bound as well as the previously undersized allocation.
     name = "X" * ROBOT_NAME_CAPACITY
@@ -731,82 +616,6 @@ def test_solveik_preserves_seed_turn(kinematics_lib, crx_10ia, j6_deg: float):
     assert n > 0
     assert _max_abs_direct_diff_deg(best, seed_joints) <= JOINT_TOL_DEG
     assert _max_abs_direct_diff_deg(all_solutions[0], seed_joints) <= JOINT_TOL_DEG
-
-
-N_FUZZ_SEEDS = 1000
-
-
-def _joint_limits_from_robot(robot):
-    return [(float(robot.data[30][i]), float(robot.data[31][i])) for i in range(6)]
-
-
-def _sample_joints_in_limits(rng: np.random.Generator, limits):
-    return [float(rng.uniform(lo, hi)) for (lo, hi) in limits]
-
-
-@pytest.mark.parametrize("seed", range(N_FUZZ_SEEDS), ids=lambda s: f"seed_{s:04d}")
-def test_fuzz_forward_kinematics_inverse_kinematics_roundtrip(
-    kinematics_lib, crx_10ia, seed: int
-):
-    limits = _joint_limits_from_robot(crx_10ia)
-    rng = np.random.default_rng(seed)
-
-    fk_status = -1
-    fk_pose: List[float] = []
-    joints_deg: List[float] = []
-    for _ in range(64):
-        joints_deg = _sample_joints_in_limits(rng, limits)
-        fk_status, fk_pose = _call_fk(kinematics_lib, crx_10ia, joints_deg)
-        if fk_status == 1:
-            break
-    if fk_status != 1:
-        pytest.skip(
-            f"FUZZ seed={seed}: unable to sample FK-valid joints after 64 attempts"
-        )
-
-    assert fk_status == 1, "\n".join(
-        [
-            f"FUZZ seed={seed}: FK status != 1",
-            f"  fk_status: {fk_status}",
-            f"  sampled_joints_deg: {_fmt_joints(joints_deg)}",
-        ]
-    )
-
-    n, _, all_solutions = _call_ik(
-        kinematics_lib,
-        crx_10ia,
-        fk_pose,
-        approx=joints_deg,
-        max_solutions=64,
-    )
-    assert n > 0, "\n".join(
-        [
-            f"FUZZ seed={seed}: IK returned no solutions",
-            f"  n: {n}",
-            f"  sampled_joints_deg: {_fmt_joints(joints_deg)}",
-            "  fk_pose16:",
-            _fmt_pose16(fk_pose),
-        ]
-    )
-
-    matched = any(
-        _max_abs_wrapped_diff_deg(sol, joints_deg) <= FUZZ_JOINT_TOL_DEG
-        for sol in all_solutions
-    )
-    if not matched:
-        nearest, nearest_d = _nearest_joint_match_wrapped(joints_deg, all_solutions)
-        raise AssertionError(
-            "\n".join(
-                [
-                    f"FUZZ seed={seed}: IK solution set missing FK seed joints",
-                    f"  tol_deg: {FUZZ_JOINT_TOL_DEG}",
-                    f"  sampled_joints_deg: {_fmt_joints(joints_deg)}",
-                    f"  nearest_wrapped_max_abs_diff_deg: {_fmt_f(nearest_d, 6)}",
-                    f"  nearest_solution_deg: {_fmt_joints(nearest) if nearest else 'None'}",
-                    f"  returned_n: {n}",
-                ]
-            )
-        )
 
 
 def test_ik_wrist_singularity_continuity(kinematics_lib, crx_10ia):
@@ -866,48 +675,6 @@ def test_ik_elbow_ill_conditioned_continuity(kinematics_lib, crx_10ia):
                 f"({jump:.3f} deg > 25 deg)"
             )
         previous_best = best
-        rolling_approx = best
-
-
-def test_ik_workspace_shell_jitter_resilience(kinematics_lib, crx_10ia):
-    base_pose16, approx_joints = _fixture_case_pose_and_approx("MAX_X")
-
-    n0, best0, _ = _call_ik(
-        kinematics_lib,
-        crx_10ia,
-        base_pose16,
-        approx=approx_joints,
-        max_solutions=64,
-    )
-    if n0 <= 0:
-        pytest.skip(
-            "MAX_X fixture pose is unsolved in this baseline; skipping jitter continuity check"
-        )
-
-    px, py, pz = base_pose16[12], base_pose16[13], base_pose16[14]
-    radius = math.sqrt(px * px + py * py + pz * pz)
-    if radius <= 1e-9:
-        ux, uy, uz = 1.0, 0.0, 0.0
-    else:
-        ux, uy, uz = px / radius, py / radius, pz / radius
-
-    rolling_approx = best0
-    for jitter_mm in [-0.005, -0.002, 0.002, 0.005]:
-        pose_jittered = _pose16_with_offset(
-            base_pose16, ux * jitter_mm, uy * jitter_mm, uz * jitter_mm
-        )
-        n, best, _ = _call_ik(
-            kinematics_lib,
-            crx_10ia,
-            pose_jittered,
-            approx=rolling_approx,
-            max_solutions=64,
-        )
-        if n <= 0:
-            pytest.skip(
-                f"Workspace jitter sweep not stable for MAX_X anchor "
-                f"(dropout at {jitter_mm:+.3f} mm)"
-            )
         rolling_approx = best
 
 

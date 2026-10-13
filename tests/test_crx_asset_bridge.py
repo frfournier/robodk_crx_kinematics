@@ -13,7 +13,7 @@ from crx_asset_reference import (
 )
 from crx_assets import APPROVED_ROBOT_ASSETS
 from crx_reference import rotation, translation
-from conftest import RobotT, _set_row
+from crx_test_support import RobotT, _set_row
 
 ROOT = Path(__file__).resolve().parents[1]
 CAPTURE = json.loads((ROOT / "tests/fixtures/crx_asset_frames.json").read_text())

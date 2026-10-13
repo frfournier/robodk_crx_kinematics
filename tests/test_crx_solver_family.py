@@ -9,7 +9,7 @@ import ctypes
 import numpy as np
 import pytest
 
-from conftest import RobotT
+from crx_test_support import RobotT
 from fixtures.generate_solver_cases import corpus
 from test_crx_solver_fixtures import check_generated_solver_pose as _check_pose
 

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from crx_reference import reference_fk
-from test_crx_kinematics import _call_joints_config, _to_c_array, _to_fk_api_joints_deg
+from crx_test_support import _call_joints_config, _to_c_array, _to_fk_api_joints_deg
 
 
 @pytest.fixture(params=["kinematics_lib", "polynomial_kinematics_lib"])
@@ -74,7 +74,7 @@ def test_revolute_flag_roundoff(numeric_lib, crx_10ia, ulps):
 
 @pytest.mark.parametrize("ulps", [-256, -64, -1, 1, 64, 256])
 def test_diagnostic_character_roundoff(numeric_lib, crx_10ia, capfd, ulps):
-    from conftest import ROBOT_NAME_ROW
+    from crx_test_support import ROBOT_NAME_ROW
     eps = np.finfo(float).eps
     crx_10ia.data[ROBOT_NAME_ROW][0] = ord("A") * (1 + ulps * eps)
     crx_10ia.data[ROBOT_NAME_ROW][1] = eps

@@ -1,12 +1,10 @@
 """Outcome policy through both real DLLs, including unchanged output buffers."""
 
-import ctypes
-
 import numpy as np
 import pytest
 
 from crx_reference import reference_fk
-from test_crx_kinematics import _to_c_array, _to_fk_api_joints_deg
+from crx_test_support import _call_command_ik, _to_fk_api_joints_deg
 
 
 @pytest.fixture(params=["kinematics_lib", "polynomial_kinematics_lib"])
@@ -15,26 +13,10 @@ def outcome_lib(request):
 
 
 def call(lib, robot, target, seed=None, capacity=8, alternatives=True):
-    best = (ctypes.c_double * 6)(*([12345.] * 6))
-    output = (ctypes.c_double * (12 * max(0, capacity) + 12))(
-        *([12345.] * (12 * max(0, capacity) + 12)))
-    count = lib.SolveIK(
-        _to_c_array(target.ravel(order="F")), best,
-        output if alternatives else None, capacity,
-        _to_c_array(_to_fk_api_joints_deg(seed)) if seed is not None else None,
-        ctypes.byref(robot),
+    command_seed = _to_fk_api_joints_deg(seed) if seed is not None else None
+    count, best, _ = _call_command_ik(
+        lib, robot, target.ravel(order="F"), command_seed, capacity, alternatives,
     )
-    if count <= 0:
-        assert list(best) == [12345.] * 6
-        assert list(output) == [12345.] * len(output)
-    elif alternatives:
-        assert 0 < count <= capacity
-        assert list(best) == list(output[:6])
-        for index in range(count):
-            assert list(output[12*index+6:12*index+12]) == [0.] * 6
-        assert list(output[12*count:]) == [12345.] * (len(output) - 12*count)
-    else:
-        assert list(output) == [12345.] * len(output)
     return count, np.array(best)
 
 

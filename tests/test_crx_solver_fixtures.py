@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import RobotT
+from crx_test_support import RobotT
 from crx_asset_reference import forward_models
 from fixtures.generate_solver_cases import (
     corpus, DEFAULT_RANDOM_PER_MODEL, DEFAULT_STRESS_PER_GROUP_MODEL, DEFAULT_SEED,
@@ -110,3 +110,14 @@ def check_generated_solver_pose(request, generated_models, backend, fixture_case
 @pytest.mark.parametrize("seeded", [False, True], ids=["no-seed", "nearby-seed"])
 def test_generated_solver_pose(request, generated_models, backend, fixture_case, seeded):
     check_generated_solver_pose(request, generated_models, backend, fixture_case, seeded)
+
+
+@pytest.mark.parametrize("seeded", [False, True], ids=["no-seed", "nearby-seed"])
+def test_singular_rotation_rounding_preserves_candidates(request, generated_models, seeded):
+    # Replacing Eigen's (1-cosine)+cosine axis diagonal with literal 1 changes
+    # polishing at this singular target, dropping ten established commands.
+    case = next(case for case in CASES if case["name"] == "MIN_Z")
+    commands = check_generated_solver_pose(
+        request, generated_models, "polynomial", case, seeded)
+    assert commands is not None
+    assert len(commands) == 26  # Best output followed by all 25 commands.

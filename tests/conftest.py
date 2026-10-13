@@ -6,14 +6,7 @@ import math
 import pytest
 
 
-ROBOT_STRIDE = 20
-# Adapter warnings read the ASCII name at row 90, across up to 59 doubles.
-# A 32-row kinematics-only mock made invalid-input diagnostics read past its
-# allocation, causing intermittent access violations as test layouts changed.
-ROBOT_NAME_ROW = 90
-ROBOT_NAME_CAPACITY = 59
-ROBOT_ROWS = ROBOT_NAME_ROW + (ROBOT_NAME_CAPACITY + ROBOT_STRIDE - 1) // ROBOT_STRIDE
-DOFS = 6
+from crx_test_support import RobotT, _set_row, DOFS
 
 
 def pytest_addoption(parser):
@@ -27,15 +20,6 @@ def pytest_addoption(parser):
         default=False,
         help="Run live RoboDK tests using an already deployed matching DLL",
     )
-
-
-class RobotT(ctypes.Structure):
-    _fields_ = [("data", (ctypes.c_double * ROBOT_STRIDE) * ROBOT_ROWS)]
-
-
-def _set_row(robot: RobotT, row: int, values, col: int = 0) -> None:
-    for idx, value in enumerate(values):
-        robot.data[row][col + idx] = float(value)
 
 
 def _library_path(repo_root: Path | None = None) -> Path:
