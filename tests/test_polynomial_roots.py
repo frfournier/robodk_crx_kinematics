@@ -1,10 +1,7 @@
 """Independent exact root counts and differential numerical-candidate tests."""
 
 from fractions import Fraction
-import json
-import os
-from pathlib import Path
-import subprocess
+import sys
 
 import pytest
 
@@ -83,22 +80,8 @@ def test_exact_reference_does_not_trim_small_leading_term():
 
 
 @pytest.fixture(scope="module")
-def native_probe():
-    configured = os.environ.get("CRXKIN_ROOT_PROBE_PATH")
-    path = (Path(configured) if configured else
-            Path(__file__).resolve().parents[1] / "build/Release/crx_canonical_tests.exe")
-    if configured:
-        assert path.is_file(), f"Configured root probe is missing: {path}"
-    elif not path.is_file():
-        pytest.skip("Build crx_canonical_tests or set CRXKIN_ROOT_PROBE_PATH")
-
-    def run(coefficients):
-        completed = subprocess.run(
-            [str(path), "--roots", *(repr(float(value)) for value in coefficients)],
-            check=True, capture_output=True, text=True, timeout=20,
-        )
-        return json.loads(completed.stdout)
-    return run
+def native_probe(canonical_probe):
+    return lambda coefficients: canonical_probe("--roots", coefficients)
 
 
 def match_simple_roots(reference, candidates, tolerance=1e-7):
@@ -113,8 +96,9 @@ def match_simple_roots(reference, candidates, tolerance=1e-7):
 
 
 @pytest.mark.parametrize("degree", range(1, 9))
-@pytest.mark.parametrize("scale", [Fraction(1, 2**400), -1, 2**400],
-                         ids=["small", "negative", "large"])
+@pytest.mark.parametrize("scale", [Fraction(1, 2**400), -1, 2**400,
+                                  -Fraction(1, 2**500), -(2**500)],
+                         ids=["small", "negative", "large", "tiny-negative", "huge-negative"])
 def test_native_simple_roots_against_exact_reference(native_probe, degree, scale):
     p = [value * scale for value in from_roots(Fraction(i, 4) for i in range(1, degree + 1))]
     # Reference exactly the binary coefficients received by the native process.
@@ -149,6 +133,16 @@ def test_native_repeated_root_candidates_are_not_multiplicity_certificates(nativ
     # Repeated roots are ill-conditioned: test the cluster, not native reality
     # or exact multiplicity, neither of which this backend claims to determine.
     assert all(abs(complex(real, imaginary) - 1) < 0.05
+               for real, imaginary, _ in result["roots"])
+
+
+@pytest.mark.parametrize("degree", range(1, 9))
+def test_native_zero_root_multiplicity(native_probe, degree):
+    result = native_probe([0] * degree + [1])
+    assert result["status"] == "Candidates"
+    assert result["degree"] == degree
+    assert len(result["roots"]) == degree
+    assert all(abs(complex(real, imaginary)) <= sys.float_info.epsilon
                for real, imaginary, _ in result["roots"])
 
 

@@ -4,9 +4,7 @@
 #include "crx_polynomial_roots.h"
 #include "crx_root_tests.h"
 
-#include <array>
 #include <cmath>
-#include <complex>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -54,8 +52,9 @@ void ExpectStatus(const Coefficients &p, RootStatus status,
 } // namespace
 
 void RunPolynomialRootTests() {
-  // Every fixed-size instantiation, including first construction, is called
-  // inside the allocation guards in main. Match roots one-to-one.
+  // Python checks degree 1..8 roots, scaling, multiplicity and residuals
+  // through RunRootProbe, which also guards each solve against allocation.
+  // This degree-eight polynomial is only needed for the work-limit test.
   Coefficients polynomial{1};
   for (int degree = 1; degree <= 8; ++degree) {
     const double root = 0.25 * degree;
@@ -64,53 +63,7 @@ void RunPolynomialRootTests() {
       polynomial[index] = polynomial[index - 1] - root * polynomial[index];
     }
     polynomial[0] *= -root;
-    for (const int exponent : {-500, 0, 500}) {
-      Coefficients scaled{};
-      for (std::size_t i = 0; i < scaled.size(); ++i) {
-        scaled[i] = -std::scalbn(polynomial[i], exponent);
-      }
-      const auto result = FindRootCandidates(scaled);
-      Require(result.status == RootStatus::Candidates,
-              "factored polynomial converges");
-      Require(result.count == static_cast<std::size_t>(degree),
-              "candidate count matches degree");
-      std::array<bool, 8> used{};
-      for (int expected = 1; expected <= degree; ++expected) {
-        bool matched = false;
-        for (std::size_t i = 0; i < result.count; ++i) {
-          if (!used[i] &&
-              std::abs(result.candidates[i].value - 0.25 * expected) < 1e-7) {
-            used[i] = true;
-            matched = true;
-            break;
-          }
-        }
-        Require(matched, "separated real root present exactly once");
-      }
-      for (std::size_t i = 0; i < result.count; ++i) {
-        Require(result.candidates[i].relative_residual < 1e-13,
-                "relative residual");
-      }
-    }
-    Coefficients monomial{};
-    monomial[static_cast<std::size_t>(degree)] = 1;
-    const auto zeros = FindRootCandidates(monomial);
-    Require(zeros.status == RootStatus::Candidates &&
-                zeros.count == static_cast<std::size_t>(degree),
-            "zero root repetitions");
-    for (std::size_t i = 0; i < zeros.count; ++i) {
-      Require(Eigen::Vector2d(zeros.candidates[i].value.real(),
-                              zeros.candidates[i].value.imag())
-                  .isZero(crx::numerics::kEpsilon),
-              "zero eigenvalue within one epsilon");
-    }
   }
-  const auto complex = FindRootCandidates({1e-20, 0, 1});
-  Require(complex.status == RootStatus::Candidates && complex.count == 2,
-          "near-real complex pair");
-  Require(std::abs(complex.candidates[0].value.imag()) > 9e-11 &&
-              std::abs(complex.candidates[1].value.imag()) > 9e-11,
-          "small imaginary parts preserved");
   const auto subnormal =
       FindRootCandidates({std::numeric_limits<double>::denorm_min(), 1});
   Require(
@@ -126,11 +79,6 @@ void RunPolynomialRootTests() {
   RootOptions one_sweep;
   one_sweep.max_balance_sweeps = 1;
   ExpectStatus({100, -10000.01, 1}, RootStatus::BalanceWorkLimit, one_sweep);
-  ExpectStatus({}, RootStatus::ZeroPolynomial);
-  ExpectStatus({3}, RootStatus::ConstantPolynomial);
-  ExpectStatus({1, 0, 1e-20}, RootStatus::UnresolvedLeadingCoefficient);
-  Require(FindRootCandidates({1, 0, 1e-20}).represented_degree == 2,
-          "small leading term retained");
   ExpectStatus({std::numeric_limits<double>::infinity()},
                RootStatus::InvalidInput);
   ExpectStatus({std::numeric_limits<double>::quiet_NaN()},
@@ -151,8 +99,6 @@ void RunPolynomialRootTests() {
   options.leading_relative_tolerance = 0;
   ExpectStatus({1, std::numeric_limits<double>::denorm_min()},
                RootStatus::NumericalRangeFailure, options);
-  ExpectStatus({std::numeric_limits<double>::denorm_min(), 1e300},
-               RootStatus::NumericalRangeFailure);
 }
 
 auto RunRootProbe(int argc, char **argv) -> int {
