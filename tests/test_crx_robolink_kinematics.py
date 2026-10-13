@@ -13,11 +13,11 @@ from robodk.robolink import (
 )
 
 from crx_test_support import _to_fk_api_joints_deg
-from test_crx_kinematics import (
+from crx_fixture_support import (
     CONFIG_FIXTURE_CASES,
     POSE_ANG_TOL_DEG,
     POSE_POS_TOL_MM,
-    _PARAMS,
+    SOLUTION_PARAMS,
     _fmt_f,
     _fmt_joints,
     _fmt_pose16,
@@ -189,7 +189,7 @@ def test_robolink_crx_family_configuration(robolink_crx_10ia, asset_name: str):
             robot.Delete()
 
 
-@pytest.mark.parametrize("p", _PARAMS)
+@pytest.mark.parametrize("p", SOLUTION_PARAMS)
 def test_robolink_forward_kinematics(robolink_crx_10ia, p):
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
     fk_joints_deg = _to_fk_api_joints_deg(p["joints_deg"])
@@ -235,3 +235,31 @@ def test_robolink_forward_kinematics(robolink_crx_10ia, p):
             _fmt_pose16(fk_pose16),
         ]
     )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows DLL deployment guard")
+@pytest.mark.parametrize("installed", [None, b"stale", b"current"])
+def test_live_test_setup_never_deploys(tmp_path, monkeypatch, installed):
+    repo = tmp_path / "repo"
+    build_dll = repo / "build" / "Release" / "crx_kinematics.dll"
+    build_dll.parent.mkdir(parents=True)
+    build_dll.write_bytes(b"current")
+    robodk_root = tmp_path / "RoboDK"
+    deployed_dll = robodk_root / "bin" / "robotextensions" / build_dll.name
+    if installed is not None:
+        deployed_dll.parent.mkdir(parents=True)
+        deployed_dll.write_bytes(installed)
+
+    monkeypatch.setattr(__name__ + ".__file__", str(repo / "tests" / "live.py"))
+    monkeypatch.setattr(__name__ + "._resolve_robodk_root", lambda: robodk_root)
+
+    if installed == b"current":
+        _require_robolink_extension_or_skip()
+    else:
+        with pytest.raises(pytest.skip.Exception, match="Deploy the matching DLL"):
+            _require_robolink_extension_or_skip()
+
+    if installed is None:
+        assert not robodk_root.exists()
+    else:
+        assert deployed_dll.read_bytes() == installed

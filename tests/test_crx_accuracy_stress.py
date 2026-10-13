@@ -10,7 +10,7 @@ import pytest
 from crx_asset_reference import forward_models
 from crx_test_support import RobotT
 from fixtures.generate_accuracy_stress import corpus
-from test_crx_polynomial_discovery import MERGED_ELBOW_PAIRS
+from crx_fixture_support import MERGED_ELBOW_PAIRS
 
 FIXTURE = Path(__file__).parent / "fixtures/crx_accuracy_stress.json"
 # This nomination remains unresolved in every attempted chart. It is counted

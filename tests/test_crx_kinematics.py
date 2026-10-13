@@ -1,247 +1,28 @@
 import ctypes
 import hashlib
-import json
+import logging
 import math
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pytest
-from robodk import robomath as rm
 
 from crx_assets import APPROVED_ROBOT_ASSETS
 from crx_test_support import (
     _to_c_array, _from_c_array, _to_fk_api_joints_deg, _from_fk_api_joints_deg,
     _call_fk, _call_ik, _call_joints_config,
 )
-import logging
+from crx_fixture_support import (
+    CASE_PARAMS, SOLUTION_PARAMS, CONFIG_FIXTURE_CASES,
+    POSE_POS_TOL_MM, POSE_ANG_TOL_DEG, JOINT_TOL_DEG,
+    _is_legal_fixture_config, _expected_robodk_config,
+    _fmt_f, _fmt_joints, _fmt_pose16, _pose_err_pos_mm_ang_deg,
+    _joints_close, _max_abs_wrapped_diff_deg, _max_abs_direct_diff_deg,
+    _nearest_joint_match_wrapped, _fixture_case_pose_and_approx, _fixture_case_solutions,
+)
 
 log = logging.getLogger(__name__)
-# -----------------------------
-# Tolerances
-# -----------------------------
-POSE_POS_TOL_MM = 0.027  # mm
-POSE_ANG_TOL_DEG = 0.018  # deg
-JOINT_TOL_DEG = 0.009  # deg
-CONFIG_FIXTURE_CASES = {
-    "HOME",
-    "PERCH",
-    "ALLZERO",
-    "SQUARE90",
-    "ALL8",
-    "ONLY7",
-    "ABBES-TABLE4",
-    "COUPLING1",
-    "COUPLING2",
-    "COUPLING3",
-    "COUPLING4",
-    "COUPLING5",
-    "COUPLING6",
-    "COUPLING7",
-    "COUPLING8",
-    "WRIST_SING",
-    "WRIST_SING_NEAR_RG_LIMIT",
-}
-
-
-def _is_legal_fixture_config(config: Dict[str, str]) -> bool:
-    return (
-        config.get("TB") in {"T", "B"}
-        and config.get("UD") in {"U", "D"}
-        and config.get("FB") in {"N", "F"}
-    )
-
-
-def _expected_robodk_config(config: Dict[str, str]) -> List[int]:
-    return [
-        {"T": 0, "B": 1}[config["TB"]],
-        {"U": 0, "D": 1}[config["UD"]],
-        {"N": 0, "F": 1}[config["FB"]],
-    ]
-
-
-# -----------------------------
-# Minimal formatting (readable failures)
-# -----------------------------
-def _fmt_f(x: float, nd: int = 6) -> str:
-    if not math.isfinite(float(x)):
-        return str(x)
-    return f"{float(x):.{nd}f}"
-
-
-def _fmt_joints(j: List[float]) -> str:
-    return "[" + ", ".join(f"{float(x):.3f}" for x in j) + "]"
-
-
-def _fmt_pose16(p16: List[float]) -> str:
-    M = _pose16_to_mat(p16)
-    rows = [[float(M[r, c]) for c in range(4)] for r in range(4)]
-    return (
-        "[\n"
-        + "\n".join("  [" + ", ".join(_fmt_f(v, 6) for v in row) + "]" for row in rows)
-        + "\n]"
-    )
-
-
-# -----------------------------
-# Pose utilities
-# -----------------------------
-def _pose16_to_mat(p16: List[float]) -> rm.Mat:
-    # column-major packed:
-    # [nx,ny,nz,0, ox,oy,oz,0, ax,ay,az,0, x,y,z,1]
-    return rm.Mat(
-        [
-            [p16[0], p16[4], p16[8], p16[12]],
-            [p16[1], p16[5], p16[9], p16[13]],
-            [p16[2], p16[6], p16[10], p16[14]],
-            [p16[3], p16[7], p16[11], p16[15]],
-        ]
-    )
-
-
-def _mat_to_pose16_col_major(M: rm.Mat) -> List[float]:
-    return [
-        float(M[0, 0]),
-        float(M[1, 0]),
-        float(M[2, 0]),
-        float(M[3, 0]),
-        float(M[0, 1]),
-        float(M[1, 1]),
-        float(M[2, 1]),
-        float(M[3, 1]),
-        float(M[0, 2]),
-        float(M[1, 2]),
-        float(M[2, 2]),
-        float(M[3, 2]),
-        float(M[0, 3]),
-        float(M[1, 3]),
-        float(M[2, 3]),
-        float(M[3, 3]),
-    ]
-
-
-def _target_xyz_wpr_to_pose16(xyz_mm: List[float], wpr_deg: List[float]) -> List[float]:
-    # Fixture: xyz_mm [X,Y,Z] mm, wpr_deg [W,P,R] deg (Fanuc)
-    # RoboDK xyzrpw uses [x,y,z, r,p,w] == rotations about X,Y,Z.
-    x, y, z = (float(v) for v in xyz_mm)
-    W, P, R = (float(v) for v in wpr_deg)
-    pose = rm.xyzrpw_2_pose([x, y, z, W, P, R])
-    return _mat_to_pose16_col_major(pose)
-
-
-def _rot_angle_rad_from_mat3x3(M: rm.Mat) -> float:
-    tr = float(M[0, 0] + M[1, 1] + M[2, 2])
-    c = 0.5 * (tr - 1.0)
-    c = max(-1.0, min(1.0, c))
-    return math.acos(c)
-
-
-def _pose_err_pos_mm_ang_deg(a16: List[float], b16: List[float]) -> Tuple[float, float]:
-    A = _pose16_to_mat(a16)
-    B = _pose16_to_mat(b16)
-
-    dx = float(A[0, 3] - B[0, 3])
-    dy = float(A[1, 3] - B[1, 3])
-    dz = float(A[2, 3] - B[2, 3])
-    pos_err = math.sqrt(dx * dx + dy * dy + dz * dz)
-
-    Rerr = A.inv() * B
-    ang_err_deg = math.degrees(_rot_angle_rad_from_mat3x3(Rerr))
-    return pos_err, ang_err_deg
-
-
-def _joints_close(
-    a: List[float], b: List[float], tol_deg: float = JOINT_TOL_DEG
-) -> bool:
-    return _max_abs_wrapped_diff_deg(a, b) <= tol_deg
-
-
-def _wrap_deg_to_pm180(x_deg: float) -> float:
-    w = (float(x_deg) + 180.0) % 360.0 - 180.0
-    if w == -180.0:
-        return 180.0
-    return w
-
-
-def _wrapped_diff_deg(a_deg: float, b_deg: float) -> float:
-    return abs(_wrap_deg_to_pm180(float(a_deg) - float(b_deg)))
-
-
-def _max_abs_wrapped_diff_deg(a: List[float], b: List[float]) -> float:
-    return max(_wrapped_diff_deg(x, y) for x, y in zip(a, b))
-
-
-def _max_abs_direct_diff_deg(a: List[float], b: List[float]) -> float:
-    return max(abs(float(x) - float(y)) for x, y in zip(a, b))
-
-
-def _nearest_joint_match_wrapped(
-    target: List[float], candidates: List[List[float]]
-) -> Tuple[List[float] | None, float]:
-    if not candidates:
-        return None, float("inf")
-    nearest = min(candidates, key=lambda c: _max_abs_wrapped_diff_deg(c, target))
-    return nearest, _max_abs_wrapped_diff_deg(nearest, target)
-
-
-# -----------------------------
-# JSON loading -> flat params
-# -----------------------------
-_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "CRX10iA-solutions.json"
-
-
-def _load_params() -> List[Any]:
-    blob = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
-
-    params: List[Any] = []
-    log.info(
-        "Loading test cases from %s: %d cases",
-        _FIXTURE_PATH,
-        len(blob.get("test_cases", [])),
-    )
-    for case in blob.get("test_cases", []):
-        case_id = int(case["id"])
-        case_name = str(case.get("name", ""))
-
-        target = case["target"]
-        target_pose16 = _target_xyz_wpr_to_pose16(target["xyz_mm"], target["wpr_deg"])
-
-        solutions = list(case.get("solutions", []))
-        solutions.sort(key=lambda s: int(s.get("id", 0)))
-
-        for sol in solutions:
-            sol_id = int(sol["id"])
-            joints_deg = [float(x) for x in sol["joints_deg"]]
-            cfg = sol.get("config", {}) or {}
-            params.append(
-                pytest.param(
-                    {
-                        "case_id": case_id,
-                        "case_name": case_name,
-                        "sol_id": sol_id,
-                        "config": {
-                            "FB": str(cfg.get("FB", "")),
-                            "UD": str(cfg.get("UD", "")),
-                            "TB": str(cfg.get("TB", "")),
-                        },
-                        "target_pose16": target_pose16,
-                        "joints_deg": joints_deg,
-                        "expected_all_solutions": [
-                            [float(x) for x in s["joints_deg"]] for s in solutions
-                        ],
-                        "expected_best_joints": (
-                            [float(x) for x in solutions[0]["joints_deg"]]
-                            if solutions
-                            else None
-                        ),
-                    },
-                    id=f"TC{case_id}-{case_name}-SOL{sol_id}",
-                )
-            )
-    return params
-
-
-_PARAMS = _load_params()
 
 WORKSPACE_LIMIT_CASES = ["MAX_X", "MIN_X", "MAX_Y", "MIN_Y", "MAX_Z", "MIN_Z"]
 SINGULAR_CASES = ["WRIST_SING", "WRIST_SING_NEAR_RG_LIMIT"]
@@ -250,7 +31,7 @@ SINGULAR_CASES = ["WRIST_SING", "WRIST_SING_NEAR_RG_LIMIT"]
 def test_fixture_config_letters_are_legal():
     invalid = [
         (p.values[0]["case_name"], p.values[0]["sol_id"], p.values[0]["config"])
-        for p in _PARAMS
+        for p in SOLUTION_PARAMS
         if not _is_legal_fixture_config(p.values[0]["config"])
     ]
     assert invalid == []
@@ -276,39 +57,6 @@ def test_crx_family_assets_available_for_configuration_smoke(asset_name, expecte
     assert actual_hash == expected_hash, f"Asset changed or LFS content missing: {asset}"
 
 
-def _fixture_case_pose_and_approx(case_name: str) -> Tuple[List[float], List[float]]:
-    blob = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
-    for case in blob.get("test_cases", []):
-        if str(case.get("name", "")) != case_name:
-            continue
-
-        target = case["target"]
-        pose16 = _target_xyz_wpr_to_pose16(target["xyz_mm"], target["wpr_deg"])
-        solutions = list(case.get("solutions", []))
-        solutions.sort(key=lambda s: int(s.get("id", 0)))
-        if not solutions:
-            raise ValueError(f"fixture case {case_name} has no solutions")
-        approx = [float(x) for x in solutions[0]["joints_deg"]]
-        return pose16, approx
-
-    raise KeyError(f"fixture case not found: {case_name}")
-
-
-def _fixture_case_solutions(case_name: str) -> Tuple[List[float], List[List[float]]]:
-    blob = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
-    for case in blob.get("test_cases", []):
-        if str(case.get("name", "")) != case_name:
-            continue
-
-        target = case["target"]
-        pose16 = _target_xyz_wpr_to_pose16(target["xyz_mm"], target["wpr_deg"])
-        solutions = list(case.get("solutions", []))
-        solutions.sort(key=lambda s: int(s.get("id", 0)))
-        return pose16, [[float(x) for x in s["joints_deg"]] for s in solutions]
-
-    raise KeyError(f"fixture case not found: {case_name}")
-
-
 def _pose16_with_offset(
     pose16: List[float], dx_mm: float, dy_mm: float, dz_mm: float
 ) -> List[float]:
@@ -319,10 +67,8 @@ def _pose16_with_offset(
     return out
 
 
-# -----------------------------
-# Tests: one pytest item per JSON solution
-# -----------------------------
-@pytest.mark.parametrize("p", _PARAMS)
+# FK/configuration check every recorded solution; IK solves each target once.
+@pytest.mark.parametrize("p", SOLUTION_PARAMS)
 def test_forward_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
     status, fk_pose = _call_fk(kinematics_lib, crx_10ia, p["joints_deg"])
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']} config={p['config']}"
@@ -364,11 +110,11 @@ def test_forward_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
     )
 
 
-@pytest.mark.parametrize("p", _PARAMS)
+@pytest.mark.parametrize("p", CASE_PARAMS)
 def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
-    hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
+    hdr = f"TC{p['case_id']} '{p['case_name']}'"
 
-    approx = p["expected_best_joints"]
+    approx = p["solutions"][0]["joints_deg"]
     # Fixture coverage concerns the complete finite catalogue. General command
     # turns can exceed 32 entries; separate tests verify ranked small buffers.
     n, best, all_solutions = _call_ik(
@@ -390,48 +136,49 @@ def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
         ]
     )
 
-    expected = p["joints_deg"]
-    ok = any(_joints_close(sol, expected, JOINT_TOL_DEG) for sol in all_solutions)
+    for solution in p["solutions"]:
+        expected = solution["joints_deg"]
+        ok = any(_joints_close(sol, expected, JOINT_TOL_DEG) for sol in all_solutions)
 
-    if p["case_name"] == "MIN_Z" and not ok:
-        # Its rounded XYZ misses the recorded posture by 0.00425 mm. The
-        # legacy empty-search policy preserves that approximate seed; exact
-        # target IK can legitimately select different base/wrist postures at
-        # this workspace boundary. Require strict independent FK in that case.
-        from crx_reference import reference_fk
-        target = np.array(p["target_pose16"]).reshape(4, 4, order="F")
-        recorded, _ = reference_fk(crx_10ia, expected)
-        assert 0.004 < np.linalg.norm(recorded[:3, 3] - target[:3, 3]) < 0.005
-        for solution in all_solutions:
-            actual, _ = reference_fk(crx_10ia, solution)
-            assert np.linalg.norm(actual[:3, 3] - target[:3, 3]) <= 1e-4
-            assert np.linalg.norm(actual[:3, :3] - target[:3, :3]) <= 2.5e-5
-        return
+        if p["case_name"] == "MIN_Z" and not ok:
+            # Its rounded XYZ misses the recorded posture by 0.00425 mm. The
+            # legacy empty-search policy preserves that approximate seed; exact
+            # target IK can legitimately select different base/wrist postures at
+            # this workspace boundary. Require strict independent FK in that case.
+            from crx_reference import reference_fk
+            target = np.array(p["target_pose16"]).reshape(4, 4, order="F")
+            recorded, _ = reference_fk(crx_10ia, expected)
+            assert 0.004 < np.linalg.norm(recorded[:3, 3] - target[:3, 3]) < 0.005
+            for candidate in all_solutions:
+                actual, _ = reference_fk(crx_10ia, candidate)
+                assert np.linalg.norm(actual[:3, 3] - target[:3, 3]) <= 1e-4
+                assert np.linalg.norm(actual[:3, :3] - target[:3, :3]) <= 2.5e-5
+            continue
 
-    if not ok:
-        # show nearest for context
-        nearest, nearest_d = _nearest_joint_match_wrapped(expected, all_solutions)
-        raise AssertionError(
-            "\n".join(
-                [
-                    f"{hdr}: Missing expected IK solution",
-                    f"  tol_deg: {JOINT_TOL_DEG}",
-                    f"  expected_joints_deg: {_fmt_joints(expected)}",
-                    f"  nearest_max_abs_diff_deg: {_fmt_f(nearest_d)}",
-                    "  nearest_joints_deg: "
-                    + (_fmt_joints(nearest) if nearest is not None else "None"),
-                    f"  returned_n: {n}",
-                    f"  best_joints_deg: {_fmt_joints(best)}",
-                ]
+        if not ok:
+            # show nearest for context
+            nearest, nearest_d = _nearest_joint_match_wrapped(expected, all_solutions)
+            raise AssertionError(
+                "\n".join(
+                    [
+                        f"{hdr} SOL{solution['id']}: Missing expected IK solution",
+                        f"  tol_deg: {JOINT_TOL_DEG}",
+                        f"  expected_joints_deg: {_fmt_joints(expected)}",
+                        f"  nearest_max_abs_diff_deg: {_fmt_f(nearest_d)}",
+                        "  nearest_joints_deg: "
+                        + (_fmt_joints(nearest) if nearest is not None else "None"),
+                        f"  returned_n: {n}",
+                        f"  best_joints_deg: {_fmt_joints(best)}",
+                    ]
+                )
             )
-        )
 
 
 @pytest.mark.parametrize(
     "p",
     [
         param
-        for param in _PARAMS
+        for param in SOLUTION_PARAMS
         if param.values[0]["case_name"] in CONFIG_FIXTURE_CASES
     ],
 )
