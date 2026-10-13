@@ -16,6 +16,14 @@ auto BoundaryTolerance(const Vec6 &boundary) -> Vec6 {
       .cwiseMin(numerics::kJointPhaseToleranceRad);
 }
 
+auto CommandPhase(double angle) -> double {
+  const double phase = WrapRadPi(angle);
+  return numerics::Scalar(phase - angle_conv::kPi)
+                 .isZero(numerics::kElementaryRoundoff)
+             ? -angle_conv::kPi
+             : phase;
+}
+
 auto SamePhase(const Vec6 &a, const Vec6 &b) -> bool {
   return (a - b)
       .unaryExpr([](double x) { return WrapRadPi(x); })
@@ -119,13 +127,7 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
       continue;
     }
     LiftBox box;
-    box.phase = posture.unaryExpr([](double x) {
-      const double phase = WrapRadPi(x);
-      return numerics::Scalar(phase - angle_conv::kPi)
-                     .isZero(numerics::kElementaryRoundoff)
-                 ? -angle_conv::kPi
-                 : phase;
-    });
+    box.phase = posture.unaryExpr(&CommandPhase);
     if (!validate(box.phase) ||
         std::any_of(boxes.begin(), boxes.end(), [&](const LiftBox &other) {
           return SamePhase(box.phase, other.phase);
@@ -156,11 +158,7 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
         validate(preserved.command_rad);
     if (result.seed_added) {
       for (int i = 0; i < kDofCount; ++i) {
-        const double wrapped = WrapRadPi(preserved.command_rad[i]);
-        const double phase = numerics::Scalar(wrapped - angle_conv::kPi)
-                                     .isZero(numerics::kElementaryRoundoff)
-                                 ? -angle_conv::kPi
-                                 : wrapped;
+        const double phase = CommandPhase(preserved.command_rad[i]);
         const double turn =
             std::round((preserved.command_rad[i] - phase) / kTwoPi);
         if (std::abs(turn) > numerics::kMaxExactTurn) {
