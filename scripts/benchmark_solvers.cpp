@@ -17,6 +17,7 @@
 namespace {
 using SolveIk = int (*)(const double *, double *, double *, int, const double *,
                         const void *);
+using SolveFk = int (*)(const double *, double *, const void *);
 constexpr int kDof = 6;
 constexpr int kPoseSize = 16;
 constexpr int kStride = 12;
@@ -41,18 +42,23 @@ auto Fail(const char *message) -> int {
 }
 
 auto Run(int argc, char **argv) -> int {
-  if (argc != 9) {
+  if (argc != 9 && argc != 10) {
     std::cerr << "scanner.dll polynomial.dll input timings.csv solutions.csv "
-                 "repeats rounds capacity\n";
+                 "repeats rounds capacity [fk]\n";
     return 2;
   }
   const int repeats = std::stoi(argv[6]), rounds = std::stoi(argv[7]);
   const int capacity = std::stoi(argv[8]);
+  const bool fk = argc == 10 && std::string(argv[9]) == "fk";
+  if (argc == 10 && !fk) {
+    return Fail("Unknown benchmark mode");
+  }
   if (repeats < 1 || rounds < 1 || capacity < 1) {
     return 2;
   }
   std::array<HMODULE, 2> libraries{};
   std::array<SolveIk, 2> solves{};
+  std::array<SolveFk, 2> forwards{};
   for (std::size_t side = 0; side < libraries.size(); ++side) {
     libraries[side] = LoadLibraryA(argv[side + 1]);
     if (libraries[side] == nullptr) {
@@ -62,6 +68,11 @@ auto Run(int argc, char **argv) -> int {
         reinterpret_cast<SolveIk>(GetProcAddress(libraries[side], "SolveIK"));
     if (solves[side] == nullptr) {
       return Fail("SolveIK export missing");
+    }
+    forwards[side] =
+        reinterpret_cast<SolveFk>(GetProcAddress(libraries[side], "SolveFK"));
+    if (forwards[side] == nullptr) {
+      return Fail("SolveFK export missing");
     }
   }
   DWORD_PTR process_mask = 0, system_mask = 0;
@@ -101,8 +112,11 @@ auto Run(int argc, char **argv) -> int {
   }
   std::ofstream timings(argv[4]), solutions(argv[5]);
   timings << std::setprecision(17) << "case,mode,path,round,us,count\n";
-  solutions << std::setprecision(17)
-            << "case,mode,path,solution,q1,q2,q3,q4,q5,q6\n";
+  solutions << std::setprecision(17) << "case,mode,path,solution";
+  for (int component = 1; component <= (fk ? kPoseSize : kDof); ++component) {
+    solutions << ",q" << component;
+  }
+  solutions << '\n';
   std::vector<std::size_t> order(case_count * 2);
   std::iota(order.begin(), order.end(), 0);
   std::mt19937 generator(kOrderSeed);
@@ -112,18 +126,25 @@ auto Run(int argc, char **argv) -> int {
     for (const auto key : order) {
       const auto index = key / 2;
       const bool seeded = key % 2 != 0;
+      if (fk && seeded) {
+        continue;
+      }
       const auto &item = cases[index];
       for (int turn = 0; turn < 2; ++turn) {
         const auto side =
             (key + static_cast<std::size_t>(round + 1 + turn)) % 2;
         std::array<double, kDof> best{};
+        std::array<double, kPoseSize> pose{};
         int count = 0, first_count = 0;
         const int iterations = round < 0 ? kWarmupCalls : repeats;
         const auto begin = std::chrono::steady_clock::now();
         for (int iteration = 0; iteration < iterations; ++iteration) {
-          count = solves[side](item.pose.data(), best.data(), all.data(),
-                               capacity, seeded ? item.seed.data() : nullptr,
-                               models[item.model].data());
+          count =
+              fk ? forwards[side](item.seed.data(), pose.data(),
+                                  models[item.model].data())
+                 : solves[side](item.pose.data(), best.data(), all.data(),
+                                capacity, seeded ? item.seed.data() : nullptr,
+                                models[item.model].data());
           if (iteration == 0) {
             first_count = count;
           } else if (count != first_count) {
@@ -142,18 +163,19 @@ auto Run(int argc, char **argv) -> int {
             std::chrono::duration<double, std::micro>(end - begin).count() /
             iterations;
         const char *path = side == 0 ? "legacy" : "polynomial";
-        const char *mode = seeded ? "nearby_seed" : "no_seed";
+        const char *mode = fk ? "fk" : seeded ? "nearby_seed" : "no_seed";
         timings << index << ',' << mode << ',' << path << ',' << round << ','
                 << us << ',' << count << '\n';
         if (round == 0 && count > 0) {
           // -1 identifies the best-command output, separately from the list.
-          for (int solution = -1; solution < count; ++solution) {
+          for (int solution = fk ? 0 : -1; solution < count; ++solution) {
             solutions << index << ',' << mode << ',' << path << ',' << solution;
-            for (int joint = 0; joint < kDof; ++joint) {
+            for (int joint = 0; joint < (fk ? kPoseSize : kDof); ++joint) {
               const auto axis = static_cast<std::size_t>(joint);
               solutions
                   << ','
-                  << (solution < 0
+                  << (fk ? pose[axis]
+                      : solution < 0
                           ? best[axis]
                           : all[static_cast<std::size_t>(solution) * kStride +
                                 axis]);
