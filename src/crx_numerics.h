@@ -101,6 +101,10 @@ inline constexpr double kNearRealTolerance = 64 * kSqrtEpsilon;
 // N1017: .005/.01 rad lose a near-folded witness; .05.. .2 preserve counts.
 // .05 rad is a rounded, bounded neighborhood, not an accuracy tolerance.
 inline constexpr double kPolishRadiusRad = .05;
+// Single-output tracking only: bound scalar work and command travel before
+// falling back to complete discovery. These do not relax pose acceptance.
+inline constexpr double kNearbyRadiusRad = .05;
+inline constexpr int kNearbyIterations = 6;
 // N1017: .1..1 rad preserve counts; retain the rounded .25-rad step cap.
 // Premerge 9082-pose full-pose correction sweep: .125/.25/.5 all retain strict
 // solves and independent FK validity; retain .25 as the bounded work policy.

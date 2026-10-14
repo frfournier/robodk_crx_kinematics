@@ -1,7 +1,19 @@
 # Release history
 
-Release details are derived from the repository's commit history. Releases are
-not tagged, so abbreviated commit references are provided for traceability.
+Release details are recorded below, with GitHub release tags and abbreviated
+commit references for traceability.
+
+## 0.4.1
+
+- Added a strictly validated nearby-seed fast path for `max_solutions == 1`,
+  with full-search fallback. This returns a nearby valid solution without
+  guaranteeing the globally closest solution.
+- Enumerate command turns in ranking order and stop after enough valid outputs
+  are known, preserving ranked results for multi-output and unseeded requests.
+- Prune incompatible algebraic nominations using conservative J3/J6 joint-limit
+  domains, with unfiltered discovery fallback when needed.
+- Added independent FK, joint-limit, ranking, fallback and periodic-turn
+  regressions. The public C ABI is unchanged.
 
 ## 0.4.0
 

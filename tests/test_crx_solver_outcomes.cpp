@@ -1,7 +1,12 @@
+#include "crx_canonical.h"
+#include "crx_discovery.h"
+#include "crx_joint_recovery.h"
+#include "crx_math_helpers.h"
 #include "crx_numerics.h"
 #include "crx_robodk_adapter.h"
 #include "crx_solver.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -83,7 +88,7 @@ void CheckGeneralForwardGeometry() {
 
 void CheckMappings() {
   for (const auto status : {IkStatus::StrictCandidates, IkStatus::StrictSeed,
-                            IkStatus::ApproximateSeed}) {
+                            IkStatus::StrictLocal, IkStatus::ApproximateSeed}) {
     crx::IkResult result;
     result.status = status;
     Require(crx::IkResultToRoboDkReturn(result) == -1,
@@ -120,19 +125,31 @@ void CheckSolves() {
               !full.used_singular_representatives && full.solutions.size() > 1,
           "strict finite commands");
   const auto limited = crx::SolveIkIsometry(model, target, &q, 1);
-  Require(limited.status == IkStatus::StrictCandidates && limited.truncated &&
+  Require(limited.status == IkStatus::StrictSeed && !limited.truncated &&
               limited.solutions.size() == 1 &&
-              limited.solutions[0].isApprox(full.solutions[0],
-                                            crx::numerics::kEpsilon),
-          "capacity keeps ranked prefix and records truncation");
+              limited.solutions[0].isApprox(q, crx::numerics::kEpsilon),
+          "single-output exact seed returns without discovery");
+  const Vec6 nearby = q.array() + .005;
+  const auto tracked = crx::SolveIkIsometry(model, target, &nearby, 1);
+  Require(tracked.status == IkStatus::StrictLocal && !tracked.truncated &&
+              tracked.solutions.size() == 1 &&
+              (Target(model, tracked.solutions[0]).matrix() - target.matrix())
+                      .norm() < crx::numerics::kSolutionPositionToleranceMm,
+          "nearby seed follows an algebraic branch with strict FK");
+  const auto ranked = crx::SolveIkIsometry(model, target, &q, 2);
+  Require(ranked.status == IkStatus::StrictCandidates && ranked.truncated &&
+              ranked.solutions.size() == 2 &&
+              ranked.solutions[0].isApprox(full.solutions[0],
+                                           crx::numerics::kEpsilon),
+          "multiple outputs keep ranked prefix and truncation metadata");
   model.lower_limits_rad.setConstant(-100 * kPi);
   model.upper_limits_rad.setConstant(100 * kPi);
-  const auto work = crx::SolveIkIsometry(model, target, &q, 1);
+  const auto work = crx::SolveIkIsometry(model, target, &q, 2);
   Require(work.status == IkStatus::WorkLimit && work.solutions.empty(),
           "work failure does not publish a seed or partial results");
   model.lower_limits_rad.setConstant(-1e20);
   model.upper_limits_rad.setConstant(1e20);
-  const auto range = crx::SolveIkIsometry(model, target, &q, 1);
+  const auto range = crx::SolveIkIsometry(model, target, &q, 2);
   Require(range.status == IkStatus::NumericalRangeFailure &&
               range.solutions.empty(),
           "command integer range failure is distinct from work exhaustion");
@@ -166,6 +183,62 @@ void CheckSingularRepresentatives() {
   Require(result.used_singular_representatives,
           "canonical free-base policy propagated");
 }
+
+void CheckPhaseDomains() {
+  const auto model = Model();
+  Vec6 user;
+  user << .4, -.7, .8, .6, -.9, -1.2;
+  const auto target = Target(model, user);
+  const auto command = crx::ApplyFanucJointCoupling(user);
+  const crx::canonical::Lengths lengths{540, 540, 160, 150};
+  const crx::canonical::PoseTolerance tolerance{
+      crx::numerics::kSolutionPositionToleranceMm,
+      crx::numerics::kSolutionAngleToleranceRad};
+  const auto full =
+      crx::canonical::DiscoverJointCandidates(lengths, target, tolerance);
+  Require(full.status == crx::canonical::RecoveryStatus::Candidates,
+          "domain reference discovers regular target");
+  for (const int axis : {2, 5}) {
+    for (const double turns : {-2.0, 0.0, 2.0}) {
+      Vec6 lower = Vec6::Constant(-2 * kPi), upper = -lower;
+      lower[axis] = command[axis] + turns * 2 * kPi - .01;
+      upper[axis] = command[axis] + turns * 2 * kPi + .01;
+      crx::canonical::DiscoveryOptions options;
+      options.lower_limits = &lower;
+      options.upper_limits = &upper;
+      const auto filtered = crx::canonical::DiscoverJointCandidates(
+          lengths, target, tolerance, options);
+      Require(filtered.status == crx::canonical::RecoveryStatus::Candidates &&
+                  filtered.pruned_nominations > 0 &&
+                  filtered.count < full.count,
+              "each restricted J3/J6 domain prunes geometric nominations");
+      for (std::size_t i = 0; i < full.count; ++i) {
+        const auto &expected = full.candidates[i].joints;
+        const double delta =
+            std::remainder(expected[axis] - command[axis], 2 * kPi);
+        if (std::abs(delta) > .01) {
+          continue;
+        }
+        bool found = false;
+        for (std::size_t j = 0; j < filtered.count; ++j) {
+          const crx::Vec6 difference =
+              (expected - filtered.candidates[j].joints)
+                  .unaryExpr([](double angle) {
+                    return std::remainder(angle, 2 * kPi);
+                  });
+          found = found || difference.isZero(1e-9);
+        }
+        Require(found, "domain sieve retains every feasible reference posture");
+      }
+    }
+  }
+  crx::canonical::DiscoveryOptions invalid;
+  invalid.lower_limits = &command;
+  Require(crx::canonical::DiscoverJointCandidates(lengths, target, tolerance,
+                                                  invalid)
+                  .status == crx::canonical::RecoveryStatus::InvalidInput,
+          "partial domain box is invalid");
+}
 } // namespace
 
 auto main() -> int {
@@ -174,6 +247,7 @@ auto main() -> int {
   CheckSolves();
   CheckBoundaryStatusMetadata();
   CheckSingularRepresentatives();
+  CheckPhaseDomains();
   std::puts("Solver outcome and adapter checks passed");
   return EXIT_SUCCESS;
 }

@@ -272,6 +272,84 @@ void RoundoffBoundariesAndOrdering() {
     std::rotate(phases.begin(), phases.begin() + 1, phases.end());
   }
 }
+
+void RankedPrefixReference() {
+  std::mt19937 generator(20261014);
+  std::uniform_real_distribution<double> uniform(-3.0, 3.0);
+  for (int trial = 0; trial < 120; ++trial) {
+    std::vector<Vec6> phases(3);
+    Vec6 seed;
+    for (int axis = 0; axis < crx::kDofCount; ++axis) {
+      seed[axis] = uniform(generator) * kTau;
+      for (auto &phase : phases) {
+        phase[axis] = uniform(generator);
+      }
+    }
+    if (trial % 3 == 0) {
+      seed = phases.front(); // Preserved seed and discovery deduplication.
+    } else if (trial % 3 == 1) {
+      seed = phases.front() + Vec6::Constant(kTau / 2); // Midpoint ties.
+    }
+    const auto *hint = trial % 4 == 0 ? nullptr : &seed;
+    const Vec6 lo = Vec6::Constant(-2 * kTau), hi = -lo;
+    const auto validator = [&](const Vec6 &q) {
+      return trial % 2 == 0 || q.cwiseAbs().maxCoeff() < kTau + 1;
+    };
+    for (int capacity : {1, 2, 7, 32}) {
+      const auto full =
+          crx::SelectCommandLifts(phases, lo, hi, hint, capacity, validator);
+      const auto ranked =
+          crx::SelectCommandLifts(phases, lo, hi, hint, capacity, validator,
+                                  crx::numerics::kCommandLiftBudget,
+                                  crx::CommandSelectionMode::RankedPrefix);
+      Require(full.status == ranked.status &&
+                  full.truncated == ranked.truncated &&
+                  full.commands.size() == ranked.commands.size() &&
+                  full.box_lifts == ranked.box_lifts,
+              "ranked prefix preserves exhaustive status, truncation and size");
+      for (std::size_t i = 0; i < full.commands.size(); ++i) {
+        Require(
+            (full.commands[i].command_rad.array() ==
+             ranked.commands[i].command_rad.array())
+                    .all() &&
+                full.commands[i].travel_squared ==
+                    ranked.commands[i].travel_squared &&
+                full.commands[i].preserved_seed ==
+                    ranked.commands[i].preserved_seed,
+            "ranked commands and floating-point ties match exhaustive order");
+      }
+    }
+  }
+  int calls = 0;
+  const Vec6 zero = Vec6::Zero();
+  const auto result = crx::SelectCommandLifts(
+      {zero}, Vec6::Constant(-kTau), Vec6::Constant(kTau), nullptr, 1,
+      [&](const Vec6 &) {
+        ++calls;
+        return true;
+      },
+      crx::numerics::kCommandLiftBudget,
+      crx::CommandSelectionMode::RankedPrefix);
+  Require(calls == 3 && result.commands.size() == 1 && result.truncated &&
+              !result.counts_complete && result.valid_lifts == 2,
+          "unseeded prefix validates phase and two lifts instead of 729 lifts");
+  const auto rejected = crx::SelectCommandLifts(
+      {zero}, Vec6::Constant(-kTau), Vec6::Constant(kTau), nullptr, 1,
+      [](const Vec6 &q) { return q.isZero(); },
+      crx::numerics::kCommandLiftBudget,
+      crx::CommandSelectionMode::RankedPrefix);
+  Require(rejected.counts_complete && !rejected.truncated &&
+              rejected.commands.size() == 1 && rejected.valid_lifts == 1,
+          "rejected lifts do not imply truncation");
+  Vec6 distant = Vec6::Constant(1e300);
+  const auto overflow = crx::SelectCommandLifts(
+      {zero}, Vec6::Constant(-kTau), Vec6::Constant(kTau), &distant, 1, Accept,
+      crx::numerics::kCommandLiftBudget,
+      crx::CommandSelectionMode::RankedPrefix);
+  Require(overflow.status == CommandSelectionStatus::RangeFailure &&
+              overflow.commands.empty(),
+          "ranked selection preserves travel overflow failure");
+}
 } // namespace
 
 auto main() -> int {
@@ -281,6 +359,7 @@ auto main() -> int {
   LateCandidatesAndSeed();
   CoupledMetricCounterexample();
   RoundoffBoundariesAndOrdering();
+  RankedPrefixReference();
   std::puts(
       "Command lift reference, capacity, boundary and failure checks passed");
 }

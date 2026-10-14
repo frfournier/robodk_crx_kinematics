@@ -147,5 +147,11 @@ def test_limit_failures_and_work_limit_do_not_write(kinematics_lib, crx_10ia):
     for bound in (10000., 1e100):
         _set_row(crx_10ia, 30, [-bound] * 6)
         _set_row(crx_10ia, 31, [bound] * 6)
-        assert solve(kinematics_lib, crx_10ia, target, witness, capacity=1)[0] == -1
+        # Full search still fails atomically when turn enumeration is too
+        # large. Single-output tracking need not enumerate those turns.
+        assert solve(kinematics_lib, crx_10ia, target, witness, capacity=2)[0] == -1
+        assert solve(kinematics_lib, crx_10ia, target, capacity=1)[0] == -1
+        count, best, _ = solve(kinematics_lib, crx_10ia, target, witness, capacity=1)
+        assert count == 1
+        np.testing.assert_allclose(best, witness, atol=1e-12, rtol=0)
     assert solve(kinematics_lib, crx_10ia, target, capacity=0)[0] == 0

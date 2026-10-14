@@ -17,6 +17,8 @@ enum class CommandSelectionStatus {
   WorkLimit
 };
 
+enum class CommandSelectionMode { Exhaustive, RankedPrefix };
+
 struct CommandLift {
   Vec6 command_rad = Vec6::Zero();
   std::array<std::int64_t, kDofCount> turns{};
@@ -33,6 +35,10 @@ struct CommandSelection {
   bool seed_added = false;
   bool seed_matches_discovery = false;
   bool truncated = false;
+  // RankedPrefix may stop early. Then valid_lifts/feasible_postures are lower
+  // bounds and seed_matches_discovery describes only the visited lifts.
+  // box_lifts, commands and truncated remain exact in either mode.
+  bool counts_complete = true;
   std::vector<CommandLift> commands;
 };
 
@@ -40,13 +46,17 @@ struct CommandSelection {
 auto ClampCommandToLimits(Vec6 &command, const Vec6 &lower, const Vec6 &upper)
     -> bool;
 
-// All finite lifts are visited, FK-validated, and counted. A top-K heap limits
-// output storage, not discovery. Failure publishes no partial command list.
+// Exhaustive visits, FK-validates and counts every finite lift. RankedPrefix
+// visits best commands first, retaining one extra valid command to establish
+// truncation. Both preflight all boxes and enforce the same work/range limits.
+// Failure publishes no partial command list.
 // The validator consumes command coordinates and must not apply joint limits.
-auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
-                        const Vec6 &upper, const Vec6 *seed, int capacity,
-                        const std::function<bool(const Vec6 &)> &validate,
-                        std::uint64_t work_limit = numerics::kCommandLiftBudget)
+auto SelectCommandLifts(
+    const std::vector<Vec6> &postures, const Vec6 &lower, const Vec6 &upper,
+    const Vec6 *seed, int capacity,
+    const std::function<bool(const Vec6 &)> &validate,
+    std::uint64_t work_limit = numerics::kCommandLiftBudget,
+    CommandSelectionMode mode = CommandSelectionMode::Exhaustive)
     -> CommandSelection;
 
 } // namespace crx

@@ -22,6 +22,97 @@ struct RecoveryProblem {
   JointRefiner &refiner;
 };
 
+struct PhaseDomain {
+  bool wrist_limited = false;
+  bool elbow_limited = false;
+  double wrist_center = 0;
+  double wrist_radius = 0;
+  double distance_lower = 0;
+  double distance_upper = 0;
+  double distance_slope = 0;
+  double distance_roundoff = 0;
+  double angle_roundoff = 0;
+
+  auto MayContain(const WristCircle &circle, double angle, double radius) const
+      -> bool {
+    // q6 = phi + pi/2. Accuracy refinement may move q6 by its trust radius;
+    // the other margins cover the nomination window and physical FK closure.
+    if (wrist_limited &&
+        std::abs(std::remainder(angle + kHalfPi - wrist_center, kTwoPi)) >
+            wrist_radius + radius + angle_roundoff) {
+      return false;
+    }
+    if (!elbow_limited) {
+      return true;
+    }
+    const Vec3 x = circle.p + circle.lengths.r * (circle.v * std::cos(angle) +
+                                                  circle.w * std::sin(angle));
+    const double distance = x.squaredNorm();
+    const double margin = distance_roundoff + distance_slope * radius;
+    // D^2 = a^2+b^2+2ab sin(q3); the same sine covers the dual base branch.
+    // Ambiguous/overflowed bounds do not exclude a nomination.
+    return !std::isfinite(distance) || !std::isfinite(margin) ||
+           (distance >= distance_lower - margin &&
+            distance <= distance_upper + margin);
+  }
+};
+
+auto BuildPhaseDomain(const RecoveryProblem &problem,
+                      const DiscoveryOptions &options) -> PhaseDomain {
+  PhaseDomain domain;
+  if (options.lower_limits == nullptr) {
+    return domain;
+  }
+  const auto &lower = *options.lower_limits;
+  const auto &upper = *options.upper_limits;
+  // At enormous turn offsets, reduction uncertainty need not be small.
+  // Disable this optional optimization rather than rely on those phases.
+  const double encoding =
+      numerics::kElementaryRoundoff *
+      std::max({1.0, lower.cwiseAbs().maxCoeff(), upper.cwiseAbs().maxCoeff()});
+  if (encoding >= numerics::kJointPhaseToleranceRad) {
+    return domain;
+  }
+  const auto &circle = problem.circle;
+  const auto &l = circle.lengths;
+  const double accuracy = numerics::kPolishRadiusRad;
+  domain.angle_roundoff = encoding + 2 * problem.tolerance.orientation +
+                          numerics::kGeometryTolerance;
+  domain.wrist_center = lower[5] / 2 + upper[5] / 2;
+  domain.wrist_radius = (upper[5] - lower[5]) / 2 + accuracy;
+  domain.wrist_limited =
+      domain.wrist_radius + domain.angle_roundoff < angle_conv::kPi;
+  const double center = lower[2] / 2 + upper[2] / 2;
+  const double radius = (upper[2] - lower[2]) / 2 + accuracy + encoding;
+  if (radius >= angle_conv::kPi || l.a <= 0 || l.b <= 0) {
+    return domain;
+  }
+  const double first = std::sin(center - radius),
+               last = std::sin(center + radius);
+  const auto contains = [&](double phase) {
+    return std::abs(std::remainder(phase - center, kTwoPi)) <= radius;
+  };
+  const double minimum = contains(-kHalfPi) ? -1 : std::min(first, last);
+  const double maximum = contains(kHalfPi) ? 1 : std::max(first, last);
+  domain.elbow_limited = minimum > -1 || maximum < 1;
+  domain.distance_lower = l.a * l.a + l.b * l.b + 2 * l.a * l.b * minimum;
+  domain.distance_upper = l.a * l.a + l.b * l.b + 2 * l.a * l.b * maximum;
+  domain.distance_slope =
+      2 * std::abs(l.r) *
+      std::hypot(circle.p.dot(circle.v), circle.p.dot(circle.w));
+  // Relate the target wrist circle to an FK-valid candidate. Translation and
+  // orientation error perturb both the tool offset and the projected wrist
+  // axis; expand the squared-distance bound before excluding anything.
+  const double uncertainty =
+      problem.tolerance.position / circle.length_scale +
+      2 * (std::abs(l.c) + std::abs(l.r)) * problem.tolerance.orientation;
+  const double reach = circle.p.norm() + std::abs(l.r);
+  domain.distance_roundoff =
+      (2 * reach + uncertainty) * uncertainty +
+      numerics::kGeometryTolerance * std::max(1.0, reach * reach);
+  return domain;
+}
+
 auto ClosestWristAngle(const WristCircle &circle) -> double {
   return std::atan2(circle.p.dot(circle.w), circle.p.dot(circle.v)) +
          (circle.lengths.r >= 0 ? angle_conv::kPi : 0.0);
@@ -582,18 +673,29 @@ auto DiscoverInChart(const RecoveryProblem &problem,
     return result;
   }
   JointDiscovery accepted;
+  const auto domain = BuildPhaseDomain(problem, options);
   const double closest_angle = ClosestWristAngle(circle);
   if (NearFoldedArm(circle, closest_angle)) {
-    const auto folded =
-        refiner.Refine(closest_angle, numerics::kPolishRadiusRad);
-    if (folded.status == RecoveryStatus::Candidates &&
-        !AppendUnique(folded, accepted)) {
-      result.status = RecoveryStatus::NeedsRefinement;
-      return result;
+    if (domain.MayContain(circle, closest_angle, numerics::kPolishRadiusRad)) {
+      const auto folded =
+          refiner.Refine(closest_angle, numerics::kPolishRadiusRad);
+      if (folded.status == RecoveryStatus::Candidates &&
+          !AppendUnique(folded, accepted)) {
+        result.status = RecoveryStatus::NeedsRefinement;
+        return result;
+      }
+    } else {
+      ++accepted.pruned_nominations;
     }
   }
   const auto boundary_phases = BoundaryPhases(circle);
   for (std::size_t i = 0; i < boundary_phases.count; ++i) {
+    const auto &phase = boundary_phases.values[i];
+    if ((domain.wrist_limited || domain.elbow_limited) &&
+        !domain.MayContain(circle, std::atan2(phase.sine, phase.cosine), 0)) {
+      ++accepted.pruned_nominations;
+      continue;
+    }
     const auto boundary = RecoverJointCandidates(
         lengths, target, boundary_phases.values[i], tolerance);
     if (boundary.status == RecoveryStatus::Candidates &&
@@ -613,6 +715,10 @@ auto DiscoverInChart(const RecoveryProblem &problem,
       return result;
     }
     const auto [angle, radius, ill_conditioned] = nomination;
+    if (!domain.MayContain(circle, angle, radius)) {
+      ++accepted.pruned_nominations;
+      continue;
+    }
     auto recovered = PolishAndRecover(
         problem, std::remainder(angle, 2 * angle_conv::kPi),
         options.max_polish_iterations, radius, ill_conditioned);
@@ -654,6 +760,7 @@ auto ImproveDiscoveryAccuracy(const RecoveryProblem &problem,
     precise.status = result.status;
     precise.used_singular_representatives =
         result.used_singular_representatives;
+    precise.pruned_nominations = result.pruned_nominations;
     for (std::size_t i = 0; i < result.count; ++i) {
       auto candidate = result.candidates[i];
       if (needs_accuracy(candidate)) {
@@ -696,13 +803,54 @@ auto ImproveDiscoveryAccuracy(const RecoveryProblem &problem,
 }
 } // namespace
 
+auto DiscoverNearbyJointCandidates(const Lengths &lengths,
+                                   const PoseIsoRT &target,
+                                   const PoseTolerance &tolerance,
+                                   const Vec6 &seed) -> JointRecovery {
+  WristCircle circle;
+  if (!seed.allFinite() || !tolerance.IsValid() ||
+      PrepareWristCircle(lengths, target, circle) != PreparationStatus::Ready) {
+    return {};
+  }
+  const Vec6 q = seed.unaryExpr(
+      [](double angle) { return std::remainder(angle, kTwoPi); });
+  const Mat3 r4 = (Eigen::AngleAxisd(q[0], Vec3::UnitZ()) *
+                   Eigen::AngleAxisd(q[1] - q[2], Vec3::UnitY()) *
+                   Eigen::AngleAxisd(-q[3], Vec3::UnitX()))
+                      .toRotationMatrix();
+  double angle = std::atan2(r4.col(1).dot(circle.w), r4.col(1).dot(circle.v));
+  ElbowResidual branch;
+  if (NearFoldedArm(circle, angle) ||
+      !EvaluateElbowResidual(circle, angle, 1.0, branch) ||
+      branch.side.isZero(numerics::kDirectionTolerance)) {
+    return {RecoveryStatus::NeedsRefinement};
+  }
+  const Vec3 elbow =
+      circle.lengths.a * Vec3(std::cos(q[0]) * std::sin(q[1]),
+                              std::sin(q[0]) * std::sin(q[1]), std::cos(q[1]));
+  const double sign = (elbow - branch.center).dot(branch.side) < 0 ? -1 : 1;
+  JointRefiner refiner(lengths, target, tolerance, numerics::kNearbyIterations);
+  const RecoveryProblem problem{lengths, target, circle, tolerance, refiner};
+  const auto direct = RecoverJointCandidates(lengths, target, angle, tolerance);
+  return RefineElbowBranch(
+      problem, direct, EvaluateElbowResidual, sign,
+      {angle, numerics::kNearbyIterations, numerics::kNearbyRadiusRad}, angle);
+}
+
 auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                              const PoseTolerance &tolerance,
                              const DiscoveryOptions &options)
     -> JointDiscovery {
   JointDiscovery result;
   if (!tolerance.IsValid() || options.max_polish_iterations < 0 ||
-      options.max_polish_iterations > numerics::kMaxPolishIterations) {
+      options.max_polish_iterations > numerics::kMaxPolishIterations ||
+      (options.lower_limits == nullptr) != (options.upper_limits == nullptr)) {
+    return result;
+  }
+  if (options.lower_limits != nullptr &&
+      (!options.lower_limits->allFinite() ||
+       !options.upper_limits->allFinite() ||
+       (options.lower_limits->array() > options.upper_limits->array()).any())) {
     return result;
   }
   WristCircle circle;

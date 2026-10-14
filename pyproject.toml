@@ -1,6 +1,6 @@
 [project]
 name = "test-crx-kinematics"
-version = "0.4.0"
+version = "0.4.1"
 description = "Tester for Fanuc CRX kinematics solver for RoboDK"
 readme = "README.md"
 license = "Apache-2.0"

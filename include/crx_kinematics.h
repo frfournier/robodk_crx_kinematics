@@ -26,8 +26,8 @@
 
 #define CRX_KINEMATICS_VERSION_MAJOR 0
 #define CRX_KINEMATICS_VERSION_MINOR 4
-#define CRX_KINEMATICS_VERSION_PATCH 0
-#define CRX_KINEMATICS_VERSION_STRING "0.4.0"
+#define CRX_KINEMATICS_VERSION_PATCH 1
+#define CRX_KINEMATICS_VERSION_STRING "0.4.1"
 
 #if defined(_WIN32)
 #define MYLIB_EXPORT __declspec(dllexport)
@@ -103,6 +103,9 @@ MYLIB_EXPORT int SolveFK_CAD(const real_T *joints, real_T pose[16],
  * \param joints_approx
  * These joints hold the current robot joints. This can be used as a hint to
  * obtain or choose a solution.
+ * When max_solutions is 1, a strictly validated nearby solution can be returned
+ * before full discovery. It is not guaranteed to be the globally closest
+ * solution. A local miss falls back to the full ranked search.
  * \param ptr_robot
  * pointer to the robot parameters, if any.
  * \return returns the number of valid solutions (equal or less than

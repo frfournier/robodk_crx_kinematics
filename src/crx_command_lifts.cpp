@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"
@@ -118,6 +119,181 @@ auto PrepareBox(LiftBox &box, const Vec6 &lower, const Vec6 &upper,
   }
   return true;
 }
+
+struct RankedProblem {
+  const Vec6 &lower;
+  const Vec6 &upper;
+  const CommandLimits &limits;
+  const Vec6 *seed;
+  const std::function<bool(const Vec6 &)> &validate;
+};
+
+auto LiftCommand(const LiftBox &box,
+                 const std::array<std::int64_t, kDofCount> &turns) -> Vec6 {
+  const Vec6 values = Eigen::Map<const TurnVector>(turns.data()).cast<double>();
+  return box.phase + kTwoPi * values;
+}
+
+struct RankedBox {
+  LiftBox box;
+  CommandLift first;
+  std::size_t posture = 0;
+  bool admitted = false;
+};
+
+auto FirstInBox(const LiftBox &box, std::size_t posture,
+                const RankedProblem &problem) -> RankedBox {
+  RankedBox node;
+  node.box = box;
+  node.posture = posture;
+  node.first.turns = box.lower;
+  if (problem.seed != nullptr) {
+    auto next = box.lower;
+    for (int axis = 0; axis < kDofCount; ++axis) {
+      const auto i = static_cast<std::size_t>(axis);
+      const double turn = std::clamp(
+          std::floor(((*problem.seed)[axis] - box.phase[axis]) / kTwoPi),
+          static_cast<double>(box.lower[i]), static_cast<double>(box.upper[i]));
+      node.first.turns[i] = static_cast<std::int64_t>(turn);
+      next[i] = std::min(node.first.turns[i] + 1, box.upper[i]);
+    }
+    const Vec6 first = LiftCommand(box, node.first.turns)
+                           .cwiseMax(problem.lower)
+                           .cwiseMin(problem.upper);
+    const Vec6 second =
+        LiftCommand(box, next).cwiseMax(problem.lower).cwiseMin(problem.upper);
+    for (int axis = 0; axis < kDofCount; ++axis) {
+      const double a = first[axis] - (*problem.seed)[axis];
+      const double b = second[axis] - (*problem.seed)[axis];
+      if (b * b < a * a) {
+        node.first.turns[static_cast<std::size_t>(axis)] =
+            next[static_cast<std::size_t>(axis)];
+      }
+    }
+  }
+  node.first.command_rad = LiftCommand(box, node.first.turns);
+  node.admitted = ClampPreparedCommand(node.first.command_rad, problem.lower,
+                                       problem.upper, problem.limits);
+  // Even an inadmissible roundoff endpoint must bound its remaining box.
+  node.first.command_rad =
+      node.first.command_rad.cwiseMax(problem.lower).cwiseMin(problem.upper);
+  if (problem.seed != nullptr) {
+    node.first.travel_squared =
+        (node.first.command_rad - *problem.seed).squaredNorm();
+  }
+  return node;
+}
+
+auto RankedPrefix(const std::vector<LiftBox> &boxes,
+                  const RankedProblem &problem, const CommandLift &preserved,
+                  std::size_t capacity, CommandSelection result)
+    -> std::optional<CommandSelection> {
+  // Unusual validators can reject arbitrarily many lifts. Keep the new work
+  // storage bounded, and use the exhaustive implementation if it fills up.
+  constexpr std::size_t kFrontierBudget = 4096;
+  std::vector<RankedBox> frontier;
+  const auto later = [](const RankedBox &a, const RankedBox &b) {
+    return Better(b.first, a.first);
+  };
+  auto enqueue = [&](const LiftBox &box, std::size_t posture) {
+    frontier.push_back(FirstInBox(box, posture, problem));
+    std::push_heap(frontier.begin(), frontier.end(), later);
+  };
+  for (std::size_t i = 0; i < boxes.size(); ++i) {
+    const auto &box = boxes[i];
+    if (box.count == 0) {
+      continue;
+    }
+    if (problem.seed != nullptr) {
+      // A distant valid command can overflow travel even when the prefix is
+      // finite. Preserve that failure policy through exhaustive fallback.
+      const Vec6 low = LiftCommand(box, box.lower)
+                           .cwiseMax(problem.lower)
+                           .cwiseMin(problem.upper);
+      const Vec6 high = LiftCommand(box, box.upper)
+                            .cwiseMax(problem.lower)
+                            .cwiseMin(problem.upper);
+      const Vec6 farthest = (low - *problem.seed)
+                                .cwiseAbs()
+                                .cwiseMax((high - *problem.seed).cwiseAbs());
+      if (!std::isfinite(farthest.squaredNorm())) {
+        return std::nullopt;
+      }
+    }
+    enqueue(box, i);
+  }
+  const auto retain = [&](CommandLift command) {
+    if (problem.seed != nullptr) {
+      command.travel_squared =
+          (command.command_rad - *problem.seed).squaredNorm();
+    }
+    if (result.commands.size() < capacity + 1) {
+      result.commands.push_back(command);
+      std::push_heap(result.commands.begin(), result.commands.end(), Better);
+    } else if (Better(command, result.commands.front())) {
+      std::pop_heap(result.commands.begin(), result.commands.end(), Better);
+      result.commands.back() = command;
+      std::push_heap(result.commands.begin(), result.commands.end(), Better);
+    }
+  };
+  if (result.seed_added) {
+    retain(preserved);
+  }
+  std::vector<bool> feasible(boxes.size(), false);
+  while (!frontier.empty()) {
+    if (frontier.size() > kFrontierBudget) {
+      return std::nullopt;
+    }
+    if (result.commands.size() > capacity &&
+        (problem.seed == nullptr ||
+         frontier.front().first.travel_squared >
+             result.commands.front().travel_squared)) {
+      // Process the entire equal-cost frontier: rounded sums can tie even
+      // when an individual axis cost increases, changing lexicographic ties.
+      result.counts_complete = false;
+      break;
+    }
+    std::pop_heap(frontier.begin(), frontier.end(), later);
+    const RankedBox node = frontier.back();
+    frontier.pop_back();
+    if (node.admitted && problem.validate(node.first.command_rad)) {
+      ++result.valid_lifts;
+      if (!feasible[node.posture]) {
+        feasible[node.posture] = true;
+        ++result.feasible_postures;
+      }
+      if (result.seed_added && (node.first.command_rad - preserved.command_rad)
+                                   .isZero(numerics::kJointPhaseToleranceRad)) {
+        result.seed_matches_discovery = true;
+      } else {
+        retain(node.first);
+      }
+    }
+    // Remove the visited point by partitioning into disjoint boxes. Earlier
+    // coordinates are fixed to that point, so no visited-set is necessary.
+    LiftBox remainder = node.box;
+    for (std::size_t axis = 0; axis < remainder.lower.size(); ++axis) {
+      const auto turn = node.first.turns[axis];
+      if (turn > remainder.lower[axis]) {
+        auto child = remainder;
+        child.upper[axis] = turn - 1;
+        enqueue(child, node.posture);
+      }
+      if (turn < remainder.upper[axis]) {
+        auto child = remainder;
+        child.lower[axis] = turn + 1;
+        enqueue(child, node.posture);
+      }
+      remainder.lower[axis] = remainder.upper[axis] = turn;
+    }
+  }
+  std::sort_heap(result.commands.begin(), result.commands.end(), Better);
+  result.truncated = result.commands.size() > capacity;
+  if (result.truncated) {
+    result.commands.resize(capacity);
+  }
+  return result;
+}
 } // namespace
 
 auto ClampCommandToLimits(Vec6 &command, const Vec6 &lower, const Vec6 &upper)
@@ -133,7 +309,8 @@ auto ClampCommandToLimits(Vec6 &command, const Vec6 &lower, const Vec6 &upper)
 auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
                         const Vec6 &upper, const Vec6 *seed, int capacity,
                         const std::function<bool(const Vec6 &)> &validate,
-                        std::uint64_t work_limit) -> CommandSelection {
+                        std::uint64_t work_limit, CommandSelectionMode mode)
+    -> CommandSelection {
   CommandSelection result;
   if (!lower.allFinite() || !upper.allFinite() ||
       (lower.array() > upper.array()).any() ||
@@ -197,6 +374,15 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     }
   }
   const auto output_capacity = static_cast<std::size_t>(capacity);
+  if (mode == CommandSelectionMode::RankedPrefix &&
+      result.box_lifts > output_capacity + 1) {
+    const auto ranked =
+        RankedPrefix(boxes, {lower, upper, limits, seed, validate}, preserved,
+                     output_capacity, result);
+    if (ranked.has_value()) {
+      return *ranked;
+    }
+  }
   auto retain = [&](CommandLift command) {
     if (seed != nullptr) {
       command.travel_squared = (command.command_rad - *seed).squaredNorm();

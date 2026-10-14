@@ -112,8 +112,8 @@ def _call_joints_config(
     return int(status), _from_c_array(config, 3)
 
 
-def check_solver_pose(library, generated_models, case, seeded):
-    capacity, stride = 64, 12
+def check_solver_pose(library, generated_models, case, seeded, capacity=64):
+    stride = 12
     models, references, robots = generated_models
     model_id = case["model"]
     target = np.asarray(case["target"])

@@ -1,6 +1,6 @@
 # FANUC CRX custom kinematics for RoboDK
 
-**Current release:** `0.4.0` ([changelog](CHANGELOG.md))
+**Current release:** `0.4.1` ([changelog](CHANGELOG.md))
 
 C++17 forward and inverse kinematics for FANUC CRX robots with a non-spherical
 wrist. Targets RoboDK **6.0.6.26901+**; Windows x64 and Linux Ubuntu 24.04 are the tested platform.
@@ -36,9 +36,26 @@ frames. IK reduces the geometry to one angle around a wrist circle, reconstructs
 joint postures, and checks them against the complete FK pose.
 
 IK finds candidates with polynomial roots and geometric refinement, applies
-limits to coupled RoboDK commands, enumerates valid full turns, and ranks by
-squared command travel from the seed. Without a seed, ordering is lexicographic.
+limits to coupled RoboDK commands, and ranks valid full turns by squared command
+travel from the seed. Without a seed, ordering is lexicographic. When the turn
+catalogue exceeds the requested capacity, ordered selection can stop after
+establishing the ranked prefix and whether additional valid commands exist.
+It retains the same range/work guards and strict FK checks on returned commands.
 Complete coverage of singular families is not guaranteed.
+
+Restricted J6 and coupled J3 limits exclude incompatible wrist-angle domains
+before branch reconstruction. The exclusions allow for geometric refinement,
+pose tolerance and roundoff; ambiguous boundaries stay in the search. A pruned
+search without a validated result retries full discovery before constrained
+correction or seed fallback.
+
+With `max_solutions == 1` and `joints_approx`, IK first checks the seed and then
+follows its elbow branch in a bounded wrist-angle neighborhood. It returns the
+first nearby command passing the existing strict FK and joint-limit checks,
+without enumerating other roots or turns. This result need not be the globally
+closest solution. A local miss runs the ranked search above. Requests for
+multiple solutions and calls without a seed retain ranked selection across
+the discovered feasible branches.
 
 ## RoboDK callback contract
 

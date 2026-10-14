@@ -12,6 +12,7 @@ using JointPoseBuffer = std::array<PoseIsoRT, kDofCount + 1>;
 enum class IkStatus {
   StrictCandidates,
   StrictSeed,
+  StrictLocal,
   ApproximateSeed,
   NoCandidate,
   NoOutputRequested,
@@ -25,6 +26,8 @@ enum class IkStatus {
 // Numerical outcomes only: neither candidates nor an empty search certify
 // completeness/infeasibility. Failures contain no solutions. Truncation is a
 // successful ranked prefix, distinct from exhausted discovery/selection work.
+// With one output and a seed, StrictSeed/StrictLocal can return before full
+// discovery: no global ranking or truncation claim is made for that fast path.
 struct IkResult {
   IkStatus status = IkStatus::InvalidInput;
   bool truncated = false;

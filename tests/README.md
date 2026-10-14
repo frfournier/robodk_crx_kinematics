@@ -36,6 +36,8 @@ variables to select another build:
 | `test_crx_discovery.py`, `test_crx_adapter.py` | Seed-free witnesses, external baseline coverage and asset adaptation |
 | `test_baseline_comparison.py` | Comparison-report detection of gained/lost coverage and invalid commands |
 | `test_crx_command_turns.py`, `test_crx_solver_outcomes.py`, `test_crx_numerics.py` | Shared command limits, ranking, buffers, fallback and numerical guards |
+| `test_crx_nearby.py` | Single-output seed tracking across six assets, singularities, limits, transforms, turns, buffer packing and full-search fallback |
+| `test_crx_ranked.py` | Optional baseline comparison of restricted J3/J6 domains and ranked prefixes at capacities 1, 4 and 64; set `CRXKIN_BASELINE_LIBRARY_PATH` to the pre-optimization DLL |
 | `test_crx_solver_fixtures.py`, `test_crx_solver_family.py`, `test_crx_accuracy_stress.py` | Frozen corpus, independent holdouts and singularity/scale regressions |
 | `test_polynomial_roots.py`, `test_crx_polynomial_discovery.py` | Native probe compared with independent root/geometry references |
 | `test_crx_asset_bridge.py` | Captured asset frames and model mapping |

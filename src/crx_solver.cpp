@@ -10,6 +10,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include "crx_canonical.h"
 #include "crx_command_lifts.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
@@ -394,7 +395,8 @@ auto FinalizeIkCandidates(const std::vector<Vec6> &geometric_solutions,
       [&](const Vec6 &command) {
         return IsFkRoundtripValid(RemoveFanucJointCoupling(command),
                                   target_pose, target_quaternion, fk);
-      });
+      },
+      numerics::kCommandLiftBudget, CommandSelectionMode::RankedPrefix);
   if (selected.status != CommandSelectionStatus::Complete) {
     switch (selected.status) {
     case CommandSelectionStatus::InvalidInput:
@@ -488,6 +490,59 @@ struct ArmClassificationGeometry {
   Vec3 o4_point = Vec3::Zero();
   ClassificationTolerances tolerances{};
 };
+
+auto TryNearbySolution(const PreparedFk &fk, const canonical::Lengths &lengths,
+                       const PoseIsoRT &target, const PoseIsoRT &canonical_pose,
+                       const canonical::PoseTolerance &tolerance,
+                       const Vec6 &seed) -> IkResult {
+  IkResult result;
+  const auto &model = fk.model;
+  Vec6 command_seed = ApplyFanucJointCoupling(seed);
+  canonical::WristCircle circle;
+  // Preserve the canonical target validity gate even when the seed already
+  // passes FK, and avoid turn arithmetic outside its representable range.
+  if (canonical::PrepareWristCircle(lengths, canonical_pose, circle) !=
+          canonical::PreparationStatus::Ready ||
+      command_seed.cwiseAbs().maxCoeff() / kTwoPi > numerics::kMaxExactTurn ||
+      !ClampCommandToLimits(command_seed, model.lower_limits_rad,
+                            model.upper_limits_rad)) {
+    return result;
+  }
+  const Eigen::Quaterniond rotation(target.linear().cast<double>());
+  const Vec6 bounded_seed = RemoveFanucJointCoupling(command_seed);
+  if (IsFkRoundtripValid(bounded_seed, target, rotation, fk)) {
+    result.status = IkStatus::StrictSeed;
+    result.solutions.push_back(bounded_seed);
+    return result;
+  }
+  const auto nearby = canonical::DiscoverNearbyJointCandidates(
+      lengths, canonical_pose, tolerance, command_seed);
+  if (nearby.status != canonical::RecoveryStatus::Candidates) {
+    return result;
+  }
+  for (std::size_t i = 0; i < nearby.count; ++i) {
+    Vec6 command = nearby.candidates[i].joints;
+    // The bounded neighborhood spans less than half a turn: only the lift
+    // nearest the seed can belong to it. Other turns need no enumeration.
+    command +=
+        kTwoPi * ((command_seed - command) / kTwoPi).array().round().matrix();
+    if ((command - command_seed).cwiseAbs().maxCoeff() >
+            numerics::kNearbyRadiusRad ||
+        !ClampCommandToLimits(command, model.lower_limits_rad,
+                              model.upper_limits_rad)) {
+      continue;
+    }
+    const Vec6 user = RemoveFanucJointCoupling(command);
+    if (IsFkRoundtripValid(user, target, rotation, fk)) {
+      result.status = IkStatus::StrictLocal;
+      result.used_singular_representatives =
+          nearby.used_singular_representatives;
+      result.solutions.push_back(user);
+      return result;
+    }
+  }
+  return result;
+}
 
 auto BuildArmClassificationGeometry(const CrxModelData &model,
                                     const Vec6 &user_joints_rad,
@@ -617,8 +672,6 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
     target_pose_06 = convention_shift_transform * target_pose_06_raw;
   }
 
-  std::vector<Vec6> geometric_solutions;
-
   // The six supported CRX assets use these joint senses.
   // Keep model recognition/equivalence evidence in the Python asset oracle.
   // The existing DH guard and base/tool conversion above remain authoritative.
@@ -635,62 +688,101 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   const canonical::PoseTolerance tolerance{
       numerics::kSolutionPositionToleranceMm,
       numerics::kSolutionAngleToleranceRad};
-  const auto discovered =
-      canonical::DiscoverJointCandidates(lengths, target_pose_06, tolerance);
-  if (discovered.status != canonical::RecoveryStatus::Candidates &&
-      discovered.status != canonical::RecoveryStatus::NoCandidate) {
-    // Unresolved discovery must not be accepted through the seed policy.
-    result.status =
-        discovered.status == canonical::RecoveryStatus::InvalidInput
-            ? IkStatus::InvalidInput
-        : discovered.status == canonical::RecoveryStatus::NumericalRangeFailure
-            ? IkStatus::NumericalRangeFailure
-            : IkStatus::Unresolved;
-    return result;
-  }
-  result.used_singular_representatives =
-      discovered.used_singular_representatives;
-  // Every command still receives a complete FK check; only model constants
-  // are shared across those checks during this solve.
   const PreparedFk fk(model);
-  if (discovered.status == canonical::RecoveryStatus::Candidates) {
-    geometric_solutions.reserve(discovered.count);
-    for (std::size_t i = 0; i < discovered.count; ++i) {
-      // Discovery returns coupled canonical J3; the existing finalizer
-      // consumes decoupled user J3, then selects lifts in command coordinates.
-      Vec6 user = RemoveFanucJointCoupling(discovered.candidates[i].joints);
-      // Subtracting two canonical representatives can add a full J3 turn.
-      // Use principal geometric representatives before selecting command lifts.
-      NormalizeVecKeepSignedPi(user);
-      if (!IsFkRoundtripValid(user, target_pose, target_quaternion, fk)) {
-        result.status = IkStatus::Unresolved;
-        return result;
+  if (max_solutions == 1 && approx_joints_rad != nullptr) {
+    auto nearby = TryNearbySolution(fk, lengths, target_pose, target_pose_06,
+                                    tolerance, *approx_joints_rad);
+    if (!nearby.solutions.empty()) {
+      return nearby;
+    }
+  }
+  const auto finish = [&](const canonical::JointDiscovery &discovered,
+                          bool full_search) -> IkResult {
+    IkResult outcome;
+    std::vector<Vec6> geometric_solutions;
+    if (discovered.status != canonical::RecoveryStatus::Candidates &&
+        discovered.status != canonical::RecoveryStatus::NoCandidate) {
+      // Unresolved discovery must not be accepted through the seed policy.
+      outcome.status =
+          discovered.status == canonical::RecoveryStatus::InvalidInput
+              ? IkStatus::InvalidInput
+          : discovered.status ==
+                  canonical::RecoveryStatus::NumericalRangeFailure
+              ? IkStatus::NumericalRangeFailure
+              : IkStatus::Unresolved;
+      return outcome;
+    }
+    outcome.used_singular_representatives =
+        discovered.used_singular_representatives;
+    // Every command still receives a complete FK check; only model constants
+    // are shared across those checks during this solve.
+    if (discovered.status == canonical::RecoveryStatus::Candidates) {
+      geometric_solutions.reserve(discovered.count);
+      for (std::size_t i = 0; i < discovered.count; ++i) {
+        // Discovery returns coupled canonical J3; the existing finalizer
+        // consumes decoupled user J3, then selects lifts in command
+        // coordinates.
+        Vec6 user = RemoveFanucJointCoupling(discovered.candidates[i].joints);
+        // Subtracting two canonical representatives can add a full J3 turn.
+        // Use principal geometric representatives before selecting command
+        // lifts.
+        NormalizeVecKeepSignedPi(user);
+        if (!IsFkRoundtripValid(user, target_pose, target_quaternion, fk)) {
+          outcome.status = IkStatus::Unresolved;
+          return outcome;
+        }
+        geometric_solutions.push_back(user);
       }
-      geometric_solutions.push_back(user);
+    }
+
+    if (geometric_solutions.empty()) {
+      outcome.status = IkStatus::NoCandidate;
+      if (full_search) {
+        ApplyEmptySearchSeed(fk, target_pose, target_quaternion,
+                             approx_joints_rad, outcome);
+      }
+      return outcome;
+    }
+
+    auto finalized = FinalizeIkCandidates(geometric_solutions, fk, target_pose,
+                                          target_quaternion, approx_joints_rad,
+                                          max_solutions);
+    if (full_search && finalized.status == IkStatus::NoCandidate) {
+      const auto constrained = CorrectConstrainedCandidates(
+          geometric_solutions, model, lengths, target_pose_06, tolerance);
+      if (!constrained.empty()) {
+        finalized = FinalizeIkCandidates(constrained, fk, target_pose,
+                                         target_quaternion, approx_joints_rad,
+                                         max_solutions);
+      }
+    }
+    finalized.used_singular_representatives =
+        outcome.used_singular_representatives;
+    return finalized;
+  };
+  // A filtered miss must not authorize approximate seed fallback or omit a
+  // constrained nomination. Retry the original discovery before either.
+  if (model.upper_limits_rad[2] - model.lower_limits_rad[2] < kTwoPi ||
+      model.upper_limits_rad[5] - model.lower_limits_rad[5] < kTwoPi) {
+    canonical::DiscoveryOptions options;
+    options.lower_limits = &model.lower_limits_rad;
+    options.upper_limits = &model.upper_limits_rad;
+    const auto discovered = canonical::DiscoverJointCandidates(
+        lengths, target_pose_06, tolerance, options);
+    if (discovered.pruned_nominations == 0 &&
+        discovered.status == canonical::RecoveryStatus::Candidates) {
+      return finish(discovered, true);
+    }
+    if (discovered.status == canonical::RecoveryStatus::Candidates) {
+      auto filtered = finish(discovered, false);
+      if (!filtered.solutions.empty()) {
+        return filtered;
+      }
     }
   }
-
-  if (geometric_solutions.empty()) {
-    ApplyEmptySearchSeed(fk, target_pose, target_quaternion, approx_joints_rad,
-                         result);
-    return result;
-  }
-
-  auto finalized =
-      FinalizeIkCandidates(geometric_solutions, fk, target_pose,
-                           target_quaternion, approx_joints_rad, max_solutions);
-  if (finalized.status == IkStatus::NoCandidate) {
-    const auto constrained = CorrectConstrainedCandidates(
-        geometric_solutions, model, lengths, target_pose_06, tolerance);
-    if (!constrained.empty()) {
-      finalized =
-          FinalizeIkCandidates(constrained, fk, target_pose, target_quaternion,
-                               approx_joints_rad, max_solutions);
-    }
-  }
-  finalized.used_singular_representatives =
-      result.used_singular_representatives;
-  return finalized;
+  return finish(
+      canonical::DiscoverJointCandidates(lengths, target_pose_06, tolerance),
+      true);
 }
 
 } // namespace crx

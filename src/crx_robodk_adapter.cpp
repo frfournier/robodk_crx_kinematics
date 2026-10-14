@@ -136,6 +136,7 @@ auto IkResultToRoboDkReturn(const IkResult &result) -> int {
   switch (result.status) {
   case IkStatus::StrictCandidates:
   case IkStatus::StrictSeed:
+  case IkStatus::StrictLocal:
   case IkStatus::ApproximateSeed:
     if (result.solutions.empty() ||
         result.solutions.size() >
