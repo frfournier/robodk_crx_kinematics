@@ -1,6 +1,6 @@
 # FANUC CRX custom kinematics for RoboDK
 
-**Current release:** `0.3.1` ([changelog](CHANGELOG.md))
+**Current release:** `0.4.0` ([changelog](CHANGELOG.md))
 
 C++17 forward and inverse kinematics for FANUC CRX robots with a non-spherical
 wrist. Targets RoboDK **6.0.6.26901+**; Windows x64 and Linux Ubuntu 24.04 are the tested platform.

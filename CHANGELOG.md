@@ -3,6 +3,18 @@
 Release details are derived from the repository's commit history. Releases are
 not tagged, so abbreviated commit references are provided for traceability.
 
+## 0.4.0
+
+- Integrated polynomial IK discovery and geometric refinement as the production
+  solver, preserving the public C ABI (`4e74e9a`).
+- Improved singularity and boundary recovery, command-turn handling, and solver
+  throughput. Difficult singularities retain a measured latency tradeoff; see
+  [validation history](notes/testing-validation-history.md).
+- Added independent geometry, scale, accuracy and allocation regressions, with
+  comparisons against an external baseline snapshot.
+- Added frozen stress corpora and captured asset references; corrected the
+  ABBES-TABLE6 solution-4 configuration labels in the recorded fixtures.
+
 ## 0.3.1
 
 - Modernized the development container from the newer RoboDK Docker interface,
