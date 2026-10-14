@@ -61,7 +61,7 @@ def test_asset_target_only_discovery(discover, asset):
 
 
 @pytest.mark.parametrize("case_id", range(64))
-def test_legacy_discovery_witnesses_without_seed(discover, crx_10ia, case_id):
+def test_discovery_witnesses_without_seed(discover, crx_10ia, case_id):
     # Includes 8, 36, 42, 57 as ordinary passing requirements here. Existing
     # production xfails stay until the new path is integrated into SolveIK.
     user = discovery_joints(case_id)
@@ -93,7 +93,7 @@ def test_discovery_checker_detects_missing_and_duplicate_postures():
 
 
 @pytest.mark.parametrize("case", FIXTURES, ids=lambda case: case["name"])
-def test_recorded_postures_without_scanner(discover, case):
+def test_recorded_postures(discover, case):
     # All fixture targets must now be handled by the polynomial component.
     lengths = [540, 540, 160, 150]
     target = xyzwpr([*case["target"]["xyz_mm"], *np.radians(case["target"]["wpr_deg"])])
@@ -144,7 +144,7 @@ def test_snapshot_conditioning_regressions(discover, asset_index, q):
 
 
 @pytest.mark.parametrize("asset", ASSETS, ids=lambda asset: asset["asset"])
-def test_straight_arm_and_nearby_branches_without_scanner(discover, asset):
+def test_straight_arm_and_nearby_branches(discover, asset):
     dh = derive_model(asset)["dh"]
     lengths = [dh[2, 1], dh[3, 3], dh[5, 3], -dh[4, 3]]
     for offset in [-1e-4, -1e-8, 0, 1e-8, 1e-4]:

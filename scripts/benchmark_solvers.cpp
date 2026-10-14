@@ -43,7 +43,7 @@ auto Fail(const char *message) -> int {
 
 auto Run(int argc, char **argv) -> int {
   if (argc != 9 && argc != 10) {
-    std::cerr << "scanner.dll polynomial.dll input timings.csv solutions.csv "
+    std::cerr << "baseline.dll candidate.dll input timings.csv solutions.csv "
                  "repeats rounds capacity [fk]\n";
     return 2;
   }
@@ -162,7 +162,7 @@ auto Run(int argc, char **argv) -> int {
         const double us =
             std::chrono::duration<double, std::micro>(end - begin).count() /
             iterations;
-        const char *path = side == 0 ? "legacy" : "polynomial";
+        const char *path = side == 0 ? "baseline" : "candidate";
         const char *mode = fk ? "fk" : seeded ? "nearby_seed" : "no_seed";
         timings << index << ',' << mode << ',' << path << ',' << round << ','
                 << us << ',' << count << '\n';

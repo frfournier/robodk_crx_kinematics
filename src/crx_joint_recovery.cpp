@@ -1,6 +1,7 @@
 #include "crx_joint_recovery.h"
 #include "crx_canonical.h"
 #include "crx_incidence.h"
+#include "crx_joint_step.h"
 #include "crx_numerics.h"
 #include "crx_types.h"
 
@@ -11,8 +12,9 @@
 #include <limits>
 
 #include <Eigen/Cholesky>
+#include <Eigen/Geometry>
 #include <Eigen/LU>
-#include <Eigen/SVD>
+#include <Eigen/QR>
 
 namespace crx::canonical {
 namespace {
@@ -131,8 +133,9 @@ auto OrientationError(const Mat3 &actual, const Mat3 &target) -> double {
 }
 
 // Recompute from the recovered joint vector, not the elbow/wrist intermediates.
-auto ForwardPose(const Lengths &lengths, const Vec6 &q) -> PoseIsoRT {
-  const auto [r1, r2, r3, r4, r5] = JointRotations(q);
+auto ForwardPose(const Lengths &lengths, const Vec6 &q,
+                 const JointRotations &rotations) -> PoseIsoRT {
+  const auto &[r1, r2, r3, r4, r5] = rotations;
   PoseIsoRT pose = PoseIsoRT::Identity();
   const Mat3 r6 = RotateLocalX(r5, -q[5]);
   pose.linear().col(0) = r6.col(2);
@@ -144,10 +147,40 @@ auto ForwardPose(const Lengths &lengths, const Vec6 &q) -> PoseIsoRT {
   return pose;
 }
 
+auto ForwardPose(const Lengths &lengths, const Vec6 &q) -> PoseIsoRT {
+  return ForwardPose(lengths, q, JointRotations(q));
+}
+
+auto RecoverBaseFlip(const WristCircle &circle, const PoseIsoRT &target,
+                     const PoseTolerance &tolerance,
+                     const JointCandidate &first, JointCandidate &candidate)
+    -> bool {
+  // The base flip preserves the elbow point and R4, hence the complete pose,
+  // for unequal as well as equal arm lengths. Verify the rounded joint vector
+  // independently before using it in place of a second correction.
+  candidate = first;
+  auto &q = candidate.joints;
+  q[0] = std::remainder(q[0] + angle_conv::kPi, kTwoPi);
+  q[1] = -q[1];
+  q[2] = std::remainder(angle_conv::kPi - q[2], kTwoPi);
+  constexpr int wrist_roll = 3;
+  q[wrist_roll] = std::remainder(q[wrist_roll] + angle_conv::kPi, kTwoPi);
+  const auto forward = ForwardPose(circle.lengths, q);
+  candidate.position_error =
+      (target.translation() / circle.length_scale - forward.translation())
+          .norm() *
+      circle.length_scale;
+  candidate.orientation_error =
+      OrientationError(forward.linear(), target.linear());
+  return candidate.position_error <= tolerance.position &&
+         candidate.orientation_error <= tolerance.orientation;
+}
+
 using Jacobian = Eigen::Matrix<double, 6, 6>;
 
-auto BuildJacobian(const Lengths &l, const Vec6 &q) -> Jacobian {
-  const auto [r1, r2, r3, r4, r5] = JointRotations(q);
+auto BuildJacobian(const Lengths &l, const JointRotations &rotations)
+    -> Jacobian {
+  const auto &[r1, r2, r3, r4, r5] = rotations;
   const Vec3 elbow = l.a * r2.col(2);
   const Vec3 wrist = elbow + r4 * Vec3(l.b, -l.r, 0);
   const Vec3 flange = wrist + l.c * r5.col(0);
@@ -165,26 +198,28 @@ auto BuildJacobian(const Lengths &l, const Vec6 &q) -> Jacobian {
 
 auto SolveJointStep(const Jacobian &jacobian, const Vec6 &error,
                     bool improve_accuracy) -> Vec6 {
-  const Eigen::PartialPivLU<Eigen::Matrix<double, 6, 6>> lu(jacobian);
-  if (lu.rcond() > numerics::kSqrtEpsilon) {
-    const Vec6 correction = lu.solve(error);
-    if (correction.allFinite() &&
-        (jacobian * correction - error).norm() <=
-            numerics::kGeometryTolerance * error.norm()) {
-      return correction;
-    }
-  }
-  auto svd = jacobian.jacobiSvd<Eigen::ComputeFullU | Eigen::ComputeFullV>();
   if (improve_accuracy) {
-    svd.setThreshold(numerics::kSqrtEpsilon);
+    // Accuracy refinement truncates weakly observed directions within its
+    // small posture window, so use the rank-revealing correction directly.
+    return detail::SolveMinimumNormStep(jacobian, error, true);
   }
-  return svd.solve(error);
+  const Eigen::PartialPivLU<Eigen::Matrix<double, 6, 6>> lu(jacobian);
+  const Vec6 correction = lu.solve(error);
+  // A failed backward-error check already rejects this correction. Estimate
+  // conditioning only for a usable step; both acceptance checks still apply.
+  if (correction.allFinite() &&
+      (jacobian * correction - error).norm() <=
+          numerics::kGeometryTolerance * error.norm() &&
+      lu.rcond() > numerics::kSqrtEpsilon) {
+    return correction;
+  }
+  return detail::SolveMinimumNormStep(jacobian, error, improve_accuracy);
 }
 
 template <typename Residual>
-auto AdvanceJointStep(Vec6 &q, Vec6 &error, Vec6 correction,
-                      const Residual &residual, const Vec6 *lower,
-                      const Vec6 *upper) -> bool {
+auto AdvanceJointStep(Vec6 &q, Vec6 &error, JointRotations &rotations,
+                      Vec6 correction, const Residual &residual,
+                      const Vec6 *lower, const Vec6 *upper) -> bool {
   const double largest = correction.cwiseAbs().maxCoeff();
   if (largest > numerics::kPolishMaxStepRad) {
     correction *= numerics::kPolishMaxStepRad / largest;
@@ -195,10 +230,12 @@ auto AdvanceJointStep(Vec6 &q, Vec6 &error, Vec6 correction,
     if (lower != nullptr && upper != nullptr) {
       trial = trial.cwiseMax(*lower).cwiseMin(*upper);
     }
-    const Vec6 next = residual(trial);
+    const JointRotations trial_rotations(trial);
+    const Vec6 next = residual(trial, trial_rotations);
     if (next.allFinite() && next.squaredNorm() < error.squaredNorm()) {
       q = trial;
       error = next;
+      rotations = trial_rotations;
       return true;
     }
     correction *= .5;
@@ -223,6 +260,76 @@ auto MapIncidenceStatus(IncidenceStatus status) -> RecoveryStatus {
 }
 } // namespace
 
+auto detail::RotationVector(const Mat3 &rotation) -> Vec3 {
+  const double trace = rotation.trace();
+  if (trace > 0) {
+    const Vec3 skew(rotation(2, 1) - rotation(1, 2),
+                    rotation(0, 2) - rotation(2, 0),
+                    rotation(1, 0) - rotation(0, 1));
+    // In the positive-trace quaternion chart, vec/w = skew/(1+trace).
+    // Cancel the common normalization before computing angle times axis.
+    const double scalar = 1 + trace;
+    const double ratio_squared = skew.squaredNorm() / (scalar * scalar);
+    if (ratio_squared <=
+        numerics::kFourthRootEpsilon * numerics::kFourthRootEpsilon) {
+      // atan(t)/t = 1 - t^2/3 + t^4/5; the omitted term is at most
+      // epsilon^(3/2)/7 here, below binary64 rounding. Its limit is 1 at zero.
+      const double factor =
+          (2 / scalar) *
+          (1 + (ratio_squared * ((-1.0 / 3) + (ratio_squared / 5))));
+      return factor * skew;
+    }
+    const double magnitude = skew.norm();
+    return (2 * std::atan2(magnitude, scalar) / magnitude) * skew;
+  }
+  const Eigen::AngleAxisd angle_axis(rotation);
+  return angle_axis.angle() * angle_axis.axis();
+}
+
+auto detail::SolveMinimumNormStep(const Eigen::Matrix<double, 6, 6> &jacobian,
+                                  const Vec6 &error, bool improve_accuracy)
+    -> Vec6 {
+  Eigen::CompleteOrthogonalDecomposition<Jacobian> decomposition;
+  if (improve_accuracy) {
+    decomposition.setThreshold(numerics::kSqrtEpsilon);
+  }
+  decomposition.compute(jacobian);
+  const Eigen::Index rank = decomposition.rank();
+  if (rank == 0) {
+    return Vec6::Zero();
+  }
+  // A P = Q [T 0] Z. Solve T and apply the stored right reflectors to
+  // obtain the minimum-norm step. The six-vector workspace stays on stack;
+  // Eigen's general COD solve uses a dynamic temporary for this operation.
+  // Only the first rank coordinates enter the triangular solve. Subsequent
+  // left reflectors affect the tail that is discarded below.
+  Vec6 correction =
+      decomposition.householderQ().setLength(rank).adjoint() * error;
+  decomposition.matrixQTZ()
+      .topLeftCorner(rank, rank)
+      .template triangularView<Eigen::Upper>()
+      .solveInPlace(correction.head(rank));
+  correction.tail(6 - rank).setZero();
+  if (rank == 6) {
+    return decomposition.colsPermutation() * correction;
+  }
+  for (Eigen::Index k = 0; k < rank; ++k) {
+    if (k != rank - 1) {
+      std::swap(correction[k], correction[rank - 1]);
+    }
+    const auto tail = decomposition.matrixQTZ().row(k).tail(6 - rank);
+    const double amount =
+        decomposition.zCoeffs()[k] *
+        (correction[rank - 1] + tail.dot(correction.tail(6 - rank)));
+    correction[rank - 1] -= amount;
+    correction.tail(6 - rank) -= amount * tail.transpose();
+    if (k != rank - 1) {
+      std::swap(correction[k], correction[rank - 1]);
+    }
+  }
+  return decomposition.colsPermutation() * correction;
+}
+
 auto PoseTolerance::IsValid() const -> bool {
   return std::isfinite(position) && position > 0 &&
          std::isfinite(orientation) && orientation > 0 &&
@@ -246,20 +353,27 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
   }
   const auto &l = circle.lengths;
   const Vec3 position = target.translation() / circle.length_scale;
-  auto residual = [&](const Vec6 &q) -> Vec6 {
-    const auto pose = ForwardPose(l, q);
-    const Eigen::AngleAxisd rotation(target.linear() *
-                                     pose.linear().transpose());
+  auto residual = [&](const Vec6 &q, const JointRotations &rotations) -> Vec6 {
+    const auto pose = ForwardPose(l, q, rotations);
     Vec6 error;
     error.head<3>() = position - pose.translation();
-    error.tail<3>() = rotation.angle() * rotation.axis();
+    const Mat3 rotation = target.linear() * pose.linear().transpose();
+    if (improve_accuracy) {
+      error.tail<3>() = detail::RotationVector(rotation);
+    } else {
+      const Eigen::AngleAxisd angle_axis(rotation);
+      error.tail<3>() = angle_axis.angle() * angle_axis.axis();
+    }
     return error;
   };
   Vec6 q = candidate.joints;
   if (lower != nullptr && upper != nullptr) {
     q = q.cwiseMax(*lower).cwiseMin(*upper);
   }
-  Vec6 error = residual(q);
+  // The accepted trial's rotations also define the next Jacobian. Reusing
+  // them avoids repeating trigonometry without changing the step or gates.
+  JointRotations rotations(q);
+  Vec6 error = residual(q, rotations);
   for (int iteration = 0; iteration < budget; ++iteration) {
     if (error.isZero(improve_accuracy ? numerics::kAccurateCorrectionTolerance
                                       : numerics::kPoseCorrectionTolerance) &&
@@ -267,7 +381,7 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
         error.tail<3>().norm() <= tolerance.orientation) {
       break;
     }
-    Jacobian jacobian = BuildJacobian(l, q);
+    Jacobian jacobian = BuildJacobian(l, rotations);
     Vec6 step = SolveJointStep(jacobian, error, improve_accuracy);
     if (lower != nullptr && upper != nullptr) {
       bool active = false;
@@ -285,7 +399,7 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
     if (!step.allFinite()) {
       return false;
     }
-    if (!AdvanceJointStep(q, error, step, residual, lower, upper)) {
+    if (!AdvanceJointStep(q, error, rotations, step, residual, lower, upper)) {
       if (!improve_accuracy) {
         break;
       }
@@ -296,14 +410,14 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
       normal.diagonal().array() +=
           std::max(numerics::kEpsilon, .001 * error.norm());
       const Vec6 damped = normal.ldlt().solve(jacobian.transpose() * error);
-      if (!damped.allFinite() ||
-          !AdvanceJointStep(q, error, damped, residual, lower, upper)) {
+      if (!damped.allFinite() || !AdvanceJointStep(q, error, rotations, damped,
+                                                   residual, lower, upper)) {
         break;
       }
     }
   }
   candidate.position_error = error.head<3>().norm() * circle.length_scale;
-  // AngleAxis drives the update, but can round a tiny symmetric matrix defect
+  // The rotation logarithm can round a tiny symmetric matrix defect
   // to zero. Use the same full-matrix closure gate as direct recovery so an
   // unrealistically tight caller tolerance cannot publish that posture.
   candidate.orientation_error =
@@ -317,10 +431,12 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
   return true;
 }
 
-auto RefineJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
-                           double wrist_angle, const PoseTolerance &tolerance,
-                           int budget, double radius,
-                           bool singular_representatives) -> JointRecovery {
+auto JointRefiner::Refine(double wrist_angle, double radius,
+                          bool singular_representatives) -> JointRecovery {
+  const auto &lengths = lengths_;
+  const auto &target = target_;
+  const auto &tolerance = tolerance_;
+  const int budget = budget_;
   JointRecovery result;
   result.status = RecoveryStatus::NeedsRefinement;
   WristCircle circle;
@@ -338,6 +454,31 @@ auto RefineJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                      std::min(std::abs(a), std::abs(b)) &&
       numerics::Scalar(std::abs(a))
           .isApproxToConstant(std::abs(b), numerics::kDirectionTolerance);
+  const auto in_window = [&](const JointRecovery &raw) {
+    JointRecovery filtered;
+    filtered.status = RecoveryStatus::NeedsRefinement;
+    for (std::size_t i = 0; i < raw.count; ++i) {
+      const auto &candidate = raw.candidates[i];
+      const Vec6 &q = candidate.joints;
+      const Mat3 r4 = (Eigen::AngleAxisd(q[0], Vec3::UnitZ()) *
+                       Eigen::AngleAxisd(q[1] - q[2], Vec3::UnitY()) *
+                       Eigen::AngleAxisd(-q[3], Vec3::UnitX()))
+                          .toRotationMatrix();
+      const double corrected =
+          std::atan2(r4.col(1).dot(circle.w), r4.col(1).dot(circle.v));
+      if (std::abs(std::remainder(corrected - wrist_angle, kTwoPi)) <= radius) {
+        filtered.candidates[filtered.count++] = candidate;
+      }
+    }
+    if (filtered.count > 0) {
+      filtered.status = RecoveryStatus::Candidates;
+      filtered.used_singular_representatives = folded;
+    }
+    return filtered;
+  };
+  if (folded && have_folded_) {
+    return in_window(folded_);
+  }
   std::array<Vec3, 4> elbows;
   std::size_t elbow_count = 2;
   Vec3 folded_point = x;
@@ -410,31 +551,34 @@ auto RefineJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
             : elbow;
     WristPhase base;
     NormalizePhase(base_point.y(), base_point.x(), base);
+    JointCandidate first;
+    bool have_first = false;
     for (const auto &phase : {base, WristPhase{-base.cosine, -base.sine}}) {
       JointCandidate candidate;
+      // Pair the folded-elbow postures through their exact base symmetry.
+      // Extended-elbow nominations retain independent corrections: these can
+      // converge to distinct nearby representatives at an arm tangency.
+      if (have_first && first.joints[2] < 0 &&
+          RecoverBaseFlip(circle, target, tolerance, first, candidate)) {
+        result.candidates[result.count++] = candidate;
+        continue;
+      }
       if (!RecoverAtBase(phase, circle.lengths, target.linear(), point, u,
                          elbow, candidate.joints, true) ||
           !PolishJointCandidate(lengths, target, tolerance, budget,
                                 candidate)) {
         continue;
       }
-      const Vec6 &q = candidate.joints;
-      const Mat3 r4 = (Eigen::AngleAxisd(q[0], Vec3::UnitZ()) *
-                       Eigen::AngleAxisd(q[1] - q[2], Vec3::UnitY()) *
-                       Eigen::AngleAxisd(-q[3], Vec3::UnitX()))
-                          .toRotationMatrix();
-      const double corrected =
-          std::atan2(r4.col(1).dot(circle.w), r4.col(1).dot(circle.v));
-      if (std::abs(std::remainder(corrected - wrist_angle, kTwoPi)) <= radius) {
-        result.candidates[result.count++] = candidate;
-      }
+      first = candidate;
+      have_first = true;
+      result.candidates[result.count++] = candidate;
     }
   }
-  if (result.count > 0) {
-    result.status = RecoveryStatus::Candidates;
-    result.used_singular_representatives = folded;
+  if (folded) {
+    folded_ = result;
+    have_folded_ = true;
   }
-  return result;
+  return in_window(result);
 }
 
 auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,

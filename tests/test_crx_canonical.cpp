@@ -154,7 +154,7 @@ void TestResidualsAndCanonicalWitnesses() {
     CheckCharts(Prepare(lengths, target));
 
     // Independent canonical transform product (appendix G1) constructs a known
-    // incidence witness. No scanner or native production FK supplies the pose.
+    // incidence witness. Native production FK does not supply the pose.
     PoseIsoRT fixed = PoseIsoRT::Identity();
     fixed.linear() << 0, 0, 1, 0, -1, 0, 1, 0, 0;
     const auto shoulder =

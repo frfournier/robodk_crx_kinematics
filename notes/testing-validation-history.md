@@ -5,6 +5,312 @@ counts and implementation descriptions below record successive investigations
 and can describe earlier states. Use [the testing guide](../tests/README.md)
 for current entry points and suite organization.
 
+## 2026-10-13: baseline validation and correction cost
+
+### Accepted tradeoff and local merge preparation
+
+The user accepted the measured tradeoff and requested cleanup and merge into
+local `main`. The implementation uses one polynomial solver, preserves the
+public C ABI, and keeps comparison to the external snapshot at
+`baseline/pre-polynomial-2026-10-13`. Release version 0.3.1 is unchanged; the
+version bump remains with the user. No remote push or RoboDK deployment is part
+of this integration.
+
+The final capacity-one check closes the saved plan's small-buffer measurement:
+all 3929 reachable targets solve strictly in both modes, with zero invalid
+candidate commands. Every selected command (7858 case/mode rows, including
+signed zeros and full turns) exactly matches the capacity-512 result. Baseline
+strict solves are 3748 unseeded / 3672 seeded, giving 181 / 257 gains with none
+lost. These gains differ from capacity 64 because strict validation checks every
+returned command. Common-success mean speedup is 1.434x / 1.433x; unseeded
+reachable p95 is 98.49 versus 48.59 us and mixed p95 177.15 versus 50.50 us.
+The measurement uses nine paired rounds of eight native calls and the same
+verified DLL as the final Release workflow. Source/DLL hashes match. Evidence:
+`build/merge-final-audit/capacity-one/` and `capacity-audit.json`.
+
+The final patch audit finds no temporary profiling hooks or backend-selection
+references in active code/tests. Relative to the pre-cleanup branch commit,
+the 4313-case corpus changes only 64 names and group labels; numeric inputs are
+unchanged. The complete branch also includes intentional frozen corpus/asset
+reference additions and the previously recorded ABBES-TABLE6 solution-4
+configuration-label correction (`UD=D`, `TB=B`) in the CSV and generated JSON.
+Robot asset binaries are unchanged. The full Release gate and numerical limits
+are recorded below; no solver edits followed that successful gate.
+
+### Latest folded-arm refinement follow-up
+
+Folded-elbow correction derives the opposite base posture from the first
+corrected posture using the canonical base symmetry. The identity holds for
+unequal arm lengths as well as equal ones. The rounded joint vector receives
+full FK validation; failed validation falls back to independent correction.
+Extended-elbow nominations retain independent correction. Wrist windows,
+physical tolerances, ranking, command limits and the C ABI are unchanged.
+New allocation-guarded native tests check both base postures with unequal arms,
+both wrist-offset signs and three length scales using independent FK.
+
+Final five-round, capacity-512 paired comparisons against the preceding verified
+DLL retain every strict solve and known witness, with zero invalid outputs.
+Unseeded mixed-singularity p95 falls from 217.76 to 180.00 microseconds on the
+original corpus and 197.07 to 166.59 on the independently scaled corpus: 17.3%
+and 15.5% reductions. Overall common-success mean ratios are 1.072x and 1.085x;
+mixed ratios are 1.172x and 1.163x. All five paired rounds improve both means.
+Reachable p95 falls from 119.11 to 104.49 and 146.98 to 127.28 respectively.
+
+This change does alter singular-family representatives. Counts change on 264
+original and 252 scaled case/mode rows. Maximum preceding-to-current absolute
+command distances, including turns, are 0.0489134 and 0.00105023 degrees; reverse
+distances are 0.000590813 and 0.00180056 degrees. On 28 original case/mode rows,
+150 preceding commands have no current counterpart within the 0.009-degree
+witness convention. All 17 sampled interpolation points between each such
+command and its nearest replacement pass strict independent FK (maximum
+2.81108e-5 mm / 7.56853e-6 degrees). This supports a change of near-family
+representatives, but is not a proof of exhaustive branch preservation. Recorded
+generating witnesses and existing fixture-count assertions are all preserved.
+
+The final nine-round comparison to `baseline/pre-polynomial-2026-10-13`
+(`b837dc85c16384a34f575357d383b5db2017dec2`) retains 484 additional strict solves
+per seed mode, no lost strict solves or known witnesses, and zero invalid
+candidate commands. It solves all 3929 reachable poses and rejects all 384
+unreachable controls. Common-success throughput is 1.320x unseeded / 1.331x
+seeded; regular-pose ratios are 2.132x / 2.153x.
+
+**The measured tradeoff was subsequently accepted for local integration.** Unseeded
+reachable p95 is 97.63 versus 46.26 microseconds for the baseline. On the 3445
+common strict successes it is 90.92 versus 46.59; mixed p95 is 173.72 versus
+48.11. Seeded reachable p95 is 97.25 versus 46.92. These quantiles describe
+per-pose median batch times, not individual-call deadlines. The user selected
+review of this tradeoff after further improvement rather than a fixed p95 target.
+
+The final Release workflow passes all five targets: 14016 Python regression
+passes, 89 opt-in live RoboDK skips, one existing import warning, and 8640
+reliability passes. The new local-refinement test initially assumed uniqueness
+before discovery deduplication; that new assertion was corrected without
+changing existing uniqueness checks. New readability warnings were resolved;
+existing Eigen/index diagnostics remain visible. DLL/source hashes and all four
+C export names/ordinals are verified. Commands, rejected narrower variants,
+absolute-command audits, full gate logs and final measurements are under
+`build/folded-dual/`; final snapshots are `final-existing/`, `final-stress/` and
+`main-comparison/`. No new fixture or asset data changes occurred in this
+follow-up. Live RoboDK, qmake and unsupported-platform checks remain unrun.
+No version bump, commit, merge or deployment occurred.
+
+### Preceding accuracy-residual follow-up
+
+Bounded accuracy refinement computes its rotation logarithm without redundant
+quaternion normalization. A small-angle series replaces `atan2` only where its
+omitted term is below binary64 rounding; larger rotations retain general
+evaluation. Geometric recovery retains its Eigen AngleAxis calculation, and
+final acceptance still checks the full orientation matrix. Pose, rank, posture
+window and command-limit thresholds are unchanged. Native tests cover signed
+subnormal angles, the series/chart boundaries, pi, matrix roundoff and allocation
+guards. Applying the formula throughout geometric recovery was rejected after
+it moved some singular-family commands by up to 0.036 degrees.
+
+The retained accuracy-only variant preserves every strict solve and known
+witness in both capacity-512 corpora, with no invalid commands. Audits in both
+seed modes include full-turn choices: every preceding command has a counterpart
+within 8.65e-8 degrees original and 1.30e-6 degrees scaled. Newly retained
+representatives have reverse distances at most 0.000332 and 2.62e-6 degrees.
+Counts differ on 40 original and 104 scaled case/mode rows; this is not an
+exact-output claim.
+
+Five paired rounds reduce mixed-singularity p95 by 0.7–4.0% across both corpora
+and seed modes. Unseeded p95 changes from 243.70 to 236.80 microseconds original
+and 216.13 to 214.60 scaled; seeded values change from 242.27 to 232.68 and
+218.33 to 211.74. Mixed mean ratios are 1.022–1.032x. Overall gains are modest,
+and folded-arm p95 does not improve in these paired samples.
+
+The final Release workflow passes all five targets: 14016 Python regression
+passes, 89 opt-in live RoboDK skips, one existing import warning, and 8640
+reliability passes. New formula/test readability warnings were fixed without
+weakening assertions or lint rules. The paired-test and final DLLs have identical
+contents in every PE section, including executable code and constants.
+
+The final nine-round baseline run retains all 484 strict gains per mode, with
+no lost strict solves or known witnesses and zero invalid candidate commands.
+Overall common-success ratios are 1.234x unseeded and 1.248x seeded; regular
+ratios are 2.123x and 2.142x. **Merge readiness remains open:** unseeded reachable
+p95 is 122.40 versus 50.68 microseconds, common-success p95 108.61 versus 51.07,
+and mixed p95 233.38 versus 52.01. These are per-pose median batch-time quantiles.
+Current DLL/source hashes and the unchanged C ABI are verified. Commands, audits,
+rejected variants and final evidence are under `build/refinement-rotation/`, with
+the final baseline report in `main-final/`. No version bump, commit, merge or
+deployment occurred. Live RoboDK, qmake and unsupported-platform checks remain
+unrun.
+
+### Preceding command-finalization follow-up
+
+Command selection prepares its joint-limit roundoff allowances once per solve.
+Duplicate postures are discarded before their redundant phase validation;
+every retained lifted command still receives full FK validation. Integer-turn
+bound calculations preserve their subtraction order. Limits, tolerances,
+ranking and seed preservation are unchanged. Five-round capacity-512 comparisons
+preserve all 384216 ordered command rows exactly, including signed zeros and
+turn choices, across the original and independent scaled corpora.
+
+The retained change improves overall common-success throughput by 3.26% original
+and 2.75% scaled, with regular-pose improvements of 5.17% and 4.92%. Singularity
+tail evidence is mixed: unseeded mixed p95 is 251.63 to 252.02 microseconds on the
+original corpus and 224.19 to 216.68 scaled. This is not a consistent tail gain.
+A separate fixed-rank triangular-solve experiment was rejected: overall timing
+was effectively unchanged, tail results varied by seed mode, and very close
+representatives changed. The correction source was restored exactly.
+
+The final Release workflow passes all five targets: 14016 Python regression
+passes, 89 opt-in live RoboDK skips, one existing import warning, and 8640
+reliability passes. New const/reference-member lint warnings were resolved by
+using a plain data aggregate; existing include/index and Eigen diagnostics remain
+visible. No checks or lint rules were weakened.
+
+The refreshed nine-round external-baseline comparison retains all 484 strict
+gains per mode, zero lost strict solves or known witnesses, and zero invalid
+candidate commands. Overall ratios are 1.220x unseeded and 1.232x seeded;
+regular-pose ratios are 2.122x and 2.138x. **Merge readiness remains open:**
+unseeded reachable p95 is 124.08 versus 49.42 microseconds, common-success p95
+111.40 versus 49.83, and mixed p95 232.74 versus 50.77. These are per-pose median
+batch-time quantiles. Source/DLL hashes and unchanged public C header/export
+names/ordinals are verified. Commands, audits, rejected experiment and reports
+are under `build/prepared-command-limits/`. Live RoboDK, qmake and unsupported
+platform checks were not run; no version bump, commit, merge or deployment.
+
+### Preceding candidate-deduplication follow-up
+
+Discovery now stops a posture comparison at the first differing joint and stops
+searching after finding a duplicate. Differences within pi use their absolute
+value directly; wider differences retain the same remainder calculation. The
+posture identity tolerance, candidate order and retained representatives are
+unchanged. Full-capacity comparisons against the preceding verified DLL preserve
+all 200870 original and 183346 scaled command rows exactly, including signed
+zeros, ordering and turn choices. Independent FK finds no invalid commands.
+
+Five paired rounds show common-success mean ratios of 1.044x on both corpora.
+Mixed-singularity mean ratios are 1.051x original and 1.049x scaled, with a gain
+in all five rounds. Mixed p95 falls from 252.17 to 246.71 microseconds original
+and 232.44 to 219.39 scaled; all-reachable p95 falls from 140.23 to 130.39 and
+167.43 to 159.05 respectively. The earlier early-exit-only experiment is retained
+separately; its measurements are not combined with these paired results.
+
+After fixing two formatting lines, the full Release workflow passes all five
+CTest targets: 14016 Python regression passes, 89 opt-in live RoboDK skips, one
+existing import warning, and 8640 reliability passes. The refreshed nine-round
+external baseline run solves all 3929 reachable poses in both seed modes,
+retaining 484 gains, no lost strict solves or known witnesses, and no invalid
+candidate commands. Common-success ratios are 1.174x unseeded and 1.183x seeded;
+regular random ratios are 2.009x and 2.023x.
+
+**Merge readiness remains open for singularity latency.** Unseeded reachable
+p95 is 125.89 microseconds versus 48.93 for the baseline. On the 3445 common
+strict successes, p95 is 112.24 versus 49.13; mixed-singularity p95 is 235.63
+versus 50.64. These are quantiles of per-pose median batch times.
+
+The final DLL and recorded source hashes match the worktree. The public C header
+and all four export names/ordinals are unchanged. Commands, exact-output audits,
+paired results and the full gate log are under `build/dedup-short-circuit/`.
+Live RoboDK, qmake and unsupported-platform checks were not run. There was no
+version bump, commit, merge or deployment.
+
+### Preceding accuracy-refinement follow-up
+
+Accuracy refinement now uses the rank-revealing minimum-norm correction directly;
+geometric nomination correction retains its LU condition and backward-error
+checks. Removing LU from geometric correction still fails the existing MIN_Z
+count regression, so that change was rejected without changing the assertion.
+The QR correction applies only the first `rank` left reflectors: later ones affect
+the discarded tail. Native coverage now includes folded-arm/wrist accuracy
+refinement at three length scales, independent strict FK, posture-window bounds
+and allocation guards. Pose, rank and command-limit thresholds are unchanged.
+
+Five paired capacity-512 rounds against the preceding candidate retain every
+strict solve and known witness, with no invalid commands. Mixed-singularity p95
+falls from 256.08 to 244.38 microseconds on the original corpus and from 241.94 to
+231.05 microseconds on the independent scaled corpus, about 4.5% in both.
+Counts of very close representatives differ on 12 original and 15 scaled poses
+(in both seed modes); this is not an exact-output claim for the method change.
+Every preceding absolute command, including its turn choice, has a counterpart
+within 4.51e-8 degrees on the original corpus and 3.07e-6 degrees on the scaled
+corpus. The reverse distances are at most 1.24e-7 and 1.34e-6 degrees. A separate
+full-capacity check confirms the reflector truncation alone preserves all 384216
+ordered command rows exactly, including signed zeros; its one-round timings are
+not used as performance evidence.
+
+The final Release workflow again passes all five CTest targets, including 14016
+Python passes and 89 opt-in live RoboDK skips, with the external baseline enabled.
+The new nine-round baseline comparison is 1.127x faster overall unseeded and
+1.135x seeded on common strict successes. Both modes solve all 3929 reachable
+poses, gaining 484 strict solves with none lost, no lost known witnesses and no
+invalid candidate commands. Regular random poses are 1.958x/1.973x faster.
+
+**Merge readiness remains open for singularity latency.** All-reachable unseeded
+p95 is 133.78 microseconds versus 49.25 for the baseline; on the 3445 common strict
+successes it is 120.12 versus 49.58. Mixed-singularity p95 is 239.62 versus 50.30
+microseconds. These are per-pose median quantiles, not individual-call jitter.
+
+The measured final DLL and source hashes match the worktree. The public C header
+and four export names/ordinals remain unchanged. Commands, failed experiments,
+absolute and modulo-turn catalogue audits, accuracy distributions, full-workflow
+output and the final baseline report are under `build/correction-policy/`.
+Additional rejected cost investigations are under `build/correction-reuse/`
+and `build/inverse-condition/`. No version bump, commit, merge or deployment
+occurred; live RoboDK, qmake and unsupported-platform checks were not run.
+
+### Preceding correction-cost measurement
+
+The current production build uses polynomial discovery, with comparisons against
+an independently built snapshot DLL. The baseline is
+`baseline/pre-polynomial-2026-10-13`, commit
+`b837dc85c16384a34f575357d383b5db2017dec2` (also `main` at measurement time).
+The public C ABI header and the four exported names/ordinals are unchanged.
+Fixture witness labels were made implementation-neutral; numeric fixture and
+robot asset values are unchanged. The release version remains `0.3.1`.
+
+A joint-limit regression now checks that a recovered posture just outside a
+boundary is retained after exact-boundary nomination and strict full FK, even
+when other feasible postures exist. Twelve cases cover both seed modes, shifted
+turn intervals, and an intentionally excluded witness. Limits and physical pose
+tolerances were not relaxed.
+
+Correction reuses each accepted trial's joint rotations for the next Jacobian.
+It also checks the LU correction's backward error before estimating conditioning;
+both original acceptance requirements remain. Five paired timing rounds at
+capacity 512 show mixed-singularity speedups of 1.080x on the original corpus
+and 1.115x on the independent scaled corpus. Mixed p95 improves from 272.20 to
+251.94 microseconds and from 270.31 to 242.91 microseconds respectively. Every
+ordered command value, including signed zeros, remains identical across 200756
+original-corpus rows and 183282 scaled-corpus rows. Two condition-bound shortcuts
+were discarded after complete-solver timing failed to justify them.
+
+The final Windows x64 clang-cl Release workflow passed all five CTest targets,
+including 14016 Python tests with the external baseline enabled. The 89 skips
+are opt-in live RoboDK tests. Formatting and clang-tidy ran; existing Eigen
+analyzer diagnostics and the RoboDK import warning were not suppressed. Live
+RoboDK, qmake and unsupported-platform checks were not run; no deployment occurred.
+
+A fresh baseline comparison on the i7-12700H used 4313 poses from six captured
+assets, capacity 64, nine paired rounds and eight calls per timing batch. Both
+seed modes retain all 3929 reachable strict solves, versus 3445 for the baseline:
+484 gains, no lost strict solves, no lost known witnesses, and no invalid
+candidate commands. Common-success mean speedups are 1.108x unseeded and 1.120x
+seeded; regular random poses are 1.962x and 1.978x faster.
+
+**Singularity latency remains an open merge requirement.** All-reachable p95 is
+139.78 microseconds unseeded versus 48.85 for the baseline. Restricting to the
+3445 targets strictly solved by both still gives 125.05 versus 49.15 microseconds.
+These quantiles describe per-pose timing medians, not individual-call jitter.
+The paired optimization results above are capacity-512 comparisons against the
+preceding candidate and must not be substituted for this baseline comparison.
+
+Reproduction follows [the testing guide](../tests/README.md): run
+`cmake --workflow --preset windows-clang-release-verify` with the external
+baseline configured, then `scripts/benchmark_solvers.py` with `--rounds 9
+--repeats 8` and the baseline revision above. Local command logs and raw evidence
+are retained under `build/boundary-recovery/`, `build/rotation-reuse/` and
+`build/residual-order/`; the final baseline report is
+`build/residual-order/main-comparison/report.md`. Paired optimization artifacts
+use `benchmark_accuracy.py --capacity 512 --rounds 5 --repeats 3` for both
+`--corpus existing` and `--corpus stress`.
+
+## Earlier validation archive
+
 The test suite covers the native C ABI, fixture-based forward and inverse
 kinematics, version metadata, and live RoboDK integration.
 

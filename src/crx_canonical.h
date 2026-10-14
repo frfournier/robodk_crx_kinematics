@@ -5,7 +5,7 @@
 
 #include "crx_types.h"
 
-// Internal comparison kernel for appendix G2/G4 in
+// Canonical geometry kernel for appendix G2/G4 in
 // notes/crx-implementation-review.md. Not a robot-model adapter or IK solver.
 namespace crx::canonical {
 

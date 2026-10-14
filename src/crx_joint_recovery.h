@@ -64,11 +64,26 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
 
 // Bounded full-pose correction of a geometric nomination. No random/joint-seed
 // search: accepted postures must remain in the nominated wrist-phase window.
-auto RefineJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
-                           double wrist_angle, const PoseTolerance &tolerance,
-                           int budget, double radius,
-                           bool singular_representatives = true)
-    -> JointRecovery;
+class JointRefiner {
+public:
+  JointRefiner(const Lengths &lengths, const PoseIsoRT &target,
+               const PoseTolerance &tolerance, int budget)
+      : lengths_(lengths), target_(target), tolerance_(tolerance),
+        budget_(budget) {}
+
+  auto Refine(double wrist_angle, double radius,
+              bool singular_representatives = true) -> JointRecovery;
+
+private:
+  const Lengths &lengths_;
+  const PoseIsoRT &target_;
+  const PoseTolerance &tolerance_;
+  int budget_;
+  // Folded representative seeds depend only on this immutable target problem.
+  // Cache their full-pose correction, then apply each nomination's own window.
+  bool have_folded_ = false;
+  JointRecovery folded_;
+};
 
 // Canonical command coordinates; optional limits constrain every trial.
 // improve_accuracy uses a tighter stopping target, truncated singular

@@ -19,6 +19,7 @@ struct RecoveryProblem {
   const PoseIsoRT &target;
   const WristCircle &circle;
   const PoseTolerance &tolerance;
+  JointRefiner &refiner;
 };
 
 auto ClosestWristAngle(const WristCircle &circle) -> double {
@@ -211,14 +212,22 @@ auto AppendUnique(const Recovery &recovered, Output &output) -> bool {
     const auto &candidate = recovered.candidates[i];
     bool duplicate = false;
     for (std::size_t j = 0; j < output.count; ++j) {
-      const double difference =
-          (candidate.joints - output.candidates[j].joints)
-              .unaryExpr([](double angle) {
-                return std::remainder(angle, 2 * angle_conv::kPi);
-              })
-              .cwiseAbs()
-              .maxCoeff();
-      duplicate = duplicate || difference <= numerics::kJointPhaseToleranceRad;
+      duplicate = true;
+      for (int joint = 0; joint < kDofCount; ++joint) {
+        const double difference = std::abs(candidate.joints[joint] -
+                                           output.candidates[j].joints[joint]);
+        const double phase_difference =
+            difference <= angle_conv::kPi
+                ? difference
+                : std::abs(std::remainder(difference, 2 * angle_conv::kPi));
+        if (phase_difference > numerics::kJointPhaseToleranceRad) {
+          duplicate = false;
+          break;
+        }
+      }
+      if (duplicate) {
+        break;
+      }
     }
     if (!duplicate) {
       if (output.count == output.candidates.size()) {
@@ -243,7 +252,7 @@ auto RefineElbowBranch(const RecoveryProblem &problem,
                        const JointRecovery &direct, ElbowEvaluator evaluate,
                        double sign, const PolishWindow &window, double &angle)
     -> JointRecovery {
-  const auto &[lengths, target, circle, tolerance] = problem;
+  const auto &[lengths, target, circle, tolerance, refiner] = problem;
   const auto [initial_angle, budget, radius] = window;
   for (int iteration = 0; iteration <= budget; ++iteration) {
     ElbowResidual residual;
@@ -291,7 +300,7 @@ auto RefineElbowBranch(const RecoveryProblem &problem,
 auto PolishAndRecover(const RecoveryProblem &problem, double initial_angle,
                       int budget, double radius, bool ill_conditioned)
     -> PolishedRecovery {
-  const auto &[lengths, target, circle, tolerance] = problem;
+  const auto &[lengths, target, circle, tolerance, refiner] = problem;
   PolishedRecovery accepted;
   const auto direct =
       RecoverJointCandidates(lengths, target, initial_angle, tolerance);
@@ -347,8 +356,7 @@ auto PolishAndRecover(const RecoveryProblem &problem, double initial_angle,
         // separately, regardless of the joint deduplication tolerance.
         if (!have_correction ||
             !numerics::IsRepresentedZero(angle - corrected_angle)) {
-          cached_correction = RefineJointCandidates(
-              lengths, target, angle, tolerance, budget, remaining, false);
+          cached_correction = refiner.Refine(angle, remaining, false);
           corrected_angle = angle;
           have_correction = true;
         }
@@ -368,8 +376,7 @@ auto PolishAndRecover(const RecoveryProblem &problem, double initial_angle,
       return accepted;
     }
   }
-  const auto fallback = RefineJointCandidates(lengths, target, initial_angle,
-                                              tolerance, budget, radius);
+  const auto fallback = refiner.Refine(initial_angle, radius);
   accepted.status = fallback.status;
   if (!AppendUnique(fallback, accepted)) {
     return {};
@@ -512,6 +519,16 @@ auto NominateRoot(const HalfAnglePolynomial &polynomial,
                                     std::abs(std::remainder(
                                         angle - other, 2 * angle_conv::kPi)));
     }
+    // Rounded coefficients can split a multiple root into nearby real roots.
+    // A disjoint window is useful only when its linearized change exceeds
+    // the coefficient roundoff budget. Otherwise neither window may contain
+    // the geometric root. Keep both nominations and recover both elbow signs
+    // in the bounded geometric neighbourhood; do not merge the roots.
+    if (std::abs(projected.derivative) * radius <=
+        numerics::kElementaryRoundoff) {
+      ill_conditioned = true;
+      radius = numerics::kPolishRadiusRad;
+    }
   }
   return NominationStatus::Ready;
 }
@@ -520,7 +537,7 @@ auto RecoverNearbyBoundary(const RecoveryProblem &problem,
                            const GeometricPhases &phases,
                            const RootNomination &nomination)
     -> PolishedRecovery {
-  const auto &[lengths, target, circle, tolerance] = problem;
+  const auto &[lengths, target, circle, tolerance, refiner] = problem;
   for (std::size_t i = 0; i < phases.count; ++i) {
     const auto &phase = phases.values[i];
     // Only proximity uses an angle; recovery retains exact circle coordinates.
@@ -546,7 +563,7 @@ auto RecoverNearbyBoundary(const RecoveryProblem &problem,
 auto DiscoverInChart(const RecoveryProblem &problem,
                      const DiscoveryOptions &options, double chart)
     -> JointDiscovery {
-  const auto &[lengths, target, circle, tolerance] = problem;
+  const auto &[lengths, target, circle, tolerance, refiner] = problem;
   JointDiscovery result;
   HalfAnglePolynomial polynomial;
   if (BuildHalfAnglePolynomial(circle, chart, polynomial) !=
@@ -567,9 +584,8 @@ auto DiscoverInChart(const RecoveryProblem &problem,
   JointDiscovery accepted;
   const double closest_angle = ClosestWristAngle(circle);
   if (NearFoldedArm(circle, closest_angle)) {
-    const auto folded = RefineJointCandidates(
-        lengths, target, closest_angle, tolerance,
-        options.max_polish_iterations, numerics::kPolishRadiusRad);
+    const auto folded =
+        refiner.Refine(closest_angle, numerics::kPolishRadiusRad);
     if (folded.status == RecoveryStatus::Candidates &&
         !AppendUnique(folded, accepted)) {
       result.status = RecoveryStatus::NeedsRefinement;
@@ -621,7 +637,10 @@ auto DiscoverInChart(const RecoveryProblem &problem,
 auto ImproveDiscoveryAccuracy(const RecoveryProblem &problem,
                               const DiscoveryOptions &options,
                               JointDiscovery result) -> JointDiscovery {
-  const auto &[lengths, target, circle, tolerance] = problem;
+  const auto &lengths = problem.lengths;
+  const auto &target = problem.target;
+  const auto &circle = problem.circle;
+  const auto &tolerance = problem.tolerance;
   const auto needs_accuracy = [&](const JointCandidate &candidate) {
     return candidate.position_error >
                numerics::kAccurateCorrectionTolerance * circle.length_scale ||
@@ -705,7 +724,9 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   }
   // Re-express the same polynomial in another half-angle chart when roots
   // near the omitted point make geometric polishing ill-conditioned.
-  const RecoveryProblem problem{lengths, target, circle, tolerance};
+  JointRefiner refiner(lengths, target, tolerance,
+                       options.max_polish_iterations);
+  const RecoveryProblem problem{lengths, target, circle, tolerance, refiner};
   const double closest_wrist = ClosestWristAngle(circle);
   const double first_chart =
       NearFoldedArm(circle, closest_wrist) ? closest_wrist : 0.0;

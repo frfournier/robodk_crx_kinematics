@@ -112,11 +112,7 @@ def _call_joints_config(
     return int(status), _from_c_array(config, 3)
 
 
-class MissingFixtureSolve(AssertionError):
-    """Recorded no-solution/handoff; never a malformed or inaccurate output."""
-
-
-def check_solver_pose(library, generated_models, case, seeded, expected_failure=None):
+def check_solver_pose(library, generated_models, case, seeded):
     capacity, stride = 64, 12
     models, references, robots = generated_models
     model_id = case["model"]
@@ -131,12 +127,8 @@ def check_solver_pose(library, generated_models, case, seeded, expected_failure=
     if not case["reachable"]:
         assert count <= 0, "accepted a target outside the arm's total reach"
         return
-    if count <= 0:
-        if expected_failure is not None:
-            assert count == expected_failure, "recorded failure changed ABI outcome"
-        raise MissingFixtureSolve(f"{case['name']}: reachable pose returned {count}")
-    # Validate best and every candidate, regardless of whether a miss on this
-    # case was recorded. Invalid returns raise ordinary assertions, never xfail.
+    assert count > 0, f"{case['name']}: reachable pose returned {count}"
+    # Validate the best command and every returned candidate independently.
     commands = np.vstack([np.asarray(best), np.asarray(output).reshape(capacity, stride)[:count, :6]])
     assert np.isfinite(commands).all()
     np.testing.assert_allclose(commands[0], commands[1], atol=np.finfo(float).eps, rtol=0)

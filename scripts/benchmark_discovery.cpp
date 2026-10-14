@@ -1,5 +1,5 @@
 // Windows-only snapshot harness. Time the production DLL and the current
-// polynomial component in native loops, without Python/process startup cost.
+// discovery component in native loops, without Python/process startup cost.
 #include "crx_discovery.h"
 
 #include <algorithm>
@@ -111,7 +111,7 @@ auto main(int argc, char **argv) -> int {
       const auto &item = cases[index];
       // Alternate which implementation is timed first; same target and thread.
       for (int side = 0; side < 2; ++side) {
-        const bool polynomial =
+        const bool discovery =
             (static_cast<int>(index) + round + side) % 2 == 0;
         ProductionResult production;
         crx::canonical::JointDiscovery discovered;
@@ -119,7 +119,7 @@ auto main(int argc, char **argv) -> int {
         double consumed = 0;
         const auto begin = std::chrono::steady_clock::now();
         for (int iteration = 0; iteration < iterations; ++iteration) {
-          if (polynomial) {
+          if (discovery) {
             discovered = crx::canonical::DiscoverJointCandidates(
                 item.lengths, item.canonical, tolerance);
             consumed += static_cast<double>(discovered.count) +
@@ -140,15 +140,14 @@ auto main(int argc, char **argv) -> int {
         const double us =
             std::chrono::duration<double, std::micro>(end - begin).count() /
             iterations;
-        const int status = polynomial ? static_cast<int>(discovered.status)
+        const int status = discovery ? static_cast<int>(discovered.status)
                            : production.count > 0  ? 0
                            : production.count == 0 ? 1
                                                    : 3;
         const auto count =
-            polynomial
-                ? discovered.count
-                : static_cast<std::size_t>(std::max(0, production.count));
-        const char *path = polynomial ? "polynomial" : "production";
+            discovery ? discovered.count
+                      : static_cast<std::size_t>(std::max(0, production.count));
+        const char *path = discovery ? "discovery" : "production";
         timings << index << ',' << path << ',' << round << ',' << us << ','
                 << status << ',' << count << '\n';
         if (round == 0) {
@@ -156,7 +155,7 @@ auto main(int argc, char **argv) -> int {
             solutions << index << ',' << path;
             for (int joint = 0; joint < 6; ++joint) {
               const double value =
-                  polynomial
+                  discovery
                       ? discovered.candidates[i].joints[joint]
                       : production.joints[12 * i +
                                           static_cast<std::size_t>(joint)] *

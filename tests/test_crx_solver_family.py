@@ -14,7 +14,7 @@ from fixtures.generate_solver_cases import corpus
 
 MODELS, REFERENCES, ALL_CASES = corpus(64, 28, 20261010)
 CASES = [{**case, "name": "holdout:20261010:" + case["name"]}
-         for case in ALL_CASES if case["group"] not in ("fixtures", "legacy-witnesses")]
+         for case in ALL_CASES if case["group"] not in ("fixtures", "discovery-witnesses")]
 
 
 @pytest.fixture(scope="module", params=[.001, 1., 1000.], ids=["small", "nominal", "large"])
@@ -48,12 +48,12 @@ def scaled_models(request):
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])
-def test_family_holdout(polynomial_kinematics_lib, scaled_models, case):
+def test_family_holdout(kinematics_lib, scaled_models, case):
     scale, models = scaled_models
     target = np.array(case["target"])
     target[:3, 3] *= scale
     commands = check_solver_pose(
-        polynomial_kinematics_lib, models, {**case, "target": target}, False)
+        kinematics_lib, models, {**case, "target": target}, False)
     if case["group"] == "random":
         # Regular-pose branch coverage, not just existence of any valid answer.
         # Keep the established .009-degree witness-matching convention.

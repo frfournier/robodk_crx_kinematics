@@ -1,4 +1,4 @@
-"""Independent transform-product reference for the legacy callback model.
+"""Independent transform-product reference for the CRX callback model.
 
 This is derived test geometry, not an asset extraction or a family-support claim.
 Commands at the C ABI are degrees with coupled J3; model limits and the existing
@@ -70,5 +70,5 @@ def missing_postures(expected, actual, tolerance_deg=0.009):
 
 def discovery_joints(case_id):
     # Deterministic derived probes, away from command turn boundaries.
-    # The legacy callback fixture remains the model input until asset extraction.
+    # The callback fixture supplies the model input.
     return np.random.default_rng(case_id).uniform(-150.0, 150.0, size=6).tolist()

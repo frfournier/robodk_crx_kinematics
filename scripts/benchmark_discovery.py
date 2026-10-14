@@ -1,4 +1,4 @@
-"""Reproducible production-DLL versus polynomial-component timing snapshot.
+"""Reproducible production-DLL versus discovery-component timing snapshot.
 
 Build crx_discovery_benchmark with a Release CMake preset first. This script
 generates inputs and checks results; all timing takes place inside native loops.
@@ -40,7 +40,7 @@ def summarize(output, models, cases, metadata):
         item = {"case": index, "name": case["name"], "group": case["group"],
                 "asset": models[case["model"]]["name"], "witnesses": len(case["witnesses"])}
         target = np.asarray(case["canonical"])
-        for path in ("production", "polynomial"):
+        for path in ("production", "discovery"):
             rows = solutions[(solutions["case"] == index) & (solutions["path"] == path)]
             joints = rows[[f"q{i}" for i in range(1, 7)]].to_numpy()
             invalid, max_pos, max_ang = 0, 0.0, 0.0
@@ -61,11 +61,11 @@ def summarize(output, models, cases, metadata):
     frame = pd.DataFrame(details)
     frame.to_csv(output / "per-pose.csv", index=False)
     groups = {}
-    for group in ("fixtures", "random", "stress", "legacy-witnesses"):
+    for group in ("fixtures", "random", "stress", "discovery-witnesses"):
         subset = frame[frame["group"] == group]
-        common = subset[(subset.production_status == 0) & (subset.polynomial_status == 0)]
+        common = subset[(subset.production_status == 0) & (subset.discovery_status == 0)]
         stats = {"poses": len(subset), "common_success": len(common)}
-        for path in ("production", "polynomial"):
+        for path in ("production", "discovery"):
             stats[path] = {
                 "median_us": float(subset[f"{path}_us"].median()),
                 "p95_us": float(subset[f"{path}_us"].quantile(.95)),
@@ -76,49 +76,46 @@ def summarize(output, models, cases, metadata):
                 "witness_total": int(subset.witnesses.sum()),
                 "invalid_solutions": int(subset[f"{path}_invalid"].sum()),
             }
-        stats["common_success_speedup"] = float(common.production_us.mean() / common.polynomial_us.mean()) if len(common) else None
+        stats["common_success_speedup"] = float(common.production_us.mean() / common.discovery_us.mean()) if len(common) else None
         if len(common):
             paired = timings[timings["case"].isin(common["case"])]
             paired = paired.groupby(["round", "path"])["us"].mean().unstack()
-            ratios = paired.production / paired.polynomial
+            ratios = paired.production / paired.discovery
             stats["common_success_speedup_round_range"] = [float(ratios.min()), float(ratios.max())]
-        fallback = subset.polynomial_us + np.where(subset.polynomial_status != 0, subset.production_us, 0)
-        stats["estimated_fallback_mean_us"] = float(fallback.mean())
-        stats["estimated_fallback_speedup"] = float(subset.production_us.mean() / fallback.mean())
         groups[group] = stats
     report = {"metadata": metadata, "groups": groups}
     (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     lines = [
-        "# Production versus polynomial discovery: performance snapshot", "",
+        "# Complete solver and canonical discovery: performance snapshot", "",
         f"Measured at {metadata['measured_at_utc']}. CPU: {metadata['cpu']['Name']}.",
         "Windows x64, Visual Studio clang-cl Release `/O2 /Ob2 /DNDEBUG`, Eigen allocation instrumentation disabled.",
         f"{len(cases)} poses; {metadata['rounds']} rounds of {metadata['repeats']} calls per pose/path; three warmup calls.",
-        "Native timing loops, one thread pinned to the first allowed logical CPU. Shuffled pose order each round; alternating implementation order.",
+        "Native timing loops, one thread pinned to the first allowed logical CPU. Shuffled pose order each round; alternating measurement order.",
         "No seed. Both use 0.0001 mm / 0.001 degree acceptance tolerances. Production uses its actual DLL with capacity 64.", "",
-        "**Different scope:** production includes the RoboDK adapter, command limits, turns and result packing. Polynomial measures canonical discovery only, with no fallback or command handling. Refinement timings are unfinished work, not solved poses.", "",
+        "**Different scope:** production includes the RoboDK adapter, command limits, turns and result packing. Discovery measures canonical discovery only, with no fallback or command handling. Refinement timings are unfinished work, not solved poses.", "",
         "Numbers below are median per-pose batch times; p95 describes variation across poses, not individual-call tail latency.", "",
-        "| Corpus | Poses | Production p50 / p95 (us) | Polynomial p50 / p95 (us) | Polynomial candidates / handoffs | Speedup on common successes |",
+        "| Corpus | Poses | Production p50 / p95 (us) | Discovery p50 / p95 (us) | Discovery candidates / handoffs | Speedup on common successes |",
         "|---|---:|---:|---:|---:|---:|",
     ]
     for name, stats in groups.items():
-        p, n = stats["production"], stats["polynomial"]
+        p, n = stats["production"], stats["discovery"]
         statuses = n["status_counts"]
         speedup = stats["common_success_speedup"]
         speedup_text = f"{speedup:.2f}x" if speedup is not None else "n/a"
         lines.append(f"| {name} | {stats['poses']} | {p['median_us']:.2f} / {p['p95_us']:.2f} | {n['median_us']:.2f} / {n['p95_us']:.2f} | {statuses.get('0', 0)} / {statuses.get('2', 0)} | {speedup_text} ({stats['common_success']} poses) |")
-    lines += ["", "Speedup is the ratio of arithmetic mean per-pose times on the same subset returning candidates in both paths; solution lists may differ due to limits/turns.", "",
+    lines += ["", "Speedup is the ratio of arithmetic mean per-pose times on the same subset returning candidates in both scopes; solution lists may differ due to limits/turns.", "",
               "## Result checks", "", "Every returned posture was checked with the independent Python canonical FK. Witness matching uses 0.009 degrees modulo full turns; singular families can return a different valid representative.", "",
-              "| Corpus | Production witness hits | Polynomial witness hits | Invalid FK results (production / polynomial) | Estimated polynomial + fallback speedup |",
-              "|---|---:|---:|---:|---:|"]
+              "| Corpus | Production witness hits | Discovery witness hits | Invalid FK results (production / discovery) |",
+              "|---|---:|---:|---:|"]
     for name, stats in groups.items():
-        p, n = stats["production"], stats["polynomial"]
-        lines.append(f"| {name} | {p['witness_hits']}/{p['witness_total']} | {n['witness_hits']}/{n['witness_total']} | {p['invalid_solutions']} / {n['invalid_solutions']} | {stats['estimated_fallback_speedup']:.2f}x |")
-    lines += ["", "Fallback column is a cost estimate: polynomial time plus production time whenever polynomial did not return candidates. It is **not** a measured integrated solver or correctness guarantee; command handling costs are missing.", "",
-              "Random poses are uniform in the six assets' joint ranges, with a 2-degree margin and both coupled/decoupled J3 limits satisfied. This is joint-space sampling, not a uniform Cartesian workspace distribution. Stress cases alternate zero/near-zero wrist sine and straight/near-straight elbows. Legacy witnesses are the separate existing 64-case regression corpus.", "",
-              "## Fixture details", "", "| Fixture | Production us / solutions | Polynomial us / solutions | Polynomial outcome |", "|---|---:|---:|---|"]
+        p, n = stats["production"], stats["discovery"]
+        lines.append(f"| {name} | {p['witness_hits']}/{p['witness_total']} | {n['witness_hits']}/{n['witness_total']} | {p['invalid_solutions']} / {n['invalid_solutions']} |")
+    lines += ["",
+              "Random poses are uniform in the six assets' joint ranges, with a 2-degree margin and both coupled/decoupled J3 limits satisfied. This is joint-space sampling, not a uniform Cartesian workspace distribution. Stress cases alternate zero/near-zero wrist sine and straight/near-straight elbows. Discovery witnesses are the separate existing 64-case regression corpus.", "",
+              "## Fixture details", "", "| Fixture | Production us / solutions | Discovery us / solutions | Discovery outcome |", "|---|---:|---:|---|"]
     labels = {0: "Candidates", 1: "NoCandidate", 2: "NeedsRefinement", 3: "InvalidInput", 4: "NumericalRangeFailure"}
     for row in frame[frame["group"] == "fixtures"].itertuples():
-        lines.append(f"| {row.name} | {row.production_us:.2f} / {row.production_count} | {row.polynomial_us:.2f} / {row.polynomial_count} | {labels[row.polynomial_status]} |")
+        lines.append(f"| {row.name} | {row.production_us:.2f} / {row.production_count} | {row.discovery_us:.2f} / {row.discovery_count} | {labels[row.discovery_status]} |")
     lines += ["", "## Reproduction and provenance", "", "```powershell", "cmake --build --preset windows-clang-release-tidy --target crx_discovery_benchmark", "uv run python scripts/benchmark_discovery.py", "```", "",
               f"Base commit: `{metadata['git_head']}` with uncommitted implementation changes. `summary.json` records source, DLL, executable, corpus and asset hashes plus compiler commands.",
               "Raw data: `timings.csv` (all rounds), `solutions.csv` (returned postures), `per-pose.csv` (latencies, outcomes and residuals), `corpus.json`, `native.log`. Snapshot does not measure RoboDK IPC, cold-start latency or deployment behavior."]
@@ -182,7 +179,7 @@ def main():
         "source_sha256": {str(p.relative_to(ROOT)): sha256(p) for p in source_paths},
         "assets": {m["name"]: m["asset_sha256"] for m in models},
         "timing": "Per-pose median of round batch means; p95/p99 across poses, not individual-call tails",
-        "scope": "Production DLL includes adapter/limits/turns/packing; polynomial is canonical discovery with no fallback or command semantics",
+        "scope": "Production DLL includes adapter/limits/turns/packing; discovery is canonical discovery with no fallback or command semantics",
     }
     with (output / "native.log").open("w") as log:
         subprocess.run([str(executable), str(dll), str(output / "input.txt"),

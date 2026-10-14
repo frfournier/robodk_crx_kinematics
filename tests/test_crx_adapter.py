@@ -1,4 +1,4 @@
-"""Comparison DLL: canonical discovery through unchanged RoboDK finalization."""
+"""Canonical discovery through RoboDK adaptation and command selection."""
 
 import ctypes
 import json
@@ -33,20 +33,20 @@ def check_results(robot, target, result):
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])
 def test_fixture_candidates_against_baseline(
-    polynomial_kinematics_lib, kinematics_lib, crx_10ia, case,
+    kinematics_lib, baseline_kinematics_lib, crx_10ia, case,
 ):
     target = xyzwpr([*case["target"]["xyz_mm"], *np.radians(case["target"]["wpr_deg"])])
     pose = target.ravel(order="F").tolist()
     # Compare complete finite catalogues, not prefixes after turn expansion.
-    baseline = _call_ik(kinematics_lib, crx_10ia, pose, approx=None, max_solutions=4096)
-    actual = _call_ik(polynomial_kinematics_lib, crx_10ia, pose, approx=None, max_solutions=4096)
+    baseline = _call_ik(baseline_kinematics_lib, crx_10ia, pose, approx=None, max_solutions=4096)
+    actual = _call_ik(kinematics_lib, crx_10ia, pose, approx=None, max_solutions=4096)
     assert baseline[0] < 4096 and actual[0] < 4096
     check_results(crx_10ia, target, actual)
     assert not missing_postures(baseline[2], actual[2])
 
 
 @pytest.mark.parametrize("asset", ASSETS, ids=lambda asset: asset["asset"])
-def test_asset_random_api_witnesses(polynomial_kinematics_lib, asset):
+def test_asset_random_api_witnesses(kinematics_lib, asset):
     model = derive_model(asset)
     robot = RobotT()
     robot.data[1][1] = 6
@@ -65,7 +65,7 @@ def test_asset_random_api_witnesses(polynomial_kinematics_lib, asset):
         user = commands.copy()
         user[2] -= user[1]
         target = forward_model(model, commands)[1]
-        actual = _call_ik(polynomial_kinematics_lib, robot, target.ravel(order="F").tolist(),
+        actual = _call_ik(kinematics_lib, robot, target.ravel(order="F").tolist(),
                           approx=None, max_solutions=64)
         assert actual[0] >= 0, (asset["asset"], commands.tolist())
         check_results(robot, target, actual)
@@ -74,11 +74,11 @@ def test_asset_random_api_witnesses(polynomial_kinematics_lib, asset):
 
 @pytest.mark.parametrize("case_id", [8, 36, 42, 57])
 @pytest.mark.parametrize("capacity", [1, 3, 64])
-def test_selection_capacity_and_packing(polynomial_kinematics_lib, crx_10ia, case_id, capacity):
+def test_selection_capacity_and_packing(kinematics_lib, crx_10ia, case_id, capacity):
     witness = discovery_joints(case_id)
     target, _ = reference_fk(crx_10ia, witness)
     seed = discovery_joints(case_id + 100)
-    full = _call_ik(polynomial_kinematics_lib, crx_10ia, target.ravel(order="F").tolist(),
+    full = _call_ik(kinematics_lib, crx_10ia, target.ravel(order="F").tolist(),
                     approx=seed, max_solutions=64)
     check_results(crx_10ia, target, full)
     assert not missing_postures([witness], full[2])
@@ -91,7 +91,7 @@ def test_selection_capacity_and_packing(polynomial_kinematics_lib, crx_10ia, cas
     # the ranked prefix; helper decoding alone would hide a packing overrun.
     output = (ctypes.c_double * (12 * capacity + 12))(*([12345.] * (12 * capacity + 12)))
     best = (ctypes.c_double * 6)()
-    count = polynomial_kinematics_lib.SolveIK(
+    count = kinematics_lib.SolveIK(
         _to_c_array(target.ravel(order="F")), best, output, capacity,
         _to_c_array(_to_fk_api_joints_deg(seed)), ctypes.byref(crx_10ia),
     )
@@ -103,7 +103,7 @@ def test_selection_capacity_and_packing(polynomial_kinematics_lib, crx_10ia, cas
     assert list(output[12*count:]) == [12345.] * (len(output) - 12*count)
 
 
-def test_transformed_base_tool_and_restricted_limits(polynomial_kinematics_lib, crx_10ia):
+def test_transformed_base_tool_and_restricted_limits(kinematics_lib, crx_10ia):
     _set_row(crx_10ia, 9, [120, -35, 80, .2, -.3, .4])
     _set_row(crx_10ia, 28, [20, -10, 40, -.1, .2, -.3])
     witness = discovery_joints(8)
@@ -111,16 +111,16 @@ def test_transformed_base_tool_and_restricted_limits(polynomial_kinematics_lib, 
     _set_row(crx_10ia, 30, command - .1)
     _set_row(crx_10ia, 31, command + .1)
     target, _ = reference_fk(crx_10ia, witness)
-    actual = _call_ik(polynomial_kinematics_lib, crx_10ia, target.ravel(order="F").tolist(),
+    actual = _call_ik(kinematics_lib, crx_10ia, target.ravel(order="F").tolist(),
                       approx=None, max_solutions=64)
     check_results(crx_10ia, target, actual)
     assert not missing_postures([witness], actual[2])
 
 
-def test_non_asset_senses_are_explicitly_unsupported(polynomial_kinematics_lib, crx_10ia):
+def test_non_asset_senses_are_explicitly_unsupported(kinematics_lib, crx_10ia):
     _set_row(crx_10ia, 3, [-1, 1, -1, -1, -1, -1], col=4)
     witness = discovery_joints(1)
     target, _ = reference_fk(crx_10ia, witness)
     pose = target.ravel(order="F").tolist()
     for seed in (None, witness):
-        assert _call_ik(polynomial_kinematics_lib, crx_10ia, pose, approx=seed)[0] == -1
+        assert _call_ik(kinematics_lib, crx_10ia, pose, approx=seed)[0] == -1

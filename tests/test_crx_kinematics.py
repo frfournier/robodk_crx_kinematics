@@ -142,8 +142,7 @@ def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
 
         if p["case_name"] == "MIN_Z" and not ok:
             # Its rounded XYZ misses the recorded posture by 0.00425 mm. The
-            # legacy empty-search policy preserves that approximate seed; exact
-            # target IK can legitimately select different base/wrist postures at
+            # recorded seed is outside the strict pose tolerance; exact target IK can legitimately select different base/wrist postures at
             # this workspace boundary. Require strict independent FK in that case.
             from crx_reference import reference_fk
             target = np.array(p["target_pose16"]).reshape(4, 4, order="F")

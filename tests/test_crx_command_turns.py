@@ -1,6 +1,6 @@
 """Command limits/turns through the unchanged RoboDK sample ABI (#17).
 
-Shifted bounds are synthetic tests of the legacy CRX callback model; the asset
+Shifted bounds are synthetic tests of the CRX callback model; the asset
 API tests separately exercise the captured six-asset command limits.
 """
 
@@ -43,11 +43,11 @@ def restrict(robot, command, width=.05):
 
 
 @pytest.mark.parametrize("angle", [190., -190., 550., -550., 180., -180.])
-def test_shifted_j6_seed_free(solver_lib, crx_10ia, angle):
+def test_shifted_j6_seed_free(kinematics_lib, crx_10ia, angle):
     witness = [25., -35., 35., 15., 25., angle]
     target = target_for_command(crx_10ia, witness)
     restrict(crx_10ia, witness)
-    count, best, _ = solve(solver_lib, crx_10ia, target)
+    count, best, _ = solve(kinematics_lib, crx_10ia, target)
     assert count == 1
     np.testing.assert_allclose(best, witness, atol=1e-5, rtol=0)
 
@@ -57,33 +57,33 @@ def test_shifted_j6_seed_free(solver_lib, crx_10ia, angle):
     [25., -120., 250., 15., 25., 40.],
     [25., 480., -460., 15., 25., 40.],
 ])
-def test_coupled_j3_limits_and_fk(solver_lib, crx_10ia, command):
+def test_coupled_j3_limits_and_fk(kinematics_lib, crx_10ia, command):
     target = target_for_command(crx_10ia, command)
     restrict(crx_10ia, command)
     pose = (ctypes.c_double * 16)()
-    assert solver_lib.SolveFK(_to_c_array(command), pose, ctypes.byref(crx_10ia)) == 1
+    assert kinematics_lib.SolveFK(_to_c_array(command), pose, ctypes.byref(crx_10ia)) == 1
     np.testing.assert_allclose(np.array(pose).reshape(4, 4, order="F"), target, atol=1e-9, rtol=0)
-    count, best, _ = solve(solver_lib, crx_10ia, target)
+    count, best, _ = solve(kinematics_lib, crx_10ia, target)
     assert count == 1
     np.testing.assert_allclose(best, command, atol=1e-5, rtol=0)
     invalid = list(command)
     invalid[2] += 1.
-    assert solver_lib.SolveFK(_to_c_array(invalid), pose, ctypes.byref(crx_10ia)) == -2
+    assert kinematics_lib.SolveFK(_to_c_array(invalid), pose, ctypes.byref(crx_10ia)) == -2
 
 
-def test_negative_dual_j3(solver_lib, crx_10ia):
+def test_negative_dual_j3(kinematics_lib, crx_10ia):
     # Base flip in decoupled coordinates: [J1+180,-J2,180-J3,J4-180,J5,J6].
     # This rear posture has an admissible negative J3 command representative.
     witness = [-155., 35., -175., -165., 25., 40.]
     target = target_for_command(crx_10ia, witness)
     restrict(crx_10ia, witness)
-    count, best, _ = solve(solver_lib, crx_10ia, target)
+    count, best, _ = solve(kinematics_lib, crx_10ia, target)
     assert count == 1
     np.testing.assert_allclose(best, witness, atol=1e-5, rtol=0)
 
 
 @pytest.mark.parametrize("seeded", [False, True])
-def test_exhaustive_turn_catalogue_and_capacity(solver_lib, crx_10ia, seeded):
+def test_exhaustive_turn_catalogue_and_capacity(kinematics_lib, crx_10ia, seeded):
     witness = np.array([25., -35., 35., 15., 25., 40.])
     target = target_for_command(crx_10ia, witness)
     restrict(crx_10ia, witness)
@@ -92,7 +92,7 @@ def test_exhaustive_turn_catalogue_and_capacity(solver_lib, crx_10ia, seeded):
         crx_10ia.data[30][axis] = witness[axis] - 720.05
         crx_10ia.data[31][axis] = witness[axis] + 720.05
     seed = witness + [0., 650., -640., 0., 0., 690.] if seeded else None
-    count, _, full = solve(solver_lib, crx_10ia, target, seed, capacity=1024)
+    count, _, full = solve(kinematics_lib, crx_10ia, target, seed, capacity=1024)
     # Narrow J1/J4/J5 bounds isolate the witness posture. The expected commands
     # come from the witness, independently of the solver's returned catalogue.
     expected = []
@@ -117,35 +117,35 @@ def test_exhaustive_turn_catalogue_and_capacity(solver_lib, crx_10ia, seeded):
     else:
         np.testing.assert_allclose(full, expected, atol=1e-5, rtol=0)
     for capacity in (1, 7, 32, count, count + 1):
-        actual_count, best, actual = solve(solver_lib, crx_10ia, target, seed, capacity)
+        actual_count, best, actual = solve(kinematics_lib, crx_10ia, target, seed, capacity)
         assert actual_count == min(count, capacity)
         np.testing.assert_allclose(actual, full[:capacity], atol=1e-9, rtol=0)
-        _, best_only, _ = solve(solver_lib, crx_10ia, target, seed, capacity, alternatives=False)
+        _, best_only, _ = solve(kinematics_lib, crx_10ia, target, seed, capacity, alternatives=False)
         assert best_only == best
 
 
-def test_multiturn_seed_for_neighboring_target(solver_lib, crx_10ia):
+def test_multiturn_seed_for_neighboring_target(kinematics_lib, crx_10ia):
     witness = np.array([25., -35., 35., 15., 25., 550.])
     target = target_for_command(crx_10ia, witness)
     restrict(crx_10ia, witness)
     crx_10ia.data[30][5], crx_10ia.data[31][5] = -900., 900.
     seed = witness.copy()
     seed[5] += 2.
-    count, best, full = solve(solver_lib, crx_10ia, target, seed)
+    count, best, full = solve(kinematics_lib, crx_10ia, target, seed)
     assert count == 5
     np.testing.assert_allclose(best, witness, atol=1e-5, rtol=0)
     distances = [np.sum((np.array(q) - seed)**2) for q in full]
     assert distances == sorted(distances)
 
 
-def test_limit_failures_and_work_limit_do_not_write(solver_lib, crx_10ia):
+def test_limit_failures_and_work_limit_do_not_write(kinematics_lib, crx_10ia):
     witness = np.array([25., -35., 35., 15., 25., 40.])
     target = target_for_command(crx_10ia, witness)
     restrict(crx_10ia, witness)
     crx_10ia.data[30][5], crx_10ia.data[31][5] = 41., 42.
-    assert solve(solver_lib, crx_10ia, target)[0] == 0
+    assert solve(kinematics_lib, crx_10ia, target)[0] == 0
     for bound in (10000., 1e100):
         _set_row(crx_10ia, 30, [-bound] * 6)
         _set_row(crx_10ia, 31, [bound] * 6)
-        assert solve(solver_lib, crx_10ia, target, witness, capacity=1)[0] == -1
-    assert solve(solver_lib, crx_10ia, target, capacity=0)[0] == 0
+        assert solve(kinematics_lib, crx_10ia, target, witness, capacity=1)[0] == -1
+    assert solve(kinematics_lib, crx_10ia, target, capacity=0)[0] == 0

@@ -15,7 +15,7 @@ from crx_test_support import RobotT, _set_row, DOFS
 def pytest_addoption(parser):
     parser.addoption(
         "--require-solver-reliability", action="store_true", default=False,
-        help="Treat every generated reachable-pose miss as a failure, including recorded defects",
+        help="Require the solver DLL for the generated reachable-pose gate",
     )
     parser.addoption(
         "--run-robodk",
@@ -87,25 +87,21 @@ def _load_kinematics_library(lib):
 @pytest.fixture(scope="session")
 def kinematics_lib(request):
     path = _library_path()
-    if request.config.getoption("--require-solver-reliability"):
+    if os.environ.get("CRXKIN_LIBRARY_PATH") or request.config.getoption("--require-solver-reliability"):
         assert path is not None and path.is_file(), f"Reliability gate requires the DLL: {path}"
     return _load_kinematics_library(path)
 
 
 @pytest.fixture(scope="session")
-def polynomial_kinematics_lib(request):
-    configured = os.environ.get("CRXKIN_POLYNOMIAL_LIBRARY_PATH")
-    path = (Path(configured) if configured else
-            _library_path().with_name("crx_kinematics_polynomial.dll"))
-    if configured or request.config.getoption("--require-solver-reliability"):
-        assert path.is_file(), f"Configured comparison DLL is missing: {path}"
+def baseline_kinematics_lib():
+    """Optional external snapshot, selected independently of the current build."""
+    configured = os.environ.get("CRXKIN_BASELINE_LIBRARY_PATH")
+    if not configured:
+        pytest.skip("Set CRXKIN_BASELINE_LIBRARY_PATH to compare an external snapshot")
+    path = Path(configured).expanduser().resolve()
+    assert path.is_file(), f"Configured baseline DLL is missing: {path}"
+    assert path != _library_path(), "Baseline and candidate must be separate DLL files"
     return _load_kinematics_library(path)
-
-
-@pytest.fixture(params=["kinematics_lib", "polynomial_kinematics_lib"])
-def solver_lib(request):
-    """Run shared ABI contracts against each solver backend."""
-    return request.getfixturevalue(request.param)
 
 
 @pytest.fixture(scope="session")

@@ -14,7 +14,7 @@ For focused work after building:
 
 ```powershell
 uv run --locked pytest tests/test_crx_kinematics.py
-uv run --locked pytest tests/test_crx_discovery.py -k polynomial
+uv run --locked pytest tests/test_crx_discovery.py
 uv run --locked pytest
 ```
 
@@ -25,7 +25,7 @@ variables to select another build:
 | Variable | Binary |
 | --- | --- |
 | `CRXKIN_LIBRARY_PATH` | Production `crx_kinematics.dll` |
-| `CRXKIN_POLYNOMIAL_LIBRARY_PATH` | Comparison `crx_kinematics_polynomial.dll` |
+| `CRXKIN_BASELINE_LIBRARY_PATH` | Optional external baseline DLL |
 | `CRXKIN_ROOT_PROBE_PATH` | `crx_canonical_tests.exe` |
 
 ## Where tests live
@@ -33,7 +33,8 @@ variables to select another build:
 | Files | Coverage |
 | --- | --- |
 | `test_crx_kinematics.py` | Recorded FK/IK poses, configurations, C ABI, seed policy and continuity |
-| `test_crx_discovery.py`, `test_crx_polynomial_adapter.py` | Seed-free witnesses through both DLLs, comparison and asset adaptation |
+| `test_crx_discovery.py`, `test_crx_adapter.py` | Seed-free witnesses, external baseline coverage and asset adaptation |
+| `test_baseline_comparison.py` | Comparison-report detection of gained/lost coverage and invalid commands |
 | `test_crx_command_turns.py`, `test_crx_solver_outcomes.py`, `test_crx_numerics.py` | Shared command limits, ranking, buffers, fallback and numerical guards |
 | `test_crx_solver_fixtures.py`, `test_crx_solver_family.py`, `test_crx_accuracy_stress.py` | Frozen corpus, independent holdouts and singularity/scale regressions |
 | `test_polynomial_roots.py`, `test_crx_polynomial_discovery.py` | Native probe compared with independent root/geometry references |
@@ -44,7 +45,7 @@ variables to select another build:
 
 Shared support has three roles:
 
-- `conftest.py` owns DLL loading, the two-backend `solver_lib` fixture, the
+- `conftest.py` owns DLL loading, the `kinematics_lib` fixture, the
   `canonical_probe` runner and the CRX-10iA robot fixture.
 - `crx_test_support.py` owns robot-table/C ABI plumbing;
   it also shares the generated-pose assertions between corpus and holdout tests.
@@ -64,16 +65,13 @@ that the C ABI cannot expose.
 
 ## Reliability and live integration
 
-The production scanner retains strict expected failures for recorded discovery
-misses. Invalid returned poses are never expected failures. Keep exact defect
-IDs in `fixtures/crx_solver_known_failures.json`; remove an exception when its
-fix is confirmed.
-
-The release gate also reruns the API module against the polynomial DLL and
-runs the polynomial corpus with all known-failure exceptions disabled:
+The generated solver corpus must pass without expected-failure exceptions.
+The release reliability gate requires a built DLL, so missing binaries cannot
+turn this gate into skipped tests. The independent scaled stress suite requires
+every reachable target to solve within the same strict pose tolerances.
 
 ```powershell
-uv run --locked pytest tests/test_crx_solver_fixtures.py --require-solver-reliability -k polynomial
+uv run --locked pytest tests/test_crx_solver_fixtures.py --require-solver-reliability
 ```
 
 Live RoboDK tests require an explicitly deployed matching DLL. They never
@@ -112,3 +110,34 @@ Detailed numerical rationale, fixture provenance, benchmark commands and past
 results are preserved in [validation history](../notes/testing-validation-history.md).
 That archive records results at the time of each investigation; this guide
 is the entry point for running and maintaining the current suite.
+
+## External baseline comparisons
+
+Build the snapshot branch in a separate checkout using its Release preset and
+keep its DLL outside the candidate output directory. Record the snapshot commit
+alongside the DLL hash; ordinary tests need only the candidate build.
+
+To compare recorded fixture coverage against a supplied snapshot:
+
+```powershell
+$env:CRXKIN_BASELINE_LIBRARY_PATH = "C:/path/to/baseline/crx_kinematics.dll"
+uv run --locked pytest tests/test_crx_adapter.py -k baseline
+```
+
+A configured but missing baseline is an error. Without this variable, only the
+external-baseline tests skip; independent candidate checks still run.
+
+For native timing, accuracy and coverage comparisons:
+
+```powershell
+cmake --build --preset windows-clang-release-tidy --target crx_solver_benchmark
+uv run --locked python scripts/benchmark_solvers.py --baseline-dll C:/path/to/baseline/crx_kinematics.dll --baseline-revision COMMIT --output build/baseline-comparison
+```
+
+The runner snapshots baseline and candidate DLLs under distinct names and records
+their hashes, inputs and candidate compile commands. `comparison.csv` reports
+lost/gained strict solves, witness coverage and count differences. Every returned
+command is checked with independent FK and joint limits; matching counts alone
+are not correctness evidence. Timing ratios use common successful targets.
+`benchmark_optimization.py` accepts the same DLL arguments and optionally
+`--require-identical` for experiments requiring unchanged ordered outputs.

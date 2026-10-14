@@ -1708,8 +1708,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:0",
-    "group": "legacy-witnesses",
+    "name": "witness:0",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.3777424366732685,
@@ -1759,8 +1759,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:1",
-    "group": "legacy-witnesses",
+    "name": "witness:1",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.33548201427427127,
@@ -1810,8 +1810,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:2",
-    "group": "legacy-witnesses",
+    "name": "witness:2",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.9170927678103121,
@@ -1861,8 +1861,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:3",
-    "group": "legacy-witnesses",
+    "name": "witness:3",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.5975211597727382,
@@ -1912,8 +1912,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:4",
-    "group": "legacy-witnesses",
+    "name": "witness:4",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.4505336392356425,
@@ -1963,8 +1963,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:5",
-    "group": "legacy-witnesses",
+    "name": "witness:5",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.2788797184988867,
@@ -2014,8 +2014,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:6",
-    "group": "legacy-witnesses",
+    "name": "witness:6",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.5727963539343153,
@@ -2065,8 +2065,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:7",
-    "group": "legacy-witnesses",
+    "name": "witness:7",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.9238313939565581,
@@ -2116,8 +2116,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:8",
-    "group": "legacy-witnesses",
+    "name": "witness:8",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.2832512697064993,
@@ -2167,8 +2167,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:9",
-    "group": "legacy-witnesses",
+    "name": "witness:9",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.1810976631044335,
@@ -2218,8 +2218,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:10",
-    "group": "legacy-witnesses",
+    "name": "witness:10",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.9789444324956277,
@@ -2269,8 +2269,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:11",
-    "group": "legacy-witnesses",
+    "name": "witness:11",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.4119780721322432,
@@ -2320,8 +2320,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:12",
-    "group": "legacy-witnesses",
+    "name": "witness:12",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.2674107489280071,
@@ -2371,8 +2371,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:13",
-    "group": "legacy-witnesses",
+    "name": "witness:13",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.41750990556182876,
@@ -2422,8 +2422,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:14",
-    "group": "legacy-witnesses",
+    "name": "witness:14",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.607765845811536,
@@ -2473,8 +2473,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:15",
-    "group": "legacy-witnesses",
+    "name": "witness:15",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.8868415451007793,
@@ -2524,8 +2524,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:16",
-    "group": "legacy-witnesses",
+    "name": "witness:16",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.9524063957937132,
@@ -2575,8 +2575,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:17",
-    "group": "legacy-witnesses",
+    "name": "witness:17",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.2563791861353665,
@@ -2626,8 +2626,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:18",
-    "group": "legacy-witnesses",
+    "name": "witness:18",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.5395508942094093,
@@ -2677,8 +2677,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:19",
-    "group": "legacy-witnesses",
+    "name": "witness:19",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.24899445190236918,
@@ -2728,8 +2728,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:20",
-    "group": "legacy-witnesses",
+    "name": "witness:20",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.8939243445869142,
@@ -2779,8 +2779,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:21",
-    "group": "legacy-witnesses",
+    "name": "witness:21",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.2543417095183648,
@@ -2830,8 +2830,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:22",
-    "group": "legacy-witnesses",
+    "name": "witness:22",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.6694730930922224,
@@ -2881,8 +2881,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:23",
-    "group": "legacy-witnesses",
+    "name": "witness:23",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.63717542408379,
@@ -2932,8 +2932,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:24",
-    "group": "legacy-witnesses",
+    "name": "witness:24",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.08887488589364466,
@@ -2983,8 +2983,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:25",
-    "group": "legacy-witnesses",
+    "name": "witness:25",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.6483064367908139,
@@ -3034,8 +3034,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:26",
-    "group": "legacy-witnesses",
+    "name": "witness:26",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.4235944030236405,
@@ -3085,8 +3085,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:27",
-    "group": "legacy-witnesses",
+    "name": "witness:27",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.1700332347417436,
@@ -3136,8 +3136,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:28",
-    "group": "legacy-witnesses",
+    "name": "witness:28",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.9125764231186694,
@@ -3187,8 +3187,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:29",
-    "group": "legacy-witnesses",
+    "name": "witness:29",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.16164286704955177,
@@ -3238,8 +3238,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:30",
-    "group": "legacy-witnesses",
+    "name": "witness:30",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.6934375957948485,
@@ -3289,8 +3289,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:31",
-    "group": "legacy-witnesses",
+    "name": "witness:31",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.10553669809800964,
@@ -3340,8 +3340,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:32",
-    "group": "legacy-witnesses",
+    "name": "witness:32",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.5712484674935195,
@@ -3391,8 +3391,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:33",
-    "group": "legacy-witnesses",
+    "name": "witness:33",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.3023689887385119,
@@ -3442,8 +3442,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:34",
-    "group": "legacy-witnesses",
+    "name": "witness:34",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.9416062751615796,
@@ -3493,8 +3493,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:35",
-    "group": "legacy-witnesses",
+    "name": "witness:35",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.7937488943511789,
@@ -3544,8 +3544,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:36",
-    "group": "legacy-witnesses",
+    "name": "witness:36",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.2179406186161504,
@@ -3595,8 +3595,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:37",
-    "group": "legacy-witnesses",
+    "name": "witness:37",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.37399907899705304,
@@ -3646,8 +3646,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:38",
-    "group": "legacy-witnesses",
+    "name": "witness:38",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.5088574656183021,
@@ -3697,8 +3697,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:39",
-    "group": "legacy-witnesses",
+    "name": "witness:39",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.823031728311383,
@@ -3748,8 +3748,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:40",
-    "group": "legacy-witnesses",
+    "name": "witness:40",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.05948745871282594,
@@ -3799,8 +3799,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:41",
-    "group": "legacy-witnesses",
+    "name": "witness:41",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.6181445243473158,
@@ -3850,8 +3850,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:42",
-    "group": "legacy-witnesses",
+    "name": "witness:42",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.5960751923935349,
@@ -3901,8 +3901,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:43",
-    "group": "legacy-witnesses",
+    "name": "witness:43",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.1953261672914084,
@@ -3952,8 +3952,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:44",
-    "group": "legacy-witnesses",
+    "name": "witness:44",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.42425652217652055,
@@ -4003,8 +4003,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:45",
-    "group": "legacy-witnesses",
+    "name": "witness:45",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.8913254107198654,
@@ -4054,8 +4054,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:46",
-    "group": "legacy-witnesses",
+    "name": "witness:46",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.08912468864128614,
@@ -4105,8 +4105,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:47",
-    "group": "legacy-witnesses",
+    "name": "witness:47",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.8886046745755094,
@@ -4156,8 +4156,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:48",
-    "group": "legacy-witnesses",
+    "name": "witness:48",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.4168141814732972,
@@ -4207,8 +4207,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:49",
-    "group": "legacy-witnesses",
+    "name": "witness:49",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.18206107852080797,
@@ -4258,8 +4258,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:50",
-    "group": "legacy-witnesses",
+    "name": "witness:50",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.5164171252269547,
@@ -4309,8 +4309,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:51",
-    "group": "legacy-witnesses",
+    "name": "witness:51",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.7510329940835733,
@@ -4360,8 +4360,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:52",
-    "group": "legacy-witnesses",
+    "name": "witness:52",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.1660632423926873,
@@ -4411,8 +4411,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:53",
-    "group": "legacy-witnesses",
+    "name": "witness:53",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.4474281388117315,
@@ -4462,8 +4462,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:54",
-    "group": "legacy-witnesses",
+    "name": "witness:54",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.5201909457132159,
@@ -4513,8 +4513,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:55",
-    "group": "legacy-witnesses",
+    "name": "witness:55",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.08098693515188655,
@@ -4564,8 +4564,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:56",
-    "group": "legacy-witnesses",
+    "name": "witness:56",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.0065275718912407325,
@@ -4615,8 +4615,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:57",
-    "group": "legacy-witnesses",
+    "name": "witness:57",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.9081433785248453,
@@ -4666,8 +4666,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:58",
-    "group": "legacy-witnesses",
+    "name": "witness:58",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.5596438749204852,
@@ -4717,8 +4717,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:59",
-    "group": "legacy-witnesses",
+    "name": "witness:59",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.037190585004933684,
@@ -4768,8 +4768,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:60",
-    "group": "legacy-witnesses",
+    "name": "witness:60",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.12436125773796605,
@@ -4819,8 +4819,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:61",
-    "group": "legacy-witnesses",
+    "name": "witness:61",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.07017999396862967,
@@ -4870,8 +4870,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:62",
-    "group": "legacy-witnesses",
+    "name": "witness:62",
+    "group": "discovery-witnesses",
     "target": [
       [
         -0.7749030115192186,
@@ -4921,8 +4921,8 @@
   },
   {
     "model": 1,
-    "name": "legacy:63",
-    "group": "legacy-witnesses",
+    "name": "witness:63",
+    "group": "discovery-witnesses",
     "target": [
       [
         0.3342083316615843,

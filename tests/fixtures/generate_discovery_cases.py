@@ -79,5 +79,5 @@ def make_corpus(random_count, stress_count, seed):
         q[2] += q[1]
         model = models[ten]
         target = model["base"] @ canonical_forward(model["lengths"], q) @ model["tool"]
-        add(ten, f"legacy:{index}", "legacy-witnesses", target, [q])
+        add(ten, f"witness:{index}", "discovery-witnesses", target, [q])
     return models, cases

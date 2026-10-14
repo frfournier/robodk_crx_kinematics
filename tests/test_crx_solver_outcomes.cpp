@@ -39,6 +39,48 @@ auto Target(const crx::CrxModelData &model, const Vec6 &q) -> crx::PoseIsoRT {
   return pose;
 }
 
+void CheckGeneralForwardGeometry() {
+  auto model = Model();
+  model.base_transform.linear() =
+      Eigen::AngleAxisd(.2, crx::Vec3::UnitZ()).toRotationMatrix();
+  model.tool_transform.translation() = crx::Vec3(3, -2, 1);
+  Vec6 q;
+  q << .4, -.7, .8, .6, -.9, -1.2;
+  for (std::size_t i = 0; i < model.dh_rows.size(); ++i) {
+    const double index = static_cast<double>(i + 1);
+    model.dh_rows[i] = {.13 * index, 10 * index, -.22 * index, 7 * index,
+                        i == 4};
+  }
+  for (const double offset : {0.0, 3.0}) {
+    model.dh_rows[4].d += offset;
+    crx::PoseIsoRT actual;
+    crx::JointPoseBuffer joints;
+    Require(crx::SolveFkIsometry(model, q, actual, &joints, false) == 1,
+            "general DH with a prismatic joint supports FK");
+    crx::PoseIsoRT expected = model.base_transform;
+    Require(joints[0].matrix().isApprox(expected.matrix(), 1e-12),
+            "joint buffer starts at the model base");
+    for (std::size_t i = 0; i < model.dh_rows.size(); ++i) {
+      const auto &row = model.dh_rows[i];
+      double motion = q[static_cast<Eigen::Index>(i)] * model.joint_senses[i];
+      if (i == 2) {
+        motion -= q[1] * model.joint_senses[1];
+      }
+      const double theta = row.theta0_rad + (row.is_prismatic ? 0 : motion);
+      const double d = row.d + (row.is_prismatic ? motion : 0);
+      expected = expected * Eigen::Translation3d(row.a, 0, 0) *
+                 Eigen::AngleAxisd(row.alpha_rad, crx::Vec3::UnitX()) *
+                 Eigen::Translation3d(0, 0, d) *
+                 Eigen::AngleAxisd(theta, crx::Vec3::UnitZ());
+      Require((joints[i + 1].matrix() - expected.matrix()).norm() < 1e-10,
+              "every joint frame matches independent modified-DH factors");
+    }
+    expected = expected * model.tool_transform;
+    Require((actual.matrix() - expected.matrix()).norm() < 1e-10,
+            "FK uses this call's geometry and tool transform");
+  }
+}
+
 void CheckMappings() {
   for (const auto status : {IkStatus::StrictCandidates, IkStatus::StrictSeed,
                             IkStatus::ApproximateSeed}) {
@@ -96,10 +138,7 @@ void CheckSolves() {
           "command integer range failure is distinct from work exhaustion");
 }
 
-void CheckSeedStatusMetadata() {
-#ifndef CRXKIN_POLYNOMIAL_COMPARISON
-  // Python checks thresholds, output buffers and FK through the C ABI.
-  // Only these internal strict/approximate classifications are native-only.
+void CheckBoundaryStatusMetadata() {
   const auto model = Model();
   Vec6 seed;
   seed << 0, kPi / 2, 0, 0, 0, 0;
@@ -107,13 +146,12 @@ void CheckSeedStatusMetadata() {
     auto target = Target(model, seed);
     target.translation().x() += delta;
     const auto result = crx::SolveIkIsometry(model, target, &seed, 64);
-    Require(result.status ==
-                (delta < crx::numerics::kSolutionPositionToleranceMm
-                     ? IkStatus::StrictSeed
-                     : IkStatus::ApproximateSeed),
-            "strict and approximate seed metadata remain distinct");
+    Require(
+        result.status == (delta < crx::numerics::kSolutionPositionToleranceMm
+                              ? IkStatus::StrictCandidates
+                              : IkStatus::Unresolved),
+        "boundary correction must not mask unresolved discovery with a seed");
   }
-#endif
 }
 
 void CheckSingularRepresentatives() {
@@ -125,17 +163,16 @@ void CheckSingularRepresentatives() {
   Require(result.status == IkStatus::StrictCandidates &&
               !result.solutions.empty(),
           "vertical arm representatives are supported");
-#ifdef CRXKIN_POLYNOMIAL_COMPARISON
   Require(result.used_singular_representatives,
           "canonical free-base policy propagated");
-#endif
 }
 } // namespace
 
 auto main() -> int {
+  CheckGeneralForwardGeometry();
   CheckMappings();
   CheckSolves();
-  CheckSeedStatusMetadata();
+  CheckBoundaryStatusMetadata();
   CheckSingularRepresentatives();
   std::puts("Solver outcome and adapter checks passed");
   return EXIT_SUCCESS;

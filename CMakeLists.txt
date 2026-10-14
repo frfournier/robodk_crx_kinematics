@@ -316,38 +316,19 @@ endif()
 # Tests and verification utility
 # ------------------------------------------------------------------------------
 if(BUILD_TESTING)
-  # Inspect private outcomes for both backends without adding DLL exports.
-  foreach(_backend scanner polynomial)
-    add_executable(crx_solver_${_backend}_tests
-      tests/test_crx_solver_outcomes.cpp ${CRXKIN_CPP_SOURCES})
-    target_include_directories(crx_solver_${_backend}_tests PRIVATE include src)
-    target_link_libraries(crx_solver_${_backend}_tests PRIVATE Eigen3::Eigen)
-    if(_backend STREQUAL "polynomial")
-      target_compile_definitions(crx_solver_${_backend}_tests PRIVATE CRXKIN_POLYNOMIAL_COMPARISON)
-    endif()
-    add_test(NAME crx.solver-${_backend} COMMAND crx_solver_${_backend}_tests)
-  endforeach()
+  # Inspect private solver outcomes without adding DLL exports.
+  add_executable(crx_solver_tests
+    tests/test_crx_solver_outcomes.cpp ${CRXKIN_CPP_SOURCES})
+  target_include_directories(crx_solver_tests PRIVATE include src)
+  target_link_libraries(crx_solver_tests PRIVATE Eigen3::Eigen)
+  add_test(NAME crx.solver COMMAND crx_solver_tests)
   add_executable(crx_command_lift_tests
     tests/test_crx_command_lifts.cpp src/crx_command_lifts.cpp
     src/crx_math_helpers.cpp src/crx_math_compat.cpp)
   target_include_directories(crx_command_lift_tests PRIVATE src)
   target_link_libraries(crx_command_lift_tests PRIVATE Eigen3::Eigen)
   add_test(NAME crx.command-lifts COMMAND crx_command_lift_tests)
-  # Exercise polynomial discovery through the real RoboDK C ABI without
-  # switching or deploying the production library. Same sources/finalization;
-  # only the discovery selection differs. No additional public exports.
-  if(WIN32)
-    add_library(crx_kinematics_polynomial SHARED ${CRXKIN_CPP_SOURCES})
-    target_include_directories(crx_kinematics_polynomial PRIVATE include src)
-    target_link_libraries(crx_kinematics_polynomial PRIVATE Eigen3::Eigen)
-    target_compile_definitions(crx_kinematics_polynomial PRIVATE CRXKIN_POLYNOMIAL_COMPARISON)
-    if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-      target_compile_options(crx_kinematics_polynomial PRIVATE /W4 /permissive-)
-    endif()
-  endif()
-  # Opt-in Release timing harness, without allocation probes or /UNDEBUG.
-  # Production is called through its actual DLL; polynomial sources use the
-  # same preset optimization flags. No benchmark exports enter the plugin ABI.
+  # Opt-in native timing harnesses; no benchmark exports enter the C ABI.
   if(WIN32)
     add_executable(crx_discovery_benchmark EXCLUDE_FROM_ALL
       scripts/benchmark_discovery.cpp
@@ -357,12 +338,12 @@ if(BUILD_TESTING)
     target_include_directories(crx_discovery_benchmark PRIVATE src)
     target_link_libraries(crx_discovery_benchmark PRIVATE Eigen3::Eigen)
     add_dependencies(crx_discovery_benchmark crx_kinematics)
-    # Equal-scope snapshot: both implementations use their complete C ABI.
+    # Compare external baseline and candidate DLLs through their complete C ABI.
     add_executable(crx_solver_benchmark EXCLUDE_FROM_ALL
       scripts/benchmark_solvers.cpp)
-    add_dependencies(crx_solver_benchmark crx_kinematics crx_kinematics_polynomial)
+    add_dependencies(crx_solver_benchmark crx_kinematics)
   endif()
-  # Compile the internal comparison kernel directly into an assertion-enabled
+  # Compile the canonical geometry kernel directly into an assertion-enabled
   # harness. These definitions must cover every Eigen-using translation unit;
   # the Release DLL's NDEBUG build is not an allocation test.
   add_executable(crx_canonical_tests
@@ -402,41 +383,25 @@ if(BUILD_TESTING)
     set_tests_properties(crx.python-regression PROPERTIES
       ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>"
     )
-    if(WIN32)
-      set_property(TEST crx.python-regression APPEND PROPERTY ENVIRONMENT
-        "CRXKIN_POLYNOMIAL_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics_polynomial>")
-      add_test(
-        NAME crx.polynomial-api
-        COMMAND "${CRXKIN_UV_EXECUTABLE}" run --locked pytest tests/test_crx_kinematics.py
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-      )
-      set_tests_properties(crx.polynomial-api PROPERTIES
-        ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics_polynomial>"
-      )
-      # Readiness must not be satisfied by recording new expected failures.
-      add_test(
-        NAME crx.polynomial-reliability
-        COMMAND "${CRXKIN_UV_EXECUTABLE}" run --locked pytest
-                tests/test_crx_solver_fixtures.py --require-solver-reliability -k polynomial
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-      )
-      set_tests_properties(crx.polynomial-reliability PROPERTIES
-        ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_POLYNOMIAL_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics_polynomial>"
-      )
-    endif()
+    add_test(
+      NAME crx.solver-reliability
+      COMMAND "${CRXKIN_UV_EXECUTABLE}" run --locked pytest
+              tests/test_crx_solver_fixtures.py --require-solver-reliability
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    set_tests_properties(crx.solver-reliability PROPERTIES
+      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>"
+    )
 
     add_custom_target(check
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
               --output-on-failure
       DEPENDS crx_kinematics crx_canonical_tests crx_command_lift_tests
-              crx_solver_scanner_tests crx_solver_polynomial_tests
+              crx_solver_tests
       COMMENT "Running CMake/CTest regression checks"
       USES_TERMINAL
       VERBATIM
     )
-    if(WIN32)
-      add_dependencies(check crx_kinematics_polynomial)
-    endif()
   else()
     message(WARNING
       "BUILD_TESTING=ON, but uv was not found. CTest integration is disabled."

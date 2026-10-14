@@ -17,7 +17,7 @@ from fixtures.generate_accuracy_stress import corpus as stress_corpus
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--before", type=Path, required=True)
-    parser.add_argument("--after", type=Path, default=bench.ROOT / "build/Release/crx_kinematics_polynomial.dll")
+    parser.add_argument("--after", type=Path, default=bench.ROOT / "build/Release/crx_kinematics.dll")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--corpus", choices=("existing", "stress"), default="stress")
     parser.add_argument("--rounds", type=int, default=5)
@@ -54,7 +54,7 @@ def main():
         with zipfile.ZipFile(output / "sources.zip", "w", zipfile.ZIP_DEFLATED) as archive:
             for source in sorted((bench.ROOT / "src").glob("*.[ch]*")):
                 archive.write(source, source.relative_to(bench.ROOT))
-    metadata = dict(labels={"legacy": "before polynomial", "polynomial": "after polynomial"},
+    metadata = dict(labels={"baseline": "baseline", "candidate": "candidate"},
                     measured_at_utc=datetime.now(timezone.utc).isoformat(),
                     platform=platform.platform(), cpu=platform.processor(),
                     corpus=args.corpus, rounds=args.rounds, repeats=args.repeats, capacity=args.capacity,

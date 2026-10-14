@@ -61,7 +61,8 @@ inline constexpr double kDirectionTolerance = 256 * kEpsilon;
 // 512*eps is a tested compromise, not a formal forward-error bound.
 inline constexpr double kIncidenceResidualTolerance = 512 * kEpsilon;
 // Same sweep: 512*eps loses that witness; 16384*eps loses another posture.
-// Retain 4096*eps for normalized back-substitution and scanner XY guards.
+// Retain 4096*eps for normalized back-substitution and posture-classification
+// XY guards.
 inline constexpr double kGeometryTolerance = 4096 * kEpsilon;
 inline constexpr double kShellRoundoff = 2 * kGeometryTolerance;
 inline constexpr double kIncidenceAmbiguityFactor = 8;
@@ -74,7 +75,7 @@ inline constexpr double kApproxFallbackAngleToleranceRad =
     angle_conv::DegToRad(1e-2);
 
 // Sensitivity experiment N1017 (2026-10-09): six assets, 25 fixtures, 768
-// random, 96 stress, 64 legacy and 64 boundary poses; one-at-a-time threshold
+// random, 96 stress, 64 witness and 64 boundary poses; one-at-a-time threshold
 // sweeps. Details/limitations: tests/README.md. Discardable harness/raw CSV:
 // build/numerics. Phase: 1e-12 added near-duplicate candidates; 1e-9 merged
 // polynomial candidates. 1e-10 is the rounded overlap of the stable count
@@ -128,32 +129,11 @@ inline constexpr double kFoldedChartArmFraction = .01;
 // Require a rounded 5% norm improvement to avoid marginal balancing work.
 inline constexpr double kBalanceRequiredImprovement = .95;
 
-// Scanner quantities carry units explicitly; no generic epsilon is shared
-// between DH lengths, dimensionless residuals and angular intervals.
-// Unit floors protect vanishing geometry; the scanner also scales guards by
-// its arm lengths. N1017: replacing the old 1e-12 floors by 4096*eps at
-// 1 mm / 1 mm^2 leaves outcomes/counts unchanged. Not calibration tolerances.
+// Physical geometry floors are scaled further by the model's arm lengths.
 inline constexpr double kReferenceLengthMm = 1.0;
-inline constexpr double kScannerLengthFloorMm =
+inline constexpr double kGeometryLengthFloorMm =
     kGeometryTolerance * kReferenceLengthMm;
-inline constexpr double kScannerSquaredLengthFloorMm2 =
-    kGeometryTolerance * kReferenceLengthMm * kReferenceLengthMm;
-inline constexpr double kScannerDenominatorTolerance = kGeometryTolerance;
-// N1017: 4096*eps preserves counts; 1e-10 loses a folded-arm witness.
-inline constexpr double kRefineIntervalRad = kGeometryTolerance;
-// N1017: 32*eps..1e-12 preserve counts. Use the elementary residual budget.
-inline constexpr double kRootZeroTolerance = kElementaryRoundoff;
-// N1017: 1e-7 drops a vertical-arm case, 1e-6 changes three catalogues;
-// retain rounded 1e-5 for nominating sampled roots, with strict FK afterward.
-inline constexpr double kRootSampleHitTolerance = 1e-5;
-inline constexpr double kTriangleNegativeToleranceMm2 =
-    kScannerSquaredLengthFloorMm2;
-// N1017: 1e-8..1e-5 preserve counts; 1e-4 changes ten outcomes. Keep the
-// rounded 1e-6 shell window, whose physical width scales with the arm.
-inline constexpr double kTriangleShellRelativeTolerance = 1e-6;
-// N1017: 64*eps..1e-7 unchanged; no need for the former 1e-9 allowance.
-inline constexpr double kCosineClampTolerance = kGeometryTolerance;
-inline constexpr double kDhLengthToleranceMm = kScannerLengthFloorMm;
+inline constexpr double kDhLengthToleranceMm = kGeometryLengthFloorMm;
 // N1017 nominal assets are unchanged at 4096*eps. The DH tilt micro-check
 // showed that the old 1e-5-rad window erases .005346 mm over 540 mm at
 // 9.9e-6 rad. Snap only roundoff; larger off-family tilts must request IK
@@ -173,8 +153,6 @@ inline constexpr double kConfigShoulderRadiusFraction = .011;
 inline constexpr double kConfigWristZeroRad = angle_conv::DegToRad(.01);
 
 // Bounded work policies; finite lists do not certify branch completeness.
-inline constexpr int kScannerIntervals = 960;
-inline constexpr int kScannerRefineIterations = 100;
 // Premerge 9082-pose sweep: eight loses a scaled holdout; 16/24/32/64 solve
 // every reachable target. Retain 24; higher budgets change near-family
 // candidate counts but do not improve measured solve rate. Not completeness.

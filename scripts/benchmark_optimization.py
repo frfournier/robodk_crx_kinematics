@@ -1,6 +1,6 @@
 """Paired before/after DLL measurements using the native FK/IK runner.
 
-Build crx_solver_benchmark with a Release preset. Save the baseline DLLs before
+Build crx_solver_benchmark with a Release preset. Save the baseline DLL before
 editing. This script snapshots both builds and compares counts and ordered
 outputs, then checks IK accuracy with independent modified-DH FK.
 """
@@ -30,7 +30,7 @@ def summarize(timings, solutions, cases):
     counts = timings.pivot(index=keys, columns="path", values="count")
     columns = [name for name in solutions.columns if name.startswith("q")]
     ordered = []
-    for side in ("legacy", "polynomial"):
+    for side in ("baseline", "candidate"):
         ordered.append(solutions[solutions.path == side].set_index(
             ["case", "mode", "solution"])[columns].sort_index())
     before, after = ordered
@@ -39,7 +39,7 @@ def summarize(timings, solutions, cases):
     new_values = after.loc[common].to_numpy()
     differences = np.abs(old_values - new_values)
     result = dict(
-        changed_counts=int((counts.legacy != counts.polynomial).sum()),
+        changed_counts=int((counts.baseline != counts.candidate).sum()),
         unmatched_output_rows=len(before.index.symmetric_difference(after.index)),
         max_ordered_output_difference=float(differences.max(initial=0)),
         signed_zero_differences=int(((old_values == 0) & (new_values == 0) &
@@ -54,9 +54,9 @@ def summarize(timings, solutions, cases):
         for group, subset in groups.items():
             medians = subset.groupby(["case", "path"]).us.median().unstack()
             rounds = subset.groupby(["round", "path"]).us.mean().unstack()
-            ratios = rounds.legacy / rounds.polynomial
+            ratios = rounds.baseline / rounds.candidate
             stats = {}
-            for side, label in (("legacy", "before"), ("polynomial", "after")):
+            for side, label in (("baseline", "before"), ("candidate", "after")):
                 values = medians[side]
                 stats[label] = dict(
                     mean_us=float(values.mean()),
@@ -67,7 +67,7 @@ def summarize(timings, solutions, cases):
                     raw_p95_us=float(subset[subset.path == side].us.quantile(.95)),
                     raw_p99_us=float(subset[subset.path == side].us.quantile(.99)),
                 )
-            stats["speedup"] = float(medians.legacy.mean() / medians.polynomial.mean())
+            stats["speedup"] = float(medians.baseline.mean() / medians.candidate.mean())
             stats["round_speedup_range"] = [float(ratios.min()), float(ratios.max())]
             result["groups"][f"{mode}/{group}"] = stats
     return result
@@ -75,8 +75,8 @@ def summarize(timings, solutions, cases):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baseline", required=True, type=Path)
-    parser.add_argument("--candidate", type=Path, default=ROOT / "build/Release")
+    parser.add_argument("--baseline-dll", required=True, type=Path)
+    parser.add_argument("--candidate-dll", type=Path, default=ROOT / "build/Release/crx_kinematics.dll")
     parser.add_argument("--runner", type=Path, default=ROOT / "build/Release/crx_solver_benchmark.exe")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--random-per-model", type=int, default=64)
@@ -86,7 +86,9 @@ def main():
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--fk-repeats", type=int, default=100)
     parser.add_argument("--capacity", type=int, default=64)
-    parser.add_argument("--backend", choices=["scanner", "polynomial", "both"], default="both")
+    parser.add_argument("--baseline-revision", help="Commit used to build the baseline artifact")
+    parser.add_argument("--require-identical", action="store_true",
+                        help="Fail on count, ordering or floating-point output differences")
     args = parser.parse_args()
     if min(args.random_per_model, args.stress_per_group_model, args.rounds,
            args.repeats, args.fk_repeats, args.capacity) < 1:
@@ -114,49 +116,48 @@ def main():
                     git_status=subprocess.check_output(["git", "status", "--short"], cwd=ROOT, text=True),
                     binaries={})
     results = {}
-    for backend, filename in (("scanner", "crx_kinematics.dll"),
-                              ("polynomial", "crx_kinematics_polynomial.dll")):
-        if args.backend not in (backend, "both"):
-            continue
-        libraries = []
-        for label, directory in (("before", args.baseline), ("after", args.candidate)):
-            destination = output / label / filename
-            destination.parent.mkdir(exist_ok=True)
-            shutil.copy2(directory / filename, destination)
-            metadata["binaries"][f"{backend}/{label}"] = digest(destination)
-            libraries.append(destination)
-        for mode, repeats in (("ik", args.repeats), ("fk", args.fk_repeats)):
-            directory = output / f"{backend}-{mode}"
-            directory.mkdir()
-            command = [str(runner), *map(str, libraries), str(output / "input.txt"),
-                       str(directory / "timings.csv"), str(directory / "solutions.csv"),
-                       str(repeats), str(args.rounds), str(args.capacity)]
-            if mode == "fk":
-                command.append("fk")
-            with (directory / "native.log").open("w") as log:
-                subprocess.run(command, check=True, stderr=log)
-            timings = pd.read_csv(directory / "timings.csv", float_precision="round_trip")
-            solutions = pd.read_csv(directory / "solutions.csv", float_precision="round_trip")
-            result = summarize(timings, solutions, cases)
-            if mode == "ik":
-                _, errors, _ = validate(directory, models, references, cases, args.rounds)
-                result["accuracy"] = {}
-                for side, label in (("legacy", "before"), ("polynomial", "after")):
-                    rows = errors[errors.path == side]
-                    result["accuracy"][label] = dict(
-                        invalid_outputs=int((~rows.valid).sum()),
-                        max_position_mm=float(rows.position_mm.max()),
-                        max_angle_deg=float(rows.angle_deg.max()),
-                    )
-            results[f"{backend}/{mode}"] = result
-            print(backend, mode, json.dumps({key: value for key, value in result.items()
-                                            if key != "groups"}), flush=True)
-            for key, value in result["groups"].items():
-                if key.endswith("/all"):
-                    print(key, json.dumps(value), flush=True)
+    libraries = []
+    for label, source in (("baseline", args.baseline_dll), ("candidate", args.candidate_dll)):
+        destination = output / f"{label}.dll"
+        shutil.copy2(source, destination)
+        metadata["binaries"][label] = digest(destination)
+        libraries.append(destination)
+    for mode, repeats in (("ik", args.repeats), ("fk", args.fk_repeats)):
+        directory = output / mode
+        directory.mkdir()
+        command = [str(runner), *map(str, libraries), str(output / "input.txt"),
+                   str(directory / "timings.csv"), str(directory / "solutions.csv"),
+                   str(repeats), str(args.rounds), str(args.capacity)]
+        if mode == "fk":
+            command.append("fk")
+        with (directory / "native.log").open("w") as log:
+            subprocess.run(command, check=True, stderr=log)
+        timings = pd.read_csv(directory / "timings.csv", float_precision="round_trip")
+        solutions = pd.read_csv(directory / "solutions.csv", float_precision="round_trip")
+        result = summarize(timings, solutions, cases)
+        if mode == "ik":
+            _, errors, _ = validate(directory, models, references, cases, args.rounds)
+            result["accuracy"] = {}
+            for side, label in (("baseline", "before"), ("candidate", "after")):
+                rows = errors[errors.path == side]
+                result["accuracy"][label] = dict(
+                    invalid_outputs=int((~rows.valid).sum()),
+                    max_position_mm=float(rows.position_mm.max()),
+                    max_angle_deg=float(rows.angle_deg.max()),
+                )
+        results[mode] = result
+        print(mode, json.dumps({key: value for key, value in result.items()
+                                        if key != "groups"}), flush=True)
+        for key, value in result["groups"].items():
+            if key.endswith("/all"):
+                print(key, json.dumps(value), flush=True)
     (output / "summary.json").write_text(json.dumps(dict(metadata=metadata, results=results), indent=2) + "\n")
+    if any(result["nonfinite_outputs"] or
+           result.get("accuracy", {}).get("after", {}).get("invalid_outputs", 0)
+           for result in results.values()):
+        raise SystemExit("Invalid outputs; inspect the accuracy artifacts")
     # Exact comparison intentionally catches ordering and singular branch drift.
-    if any(result["changed_counts"] or result["unmatched_output_rows"] or
+    if args.require_identical and any(result["changed_counts"] or result["unmatched_output_rows"] or
            result["max_ordered_output_difference"] or result["signed_zero_differences"] or
            result["nonfinite_outputs"] or
            any(side["invalid_outputs"] for side in result.get("accuracy", {}).values())

@@ -35,11 +35,10 @@ FK composes the robot model's modified-DH transforms, joint senses, and base/too
 frames. IK reduces the geometry to one angle around a wrist circle, reconstructs
 joint postures, and checks them against the complete FK pose.
 
-The production DLL finds candidates with a one-dimensional scan. A separate
-test DLL, `crx_kinematics_polynomial.dll`, uses polynomial roots and geometric
-refinement. Both apply limits to coupled RoboDK commands, enumerate valid full
-turns, and rank by squared command travel from the seed. Without a seed, ordering
-is lexicographic. Complete coverage of singular families is not guaranteed.
+IK finds candidates with polynomial roots and geometric refinement, applies
+limits to coupled RoboDK commands, enumerates valid full turns, and ranks by
+squared command travel from the seed. Without a seed, ordering is lexicographic.
+Complete coverage of singular families is not guaranteed.
 
 ## RoboDK callback contract
 

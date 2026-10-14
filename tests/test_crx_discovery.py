@@ -1,4 +1,4 @@
-"""Seed-free discovery gates using derived legacy-model targets (#2/#19 A).
+"""Seed-free discovery gates using derived CRX-model targets (#2/#19 A).
 
 Each generating posture is a known witness, not a complete IK catalogue. These
 tests neither count polynomial roots nor certify coverage of continuous fibres.
@@ -13,30 +13,9 @@ from crx_reference import discovery_joints, missing_postures, reference_fk
 from crx_test_support import _call_fk, _call_ik, _to_c_array, _to_fk_api_joints_deg
 
 
-class MissingPostureError(AssertionError):
-    """Only a missing witness is covered by the recorded legacy exceptions."""
-
-
-# Reproduced against the pre-change DLL. Strict XPASS requires removing the
-# exception when discovery is fixed; other failures are never swallowed.
-KNOWN_MISSING_POSTURES = {8, 36, 42, 57}
-DISCOVERY_CASES = [
-    pytest.param(
-        backend, case_id,
-        marks=pytest.mark.xfail(
-            strict=True, raises=MissingPostureError,
-            reason="#2/#8/#17: legacy IK misses this seed-free witness",
-        ) if backend == "kinematics_lib" and case_id in KNOWN_MISSING_POSTURES else (),
-        id=f"{backend}-{case_id}",
-    )
-    for backend in ("kinematics_lib", "polynomial_kinematics_lib")
-    for case_id in range(64)
-]
-
-
-@pytest.mark.parametrize("backend,case_id", DISCOVERY_CASES)
-def test_seed_free_discovery(request, crx_10ia, backend, case_id):
-    library = request.getfixturevalue(backend)
+@pytest.mark.parametrize("case_id", range(64))
+def test_seed_free_discovery(kinematics_lib, crx_10ia, case_id):
+    library = kinematics_lib
     witness = discovery_joints(case_id)
     target, _ = reference_fk(crx_10ia, witness)
     count, _, solutions = _call_ik(
@@ -52,13 +31,13 @@ def test_seed_free_discovery(request, crx_10ia, backend, case_id):
         np.testing.assert_allclose(actual[:3, 3], target[:3, 3], atol=1e-4, rtol=0)
         np.testing.assert_allclose(actual[:3, :3], target[:3, :3], atol=2e-5, rtol=0)
     if missing_postures([witness], solutions):
-        raise MissingPostureError(
+        raise AssertionError(
             f"case {case_id}: missing generating posture {witness}; returned {count}"
         )
 
 
-@pytest.mark.parametrize("case_id", sorted(KNOWN_MISSING_POSTURES))
-def test_generating_seed_masks_missing_discovery(kinematics_lib, crx_10ia, case_id):
+@pytest.mark.parametrize("case_id", [8, 36, 42, 57])
+def test_generating_seed_preserves_witness(kinematics_lib, crx_10ia, case_id):
     witness = discovery_joints(case_id)
     target, _ = reference_fk(crx_10ia, witness)
     count, _, solutions = _call_ik(
@@ -115,7 +94,7 @@ def test_reference_fk_and_all_cad_frames(kinematics_lib, crx_10ia, case_id, tran
         crx_10ia.data[3][4:10] = [-1, 1, 1, -1, 1, -1]
     joints = discovery_joints(case_id)
     # This test compares FK implementations, so choose a legal command lift.
-    # The legacy witness generator samples decoupled J3; J2+J3 can lie below
+    # The discovery witness generator samples decoupled J3; J2+J3 can lie below
     # the RoboDK command limit even when both internal coordinates are legal.
     command_j3 = joints[1] + joints[2]
     lower, upper = crx_10ia.data[30][2], crx_10ia.data[31][2]

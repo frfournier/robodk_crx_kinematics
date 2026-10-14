@@ -1,9 +1,4 @@
-"""Complete-DLL regression coverage for the versioned performance corpus.
-
-Known misses are exact-ID, strict xfails in routine runs. The release-readiness
-command --require-solver-reliability removes those exceptions and must pass
-before treating this corpus as solved. Invalid outputs are never xfailed.
-"""
+"""Complete-DLL regression coverage for the versioned performance corpus."""
 import ctypes
 import hashlib
 import json
@@ -12,32 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from crx_test_support import RobotT, MissingFixtureSolve, check_solver_pose
+from crx_test_support import RobotT, check_solver_pose
 from fixtures.generate_solver_cases import (
     corpus, DEFAULT_RANDOM_PER_MODEL, DEFAULT_STRESS_PER_GROUP_MODEL, DEFAULT_SEED,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CASES = json.loads((FIXTURES / "crx_solver_cases.json").read_text())
-KNOWN = json.loads((FIXTURES / "crx_solver_known_failures.json").read_text())
-
-
-def pytest_generate_tests(metafunc):
-    if "fixture_case" not in metafunc.fixturenames:
-        return
-    params = []
-    require_all = metafunc.config.getoption("--require-solver-reliability")
-    for backend in ("legacy", "polynomial"):
-        for case in CASES:
-            marks = []
-            if case["name"] in KNOWN[backend] and not require_all:
-                marks.append(pytest.mark.xfail(
-                    strict=True, raises=MissingFixtureSolve,
-                    reason=f"#19 B: recorded {backend} {case['group']} discovery miss; strict reliability gate still fails",
-                ))
-            params.append(pytest.param(backend, case, marks=marks,
-                                      id=f"{backend}:{case['name']}"))
-    metafunc.parametrize("backend,fixture_case", params)
 
 
 @pytest.fixture(scope="module")
@@ -46,11 +22,9 @@ def generated_models():
         DEFAULT_RANDOM_PER_MODEL, DEFAULT_STRESS_PER_GROUP_MODEL, DEFAULT_SEED)
     rendered = json.dumps(generated, indent=2) + "\n"
     assert rendered == (FIXTURES / "crx_solver_cases.json").read_text()
-    assert hashlib.sha256(rendered.encode()).hexdigest() == KNOWN["metadata"]["corpus_sha256_lf"]
+    assert hashlib.sha256(rendered.encode()).hexdigest() == "7714db1d8522f79f72889092bdd23982925b0db104773cafeb588a5a79e59c66"
     names = {case["name"] for case in generated}
     assert len(names) == len(generated)
-    for backend in ("legacy", "polynomial"):
-        assert set(KNOWN[backend]) <= names, "failure ledger contains a stale case ID"
     robots = []
     for model in models:
         robot = RobotT()
@@ -62,21 +36,50 @@ def generated_models():
 
 
 @pytest.mark.parametrize("seeded", [False, True], ids=["no-seed", "nearby-seed"])
-def test_generated_solver_pose(request, generated_models, backend, fixture_case, seeded):
-    library = request.getfixturevalue("kinematics_lib" if backend == "legacy"
-                                      else "polynomial_kinematics_lib")
-    check_solver_pose(library, generated_models, fixture_case, seeded,
-                      expected_failure=KNOWN[backend].get(fixture_case["name"]))
+@pytest.mark.parametrize("fixture_case", CASES, ids=lambda case: case["name"])
+def test_generated_solver_pose(kinematics_lib, generated_models, fixture_case, seeded):
+    check_solver_pose(kinematics_lib, generated_models, fixture_case, seeded)
+
+
+@pytest.mark.parametrize("seeded", [False, True], ids=["no-seed", "nearby-seed"])
+@pytest.mark.parametrize("turns", [-1, 0, 1])
+@pytest.mark.parametrize("inset_deg", [0., .001])
+def test_boundary_witness_survives_other_feasible_postures(
+    kinematics_lib, generated_models, seeded, turns, inset_deg,
+):
+    case = next(case for case in CASES if case["name"] ==
+                "Fanuc-CRX-10iA-Custom.robot:joint_limits:22")
+    models, references, robots = generated_models
+    model_id = case["model"]
+    models, robots = list(models), list(robots)
+    model = dict(models[model_id])
+    model["robot"] = model["robot"].copy()
+    model["robot"][30, 4] += 360 * turns + inset_deg
+    model["robot"][31, 4] += 360 * turns
+    models[model_id] = model
+    robots[model_id] = RobotT.from_buffer_copy(np.ascontiguousarray(model["robot"]))
+    case = dict(case, seed_deg=list(case["seed_deg"]))
+    case["seed_deg"][4] += 360 * turns
+    commands = check_solver_pose(
+        kinematics_lib, (models, references, robots), case, seeded)
+    witness = np.degrees(case["witnesses"][0])
+    separation = np.max(np.abs((commands - witness + 180) % 360 - 180), axis=1)
+    if inset_deg == 0:
+        assert np.min(separation) < 1e-6
+    else:
+        assert np.min(separation) > 1e-4
+    allowance = 128 * np.finfo(float).eps * max(1, abs(model["robot"][30, 4]))
+    assert np.all(commands[:, 4] >= model["robot"][30, 4] - allowance)
 
 
 @pytest.mark.parametrize("seeded", [False, True], ids=["no-seed", "nearby-seed"])
 def test_singular_rotation_rounding_preserves_candidates(
-    polynomial_kinematics_lib, generated_models, seeded,
+    kinematics_lib, generated_models, seeded,
 ):
     # Replacing Eigen's (1-cosine)+cosine axis diagonal with literal 1 changes
     # polishing at this singular target, dropping ten established commands.
     case = next(case for case in CASES if case["name"] == "MIN_Z")
     commands = check_solver_pose(
-        polynomial_kinematics_lib, generated_models, case, seeded)
+        kinematics_lib, generated_models, case, seeded)
     assert commands is not None
     assert len(commands) == 26  # Best output followed by all 25 commands.

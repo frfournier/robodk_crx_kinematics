@@ -16,6 +16,32 @@ auto BoundaryTolerance(const Vec6 &boundary) -> Vec6 {
       .cwiseMin(numerics::kJointPhaseToleranceRad);
 }
 
+struct CommandLimits {
+  Vec6 lower_tolerance;
+  Vec6 upper_tolerance;
+  Vec6 accepted_lower;
+  Vec6 accepted_upper;
+};
+
+auto PrepareLimits(const Vec6 &lower, const Vec6 &upper) -> CommandLimits {
+  const Vec6 lower_tolerance = BoundaryTolerance(lower);
+  const Vec6 upper_tolerance = BoundaryTolerance(upper);
+  return {lower_tolerance, upper_tolerance, lower - lower_tolerance,
+          upper + upper_tolerance};
+}
+
+auto ClampPreparedCommand(Vec6 &command, const Vec6 &lower, const Vec6 &upper,
+                          const CommandLimits &limits) -> bool {
+  if (!command.allFinite() ||
+      ((command.array() < limits.accepted_lower.array()) ||
+       (command.array() > limits.accepted_upper.array()))
+          .any()) {
+    return false;
+  }
+  command = command.cwiseMax(lower).cwiseMin(upper);
+  return true;
+}
+
 auto CommandPhase(double angle) -> double {
   const double phase = WrapRadPi(angle);
   return numerics::Scalar(phase - angle_conv::kPi)
@@ -60,11 +86,14 @@ struct LiftBox {
   std::uint64_t count = 1;
 };
 
-auto PrepareBox(LiftBox &box, const Vec6 &lower, const Vec6 &upper) -> bool {
+auto PrepareBox(LiftBox &box, const Vec6 &lower, const Vec6 &upper,
+                const CommandLimits &limits) -> bool {
+  // Keep the subtraction order: moving the allowance before the phase can
+  // change rounding at an integer turn boundary.
   const Vec6 lo =
-      ((lower - box.phase - BoundaryTolerance(lower)).array() / kTwoPi).ceil();
+      ((lower - box.phase - limits.lower_tolerance).array() / kTwoPi).ceil();
   const Vec6 hi =
-      ((upper - box.phase + BoundaryTolerance(upper)).array() / kTwoPi).floor();
+      ((upper - box.phase + limits.upper_tolerance).array() / kTwoPi).floor();
   if (!lo.allFinite() || !hi.allFinite() ||
       lo.cwiseAbs().maxCoeff() > numerics::kMaxExactTurn ||
       hi.cwiseAbs().maxCoeff() > numerics::kMaxExactTurn) {
@@ -93,17 +122,12 @@ auto PrepareBox(LiftBox &box, const Vec6 &lower, const Vec6 &upper) -> bool {
 
 auto ClampCommandToLimits(Vec6 &command, const Vec6 &lower, const Vec6 &upper)
     -> bool {
-  if (!command.allFinite() || !lower.allFinite() || !upper.allFinite() ||
+  if (!lower.allFinite() || !upper.allFinite() ||
       (lower.array() > upper.array()).any()) {
     return false;
   }
-  if (((command.array() < (lower - BoundaryTolerance(lower)).array()) ||
-       (command.array() > (upper + BoundaryTolerance(upper)).array()))
-          .any()) {
-    return false;
-  }
-  command = command.cwiseMax(lower).cwiseMin(upper);
-  return true;
+  return ClampPreparedCommand(command, lower, upper,
+                              PrepareLimits(lower, upper));
 }
 
 auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
@@ -121,6 +145,7 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     return result;
   }
 
+  const CommandLimits limits = PrepareLimits(lower, upper);
   std::vector<LiftBox> boxes;
   for (const Vec6 &posture : postures) {
     if (!posture.allFinite()) {
@@ -128,13 +153,14 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     }
     LiftBox box;
     box.phase = posture.unaryExpr(&CommandPhase);
-    if (!validate(box.phase) ||
-        std::any_of(boxes.begin(), boxes.end(), [&](const LiftBox &other) {
-          return SamePhase(box.phase, other.phase);
-        })) {
+    if (std::any_of(boxes.begin(), boxes.end(),
+                    [&](const LiftBox &other) {
+                      return SamePhase(box.phase, other.phase);
+                    }) ||
+        !validate(box.phase)) {
       continue;
     }
-    if (!PrepareBox(box, lower, upper) ||
+    if (!PrepareBox(box, lower, upper, limits) ||
         result.box_lifts >
             std::numeric_limits<std::uint64_t>::max() - box.count) {
       result.status = CommandSelectionStatus::RangeFailure;
@@ -154,7 +180,7 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     preserved.command_rad = *seed;
     preserved.preserved_seed = true;
     result.seed_added =
-        ClampCommandToLimits(preserved.command_rad, lower, upper) &&
+        ClampPreparedCommand(preserved.command_rad, lower, upper, limits) &&
         validate(preserved.command_rad);
     if (result.seed_added) {
       for (int i = 0; i < kDofCount; ++i) {
@@ -203,7 +229,7 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
       const Vec6 turn_values =
           Eigen::Map<const TurnVector>(turns.data()).cast<double>();
       command.command_rad = box.phase + kTwoPi * turn_values;
-      if (ClampCommandToLimits(command.command_rad, lower, upper) &&
+      if (ClampPreparedCommand(command.command_rad, lower, upper, limits) &&
           validate(command.command_rad)) {
         feasible = true;
         ++result.valid_lifts;

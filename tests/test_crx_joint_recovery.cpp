@@ -4,10 +4,12 @@
 #include "crx_canonical.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
+#include "crx_joint_step.h"
 #include "crx_numerics.h"
 #include "crx_types.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -15,9 +17,11 @@
 #include <limits>
 #include <string_view>
 
+#include <Eigen/Core>
 #include <Eigen/Geometry>
 
 namespace {
+using crx::Mat3;
 using crx::PoseIsoRT;
 using crx::Vec3;
 using crx::Vec6;
@@ -49,7 +53,7 @@ struct Witness {
 };
 
 // Independent homogeneous transform product. Runtime FK uses rotation/vector
-// recurrences and does not call this test reference or legacy production FK.
+// recurrences and does not call this test reference or production FK.
 auto Forward(const Lengths &lengths, const Vec6 &q) -> Witness {
   PoseIsoRT fixed = PoseIsoRT::Identity();
   fixed.linear() << 0, 0, 1, 0, -1, 0, 1, 0, 0;
@@ -82,29 +86,34 @@ auto Contains(const JointRecovery &result, const Vec6 &q) -> bool {
   return false;
 }
 
+void CheckCandidatePose(const Lengths &lengths, const PoseIsoRT &target,
+                        const JointCandidate &candidate,
+                        const PoseTolerance &tolerance) {
+  const double scale = std::max({std::abs(lengths.a), std::abs(lengths.b),
+                                 std::abs(lengths.c), std::abs(lengths.r)});
+  Require(candidate.joints.allFinite() &&
+              candidate.joints.cwiseAbs().maxCoeff() <= kPi,
+          "finite principal joint angles");
+  Require(candidate.position_error <= tolerance.position &&
+              candidate.orientation_error <= tolerance.orientation,
+          "reported full-pose residuals");
+  const auto independently_rebuilt = Forward(lengths, candidate.joints).pose;
+  Require(((independently_rebuilt.translation() - target.translation()) / scale)
+                  .norm() < 1e-10,
+          "independent full translation check");
+  Require((independently_rebuilt.linear() - target.linear()).norm() < 1e-10,
+          "independent full orientation check");
+}
+
 void CheckCandidates(const Lengths &lengths, const PoseIsoRT &target,
                      const JointRecovery &result,
                      const PoseTolerance &tolerance) {
   Require(result.status == RecoveryStatus::Candidates && result.count >= 2 &&
               result.count <= 4,
           "finite posture candidates");
-  const double scale = std::max({std::abs(lengths.a), std::abs(lengths.b),
-                                 std::abs(lengths.c), std::abs(lengths.r)});
   for (std::size_t i = 0; i < result.count; ++i) {
     const auto &candidate = result.candidates[i];
-    Require(candidate.joints.allFinite() &&
-                candidate.joints.cwiseAbs().maxCoeff() <= kPi,
-            "finite principal joint angles");
-    Require(candidate.position_error <= tolerance.position &&
-                candidate.orientation_error <= tolerance.orientation,
-            "reported full-pose residuals");
-    const auto independently_rebuilt = Forward(lengths, candidate.joints).pose;
-    Require(
-        ((independently_rebuilt.translation() - target.translation()) / scale)
-                .norm() < 1e-10,
-        "independent full translation check");
-    Require((independently_rebuilt.linear() - target.linear()).norm() < 1e-10,
-            "independent full orientation check");
+    CheckCandidatePose(lengths, target, candidate, tolerance);
     for (std::size_t j = 0; j < i; ++j) {
       double separation = 0;
       for (int joint = 0; joint < 6; ++joint) {
@@ -324,6 +333,202 @@ auto CheckDiscoveryWitness(const Lengths &lengths, const Vec6 &q, int sample)
   return unpolished.status == RecoveryStatus::NeedsRefinement;
 }
 
+void CheckRefinementRotationVector(const Vec3 &axis, double angle) {
+  constexpr double kRelativeTolerance = 16 * crx::numerics::kEpsilon;
+  constexpr double kMatrixRoundoffTolerance = 1e-14;
+  for (const double sign : {-1.0, 1.0}) {
+    const Mat3 rotation =
+        Eigen::AngleAxisd(sign * angle, axis).toRotationMatrix();
+    const Vec3 actual = detail::RotationVector(rotation);
+    Require((actual - sign * angle * axis).cwiseAbs().maxCoeff() <=
+                kRelativeTolerance * angle,
+            "rotation logarithm covers zero, series/chart boundaries and pi");
+    const Vec3 perturbation(1e-15, -2e-15, 3e-15);
+    Mat3 rounded = rotation;
+    rounded.diagonal() += perturbation;
+    const Eigen::AngleAxisd reference(rounded);
+    Require(
+        (detail::RotationVector(rounded) - reference.angle() * reference.axis())
+                .norm() < kMatrixRoundoffTolerance,
+        "rotation logarithm tolerates matrix roundoff");
+  }
+}
+
+void TestRefinementRotationVector() {
+  const std::array<Vec3, 4> axes{Vec3::UnitX(), Vec3::UnitY(), Vec3::UnitZ(),
+                                 Vec3(1, -2, 3).normalized()};
+  const double boundary = 2 * std::atan(crx::numerics::kFourthRootEpsilon);
+  const auto allocations = crx::test::AllocationCount();
+  const bool previous = Eigen::internal::is_malloc_allowed();
+  Eigen::internal::set_is_malloc_allowed(false);
+  for (const auto &axis : axes) {
+    for (const double angle :
+         {0.0, std::numeric_limits<double>::denorm_min(),
+          std::numeric_limits<double>::min(), 1e-300, 1e-18, 1e-12,
+          boundary * (1 - 1e-10), boundary, boundary * (1 + 1e-10), .1, kPi / 2,
+          (2 * kPi / 3) - 1e-12, (2 * kPi / 3) + 1e-12, kPi - 1e-8, kPi}) {
+      CheckRefinementRotationVector(axis, angle);
+    }
+  }
+  Eigen::internal::set_is_malloc_allowed(previous);
+  Require(allocations == crx::test::AllocationCount(),
+          "rotation logarithm uses fixed storage");
+}
+
+void TestMinimumNormJointStep() {
+  using Matrix6 = Eigen::Matrix<double, 6, 6>;
+  Matrix6 left = Matrix6::Identity(), right = Matrix6::Identity();
+  for (int i = 0; i < 5; ++i) {
+    for (int j = i + 1; j < 6; ++j) {
+      const double angle = .2 * (i + j + 1);
+      left.applyOnTheLeft(
+          i, j,
+          Eigen::JacobiRotation<double>(std::cos(angle), std::sin(angle)));
+      right.applyOnTheRight(i, j,
+                            Eigen::JacobiRotation<double>(std::cos(2 * angle),
+                                                          std::sin(2 * angle)));
+    }
+  }
+  Vec6 error;
+  error << .2, -.3, .5, -.7, 1.1, -1.3;
+  for (int rank = 0; rank <= 6; ++rank) {
+    Vec6 singular = Vec6::Zero(), reciprocal = Vec6::Zero();
+    for (int i = 0; i < rank; ++i) {
+      singular[i] = 1.0 / (i + 1);
+      reciprocal[i] = i + 1;
+    }
+    const Matrix6 jacobian = left * singular.asDiagonal() * right.transpose();
+    const Vec6 expected =
+        right * reciprocal.asDiagonal() * left.transpose() * error;
+    for (const bool accuracy : {false, true}) {
+      const auto allocations = crx::test::AllocationCount();
+      const bool previous = Eigen::internal::is_malloc_allowed();
+      Eigen::internal::set_is_malloc_allowed(false);
+      const Vec6 actual =
+          detail::SolveMinimumNormStep(jacobian, error, accuracy);
+      Eigen::internal::set_is_malloc_allowed(previous);
+      Require(allocations == crx::test::AllocationCount() && actual.allFinite(),
+              "minimum-norm step uses fixed storage at every rank");
+      Require((actual - expected).norm() < 1e-12,
+              "rank-revealing step matches known orthogonal factors");
+    }
+  }
+  // A resolvable but nearly null direction is retained for geometric recovery
+  // and deliberately truncated for local accuracy refinement.
+  Matrix6 diagonal = Matrix6::Identity();
+  diagonal(5, 5) = 1e-10;
+  const Vec6 accurate = detail::SolveMinimumNormStep(diagonal, error, true);
+  const Vec6 geometric = detail::SolveMinimumNormStep(diagonal, error, false);
+  Require((accurate.head<5>() - error.head<5>()).norm() < 1e-12 &&
+              accurate[5] == 0 && (diagonal * geometric - error).norm() < 1e-12,
+          "accuracy truncation leaves observable directions unchanged");
+}
+
+void CheckRefinedBasePair(const Lengths &lengths, const Vec6 &q) {
+  const auto witness = Forward(lengths, q);
+  WristCircle circle;
+  Require(PrepareWristCircle(lengths, witness.pose, circle) ==
+              PreparationStatus::Ready,
+          "prepare unequal-arm folded target");
+  const double angle =
+      std::atan2(witness.axis.dot(circle.w), witness.axis.dot(circle.v));
+  const PoseTolerance tolerance{circle.length_scale *
+                                    crx::numerics::kGeometryTolerance,
+                                crx::numerics::kGeometryTolerance};
+  JointRefiner refiner(lengths, witness.pose, tolerance,
+                       crx::numerics::kPolishIterations);
+  const auto allocations = crx::test::AllocationCount();
+  const bool previous = Eigen::internal::is_malloc_allowed();
+  Eigen::internal::set_is_malloc_allowed(false);
+  const auto result =
+      refiner.Refine(angle, crx::numerics::kPolishRadiusRad, false);
+  Eigen::internal::set_is_malloc_allowed(previous);
+  Require(allocations == crx::test::AllocationCount(),
+          "refined base pair allocates no storage");
+  constexpr std::size_t max_postures = 4;
+  Require(result.status == RecoveryStatus::Candidates && result.count >= 2 &&
+              result.count <= max_postures,
+          "refined base pair contains finite postures");
+  // Different elbow nominations can converge to the same corrected posture;
+  // discovery deduplicates them after this local refinement stage.
+  for (std::size_t i = 0; i < result.count; ++i) {
+    CheckCandidatePose(lengths, witness.pose, result.candidates[i], tolerance);
+  }
+  Require(Contains(result, q), "refined generating posture retained");
+  Vec6 flipped = q;
+  flipped[0] -= kPi;
+  flipped[1] = -q[1];
+  flipped[2] = kPi - q[2];
+  constexpr int wrist_roll = 3;
+  flipped[wrist_roll] -= kPi;
+  Require(Contains(result, flipped), "refined opposite base posture retained");
+}
+
+void TestRefinedBasePairs() {
+  struct Sample {
+    double upper, wrist, offset;
+  };
+
+  constexpr std::array samples{
+      Sample{1.5, -.375, -.001}, Sample{1.5, -.375, .001},
+      Sample{1.5, .375, -.001},  Sample{1.5, .375, .001},
+      Sample{2.5, -.375, -.001}, Sample{2.5, -.375, .001},
+      Sample{2.5, .375, -.001},  Sample{2.5, .375, .001}};
+  const Vec6 generating =
+      (Vec6() << .4, -.7, -kPi / 2, .6, -.9, -1.2).finished();
+  constexpr double tool_length = .25;
+  for (const double scale : {1e-3, 1.0, 1e3}) {
+    for (const auto &sample : samples) {
+      Vec6 q = generating;
+      q[2] += sample.offset;
+      CheckRefinedBasePair({sample.upper * scale, 2 * scale,
+                            tool_length * scale, sample.wrist * scale},
+                           q);
+    }
+  }
+}
+
+void TestFoldedNominationWindows() {
+  for (const double scale : {1e-3, 1.0, 1e3}) {
+    const Lengths lengths{2 * scale, 2 * scale, .25 * scale, .375 * scale};
+    Vec6 q;
+    q << .4, -.7, -kPi / 2, .6, -.9, -1.2;
+    const auto target = Forward(lengths, q).pose;
+    const PoseTolerance tolerance{scale * 1e-8, 1e-8};
+    WristCircle circle;
+    Require(PrepareWristCircle(lengths, target, circle) ==
+                PreparationStatus::Ready,
+            "folded target prepares");
+    const double closest =
+        std::atan2(circle.p.dot(circle.w), circle.p.dot(circle.v)) + kPi;
+    JointRefiner refiner(lengths, target, tolerance,
+                         crx::numerics::kPolishIterations);
+    const auto allocations = crx::test::AllocationCount();
+    const bool previous = Eigen::internal::is_malloc_allowed();
+    Eigen::internal::set_is_malloc_allowed(false);
+    const auto excluded = refiner.Refine(closest + .001, 1e-5);
+    const auto admitted = refiner.Refine(closest, .05);
+    const auto excluded_again = refiner.Refine(closest - .001, 1e-5);
+    Eigen::internal::set_is_malloc_allowed(previous);
+    Require(allocations == crx::test::AllocationCount(),
+            "repeated folded nominations allocate no storage");
+    Require(excluded.status == RecoveryStatus::NeedsRefinement &&
+                excluded.count == 0 && excluded_again.count == 0,
+            "each folded nomination enforces its own wrist window");
+    Require(admitted.status == RecoveryStatus::Candidates &&
+                admitted.count > 0 && admitted.used_singular_representatives,
+            "a rejected window does not discard later folded representatives");
+    for (std::size_t i = 0; i < admitted.count; ++i) {
+      const auto actual = Forward(lengths, admitted.candidates[i].joints).pose;
+      Require((actual.translation() - target.translation()).norm() <=
+                      tolerance.position &&
+                  (actual.linear() - target.linear()).norm() <=
+                      2 * tolerance.orientation,
+              "folded representative passes independent FK");
+    }
+  }
+}
+
 void TestBoundedPoseCorrection() {
   for (const double scale : {1e-100, 1.0, 1e100}) {
     const Lengths lengths{2 * scale, 1.5 * scale, .25 * scale, .375 * scale};
@@ -342,7 +547,7 @@ void TestBoundedPoseCorrection() {
                              crx::numerics::kPolishIterations, candidate);
     Eigen::internal::set_is_malloc_allowed(previous);
     Require(solved && allocations == crx::test::AllocationCount(),
-            "bounded SVD correction is allocation-free across scales");
+            "bounded joint correction is allocation-free across scales");
     const auto actual = Forward(lengths, candidate.joints).pose;
     Require(((actual.translation() - target.translation()) / scale).norm() <=
                     crx::numerics::kGeometryTolerance &&
@@ -370,6 +575,38 @@ void TestBoundedPoseCorrection() {
                                   crx::numerics::kPolishIterations, candidate,
                                   &excluded, &excluded),
             "active bounds cannot publish an inaccurate fixed command");
+  }
+}
+
+void TestSingularAccuracyCorrection() {
+  for (const double scale : {1e-3, 1.0, 1e3}) {
+    const Lengths lengths{2 * scale, 2 * scale, .25 * scale, .375 * scale};
+    for (const double wrist : {0.0, 1e-8, .01}) {
+      Vec6 q;
+      q << .4, -.7, -kPi / 2, .6, wrist, -1.2;
+      const auto target = Forward(lengths, q).pose;
+      JointCandidate candidate;
+      candidate.joints = q.array() + 1e-5;
+      const Vec6 lower = candidate.joints.array() - 1e-4;
+      const Vec6 upper = candidate.joints.array() + 1e-4;
+      const auto allocations = crx::test::AllocationCount();
+      const bool previous = Eigen::internal::is_malloc_allowed();
+      Eigen::internal::set_is_malloc_allowed(false);
+      const bool solved =
+          PolishJointCandidate(lengths, target, {scale * 1e-4, 1e-3}, 6,
+                               candidate, &lower, &upper, true);
+      Eigen::internal::set_is_malloc_allowed(previous);
+      Require(solved && allocations == crx::test::AllocationCount(),
+              "singular accuracy correction uses fixed storage");
+      const auto actual = Forward(lengths, candidate.joints).pose;
+      Require(
+          ((actual.translation() - target.translation()) / scale).norm() <
+                  1e-11 &&
+              (actual.linear() - target.linear()).norm() < 1e-11 &&
+              (candidate.joints.array() >= lower.array()).all() &&
+              (candidate.joints.array() <= upper.array()).all(),
+          "singular refinement improves accuracy inside its posture window");
+    }
   }
 }
 
@@ -450,7 +687,12 @@ void RunJointRecoveryTests() {
   TestGeneratedAndZeroWristSine();
   TestFourPosturesAndHandoffs();
   TestInvalidAndTightTolerance();
+  TestRefinementRotationVector();
+  TestMinimumNormJointStep();
+  TestFoldedNominationWindows();
+  TestRefinedBasePairs();
   TestBoundedPoseCorrection();
+  TestSingularAccuracyCorrection();
   TestTargetOnlyDiscovery();
 }
 

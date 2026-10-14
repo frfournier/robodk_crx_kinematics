@@ -5,15 +5,9 @@
 
 namespace crx {
 
-void SinCos(double angle_rad, double &sin_out, double &cos_out);
-
-auto WrapRad2Pi(double a) -> double;
-
 auto NormalizeRadKeepSignedPi(double a) -> double;
 
 auto WrapRadPi(double a) -> double;
-
-auto ClampCosineNearUnit(double value) -> double;
 
 auto SnapToRightAngleFamily(double a,
                             double tol = numerics::kRightAngleSnapToleranceRad)
@@ -30,7 +24,5 @@ auto RemoveFanucJointCoupling(const Vec6 &coupled) -> Vec6;
 void NormalizeVecKeepSignedPi(Vec6 &q);
 
 void NormalizeUserSolutionDomains(Vec6 &q);
-
-auto DHM_FromRad(Scalar alpha, Scalar a, Scalar theta, Scalar d) -> PoseIsoRT;
 
 } // namespace crx
