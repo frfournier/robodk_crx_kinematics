@@ -167,15 +167,27 @@ endforeach()
 # ------------------------------------------------------------------------------
 # Library target (src/)
 # ------------------------------------------------------------------------------
+set(CRXKIN_CANONICAL_SOURCES
+  "${CMAKE_SOURCE_DIR}/src/crx_canonical.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_discovery.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_incidence.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_joint_recovery.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_polynomial_roots.cpp"
+)
+
 set(CRXKIN_CPP_SOURCES
+  ${CRXKIN_CANONICAL_SOURCES}
+  "${CMAKE_SOURCE_DIR}/src/crx_command_lifts.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_math_helpers.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_robodk_adapter.cpp"
 )
 
 file(GLOB CRXKIN_FORMAT_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/src/*.cpp"
+  "${CMAKE_SOURCE_DIR}/src/*.h"
   "${CMAKE_SOURCE_DIR}/include/*.h"
   "${CMAKE_SOURCE_DIR}/include/*.hpp"
   "${CMAKE_SOURCE_DIR}/tests/*.cpp"
@@ -191,8 +203,8 @@ set_target_properties(crx_kinematics PROPERTIES
 )
 
 target_include_directories(crx_kinematics PRIVATE
-  "${CMAKE_SOURCE_DIR}/include"   
-  "${CMAKE_SOURCE_DIR}/src"       
+  "${CMAKE_SOURCE_DIR}/include" # Public RoboDK C ABI declaration.
+  "${CMAKE_SOURCE_DIR}/src"     # Private headers beside their implementations.
 )
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
@@ -304,6 +316,59 @@ endif()
 # Tests and verification utility
 # ------------------------------------------------------------------------------
 if(BUILD_TESTING)
+  # Inspect private solver outcomes without adding DLL exports.
+  add_executable(crx_solver_tests
+    tests/test_crx_solver_outcomes.cpp ${CRXKIN_CPP_SOURCES})
+  target_include_directories(crx_solver_tests PRIVATE include src)
+  target_link_libraries(crx_solver_tests PRIVATE Eigen3::Eigen)
+  add_test(NAME crx.solver COMMAND crx_solver_tests)
+  add_executable(crx_command_lift_tests
+    tests/test_crx_command_lifts.cpp src/crx_command_lifts.cpp
+    src/crx_math_helpers.cpp src/crx_math_compat.cpp)
+  target_include_directories(crx_command_lift_tests PRIVATE src)
+  target_link_libraries(crx_command_lift_tests PRIVATE Eigen3::Eigen)
+  add_test(NAME crx.command-lifts COMMAND crx_command_lift_tests)
+  # Opt-in native timing harnesses; no benchmark exports enter the C ABI.
+  if(WIN32)
+    add_executable(crx_discovery_benchmark EXCLUDE_FROM_ALL
+      scripts/benchmark_discovery.cpp
+      ${CRXKIN_CANONICAL_SOURCES}
+      src/crx_math_compat.cpp
+    )
+    target_include_directories(crx_discovery_benchmark PRIVATE src)
+    target_link_libraries(crx_discovery_benchmark PRIVATE Eigen3::Eigen)
+    add_dependencies(crx_discovery_benchmark crx_kinematics)
+    # Compare external baseline and candidate DLLs through their complete C ABI.
+    add_executable(crx_solver_benchmark EXCLUDE_FROM_ALL
+      scripts/benchmark_solvers.cpp)
+    add_dependencies(crx_solver_benchmark crx_kinematics)
+  endif()
+  # Compile the canonical geometry kernel directly into an assertion-enabled
+  # harness. These definitions must cover every Eigen-using translation unit;
+  # the Release DLL's NDEBUG build is not an allocation test.
+  add_executable(crx_canonical_tests
+    tests/test_crx_canonical.cpp
+    tests/test_crx_incidence.cpp
+    tests/test_crx_joint_recovery.cpp
+    tests/test_crx_incidence_reference.cpp
+    tests/crx_incidence_reference.cpp
+    tests/test_crx_polynomial_roots.cpp
+    tests/crx_allocation_probe.cpp
+    ${CRXKIN_CANONICAL_SOURCES}
+    src/crx_math_compat.cpp
+  )
+  # The SVD incidence reference and exceptional classifications are test-only.
+  # Keep them out of CRXKIN_CPP_SOURCES and the qmake library source list.
+  target_include_directories(crx_canonical_tests PRIVATE src tests)
+  target_link_libraries(crx_canonical_tests PRIVATE Eigen3::Eigen)
+  target_compile_definitions(crx_canonical_tests PRIVATE EIGEN_RUNTIME_NO_MALLOC)
+  if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(crx_canonical_tests PRIVATE /UNDEBUG /W4 /permissive-)
+  else()
+    target_compile_options(crx_canonical_tests PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
+  endif()
+  add_test(NAME crx.canonical COMMAND crx_canonical_tests)
+
   find_program(CRXKIN_UV_EXECUTABLE
     NAMES uv
     DOC "uv executable used to run the Python regression suite"
@@ -316,13 +381,23 @@ if(BUILD_TESTING)
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
     set_tests_properties(crx.python-regression PROPERTIES
+      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>"
+    )
+    add_test(
+      NAME crx.solver-reliability
+      COMMAND "${CRXKIN_UV_EXECUTABLE}" run --locked pytest
+              tests/test_crx_solver_fixtures.py --require-solver-reliability
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+    set_tests_properties(crx.solver-reliability PROPERTIES
       ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>"
     )
 
     add_custom_target(check
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
               --output-on-failure
-      DEPENDS crx_kinematics
+      DEPENDS crx_kinematics crx_canonical_tests crx_command_lift_tests
+              crx_solver_tests
       COMMENT "Running CMake/CTest regression checks"
       USES_TERMINAL
       VERBATIM

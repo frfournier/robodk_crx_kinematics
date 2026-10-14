@@ -9,6 +9,12 @@ auto iRobot_Name(const robot_T *robot) -> std::string;
 
 namespace crx {
 
+struct IkResult;
+
+// Preserve RoboDK's count/zero/generic-fallback ABI. Approximate seed success
+// is deliberately retained for compatibility; no reserved fields are used.
+auto IkResultToRoboDkReturn(const IkResult &result) -> int;
+
 auto RoboDkDofCount(const robot_T *robot) -> int;
 auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
     -> bool;

@@ -5,53 +5,20 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
-#include <limits>
 #include <vector>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include "crx_command_lifts.h"
+#include "crx_discovery.h"
+#include "crx_joint_recovery.h"
 #include "crx_math_helpers.h"
-#include "crx_pose_helpers.h"
+#include "crx_numerics.h"
 #include "crx_types.h"
-#include "crx_vector_helpers.h"
 
 namespace crx {
 namespace {
-
-constexpr int kDhArgCount = 4;
-constexpr int kDhThetaIndex = 2;
-constexpr int kDhDIndex = 3;
-
-constexpr int kIkQSamples = 960;
-constexpr int kRefineMaxIterations = 100;
-constexpr double kRefineXTolerance = 1e-12;
-constexpr double kRootZeroTolerance = 1e-14;
-constexpr double kRootSampleHitTolerance = 1e-5;
-
-constexpr double kSolutionAngleToleranceDeg = 1e-3;
-constexpr double kSolutionAngleToleranceRad =
-    angle_conv::DegToRad(kSolutionAngleToleranceDeg);
-constexpr double kSolutionPositionToleranceMm = 1e-4;
-constexpr double kSolutionPositionToleranceMmSquared =
-    kSolutionPositionToleranceMm * kSolutionPositionToleranceMm;
-constexpr double kApproxFallbackAngleToleranceDeg = 1e-2;
-constexpr double kApproxFallbackAngleToleranceRad =
-    angle_conv::DegToRad(kApproxFallbackAngleToleranceDeg);
-constexpr double kApproxFallbackPositionToleranceMm = 1e-2;
-constexpr double kApproxFallbackPositionToleranceMmSquared =
-    kApproxFallbackPositionToleranceMm * kApproxFallbackPositionToleranceMm;
-
-constexpr double kJointLimitToleranceDeg = 1e-2;
-constexpr double kJointLimitToleranceRad =
-    angle_conv::DegToRad(kJointLimitToleranceDeg);
-
-constexpr double kDhConventionToleranceRad = 1e-5;
-constexpr double kTriangleNegativeTolerance = 1e-9;
-constexpr double kTriangleShellRelativeTolerance = 1.0e-6;
-
-constexpr std::size_t kMaxIkSolutions = 32;
 
 auto IsModelDataValid(const CrxModelData &model) -> bool {
   if (!model.base_transform.matrix().allFinite() ||
@@ -67,37 +34,65 @@ auto IsModelDataValid(const CrxModelData &model) -> bool {
     const DhRow &row = model.dh_rows[joint_index];
     if (!std::isfinite(row.alpha_rad) || !std::isfinite(row.a) ||
         !std::isfinite(row.theta0_rad) || !std::isfinite(row.d) ||
-        std::abs(model.joint_senses[joint_index]) != 1.0) {
+        !std::isfinite(model.joint_senses[joint_index]) ||
+        !numerics::Scalar(std::abs(model.joint_senses[joint_index]))
+             .isApproxToConstant(1.0, numerics::kUnitTolerance)) {
       return false;
     }
   }
   return true;
 }
 
-inline void BuildJointPoseInputRad(const DhRow &dh_row, double joint_motion_rad,
-                                   Scalar dh_pose_args[kDhArgCount]) {
-  dh_pose_args[0] =
-      static_cast<Scalar>(SnapToRightAngleFamily(dh_row.alpha_rad));
-  dh_pose_args[1] = static_cast<Scalar>(dh_row.a);
-  dh_pose_args[kDhThetaIndex] =
-      static_cast<Scalar>(SnapToRightAngleFamily(dh_row.theta0_rad));
-  dh_pose_args[kDhDIndex] = static_cast<Scalar>(dh_row.d);
+struct PreparedFk {
+  struct Link {
+    Scalar sine = 0, cosine = 1, a = 0, d = 0, theta = 0;
+    bool is_prismatic = false;
 
-  if (!dh_row.is_prismatic) {
-    dh_pose_args[kDhThetaIndex] += static_cast<Scalar>(joint_motion_rad);
-  } else {
-    dh_pose_args[kDhDIndex] += static_cast<Scalar>(joint_motion_rad);
+    auto Pose(double motion) const -> PoseIsoRT {
+      Scalar current_theta = theta, current_d = d;
+      if (is_prismatic) {
+        current_d += static_cast<Scalar>(motion);
+      } else {
+        current_theta += static_cast<Scalar>(motion);
+      }
+      const Scalar st = std::sin(current_theta);
+      const Scalar ct = std::cos(current_theta);
+      PoseIsoRT transform;
+      transform.matrix() << ct, -st, 0.0, a, // Modified DH.
+          cosine * st, cosine * ct, -sine, -current_d * sine, sine * st,
+          sine * ct, cosine, current_d * cosine, 0.0, 0.0, 0.0, 1.0;
+      return transform;
+    }
+  };
+
+  const CrxModelData &model;
+  std::array<Link, kDofCount> links;
+
+  explicit PreparedFk(const CrxModelData &input) : model(input) {
+    for (std::size_t i = 0; i < links.size(); ++i) {
+      const auto &row = model.dh_rows[i];
+      const Scalar alpha = SnapToRightAngleFamily(row.alpha_rad);
+      links[i] = {std::sin(alpha),
+                  std::cos(alpha),
+                  row.a,
+                  row.d,
+                  SnapToRightAngleFamily(row.theta0_rad),
+                  row.is_prismatic};
+    }
   }
-}
+};
 
 auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
-                 std::vector<PoseIsoRT> *joint_poses_out, bool check_limits,
-                 const CrxModelData &model) -> int {
-  if (joint_poses_out != nullptr &&
-      joint_poses_out->size() < static_cast<std::size_t>(kDofCount) + 1U) {
-    return -1;
+                 JointPoseBuffer *joint_poses_out, bool check_limits,
+                 const PreparedFk &fk) -> int {
+  const auto &model = fk.model;
+  if (check_limits) {
+    Vec6 command = ApplyFanucJointCoupling(user_joints_rad);
+    if (!ClampCommandToLimits(command, model.lower_limits_rad,
+                              model.upper_limits_rad)) {
+      return -2;
+    }
   }
-
   PoseIsoRT accumulated_pose = model.base_transform;
   if (joint_poses_out != nullptr) {
     (*joint_poses_out)[0] = accumulated_pose;
@@ -112,49 +107,33 @@ auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
     const double sensed_joint_rad =
         user_joints_rad[eigen_index] * model.joint_senses[storage_index];
 
-    if (check_limits) {
-      const double user_joint_rad = user_joints_rad[eigen_index];
-      if (user_joint_rad <
-              (model.lower_limits_rad[eigen_index] - kJointLimitToleranceRad) ||
-          user_joint_rad >
-              (model.upper_limits_rad[eigen_index] + kJointLimitToleranceRad)) {
-        return -2;
-      }
-    }
-
     double joint_model_rad = sensed_joint_rad;
     if (joint_id == kJoint3Index) {
       joint_model_rad = -sensed_joint2_rad + sensed_joint_rad;
     }
 
-    Scalar dh_pose_args[kDhArgCount];
-    BuildJointPoseInputRad(model.dh_rows[storage_index], joint_model_rad,
-                           dh_pose_args);
-
     accumulated_pose =
-        accumulated_pose * DHM_FromRad(dh_pose_args[0], dh_pose_args[1],
-                                       dh_pose_args[2], dh_pose_args[3]);
+        accumulated_pose * fk.links[storage_index].Pose(joint_model_rad);
 
     if (joint_poses_out != nullptr) {
       (*joint_poses_out)[storage_index + 1U] = accumulated_pose;
     }
   }
 
-  pose_out =
-      accumulated_pose * FixedJ6ToToolIsometryFk() * model.tool_transform;
+  pose_out = accumulated_pose * model.tool_transform;
   return 1;
 }
 
 auto IsFkRoundtripValidWithTolerances(const Vec6 &candidate_user_joints_rad,
                                       const PoseIsoRT &target_pose,
                                       const Eigen::Quaterniond &target_quat,
-                                      const CrxModelData &model,
+                                      const PreparedFk &fk,
                                       double max_position_error_squared_mm,
                                       double max_orientation_error_rad)
     -> bool {
   PoseIsoRT fk_pose_isometry = PoseIsoRT::Identity();
   if (SolveFKCore(candidate_user_joints_rad, fk_pose_isometry, nullptr, false,
-                  model) != 1) {
+                  fk) != 1) {
     return false;
   }
 
@@ -176,10 +155,12 @@ auto IsFkRoundtripValidWithTolerances(const Vec6 &candidate_user_joints_rad,
 auto IsFkRoundtripValid(const Vec6 &candidate_user_joints_rad,
                         const PoseIsoRT &target_pose,
                         const Eigen::Quaterniond &target_quat,
-                        const CrxModelData &model) -> bool {
+                        const PreparedFk &fk) -> bool {
   return IsFkRoundtripValidWithTolerances(
-      candidate_user_joints_rad, target_pose, target_quat, model,
-      kSolutionPositionToleranceMmSquared, kSolutionAngleToleranceRad);
+      candidate_user_joints_rad, target_pose, target_quat, fk,
+      (numerics::kSolutionPositionToleranceMm *
+       numerics::kSolutionPositionToleranceMm),
+      numerics::kSolutionAngleToleranceRad);
 }
 
 struct CrxParams {
@@ -190,30 +171,27 @@ struct CrxParams {
   double a2 = 0.0, r4 = 0.0, r5 = 0.0, r6 = 0.0;
 };
 
-struct IkTolerancePack {
+struct ClassificationTolerances {
   double length_scale = 1.0;
-  double eps_len = 1e-10;
-  double eps_len2 = 1e-20;
-  double eps_xy = 1e-8;
-  double eps_sin = 1e-8;
-  double eps_reach_sq = 1e-9;
+  double eps_len = 0.0;
+  double eps_len2 = 0.0;
+  double eps_xy = 0.0;
 };
 
-inline auto BuildIkTolerancePack(const CrxParams &params) -> IkTolerancePack {
-  IkTolerancePack tolerances;
+inline auto BuildClassificationTolerances(const CrxParams &params)
+    -> ClassificationTolerances {
+  ClassificationTolerances tolerances;
   tolerances.length_scale =
       std::max({std::abs(params.a2), std::abs(params.r4), std::abs(params.r5),
                 std::abs(params.r6), 1.0});
-  const double machine_epsilon = std::numeric_limits<double>::epsilon();
+  const double machine_epsilon = numerics::kEpsilon;
   tolerances.eps_len =
-      std::max(1e-12, 8.0 * machine_epsilon * tolerances.length_scale);
+      std::max(numerics::kGeometryLengthFloorMm,
+               8.0 * machine_epsilon * tolerances.length_scale);
   tolerances.eps_len2 = tolerances.eps_len * tolerances.eps_len;
   tolerances.eps_xy =
-      std::max(1e-12, 4096.0 * machine_epsilon * tolerances.length_scale);
-  tolerances.eps_sin = 1e-10;
-  tolerances.eps_reach_sq =
-      std::max(1e-12, machine_epsilon * tolerances.length_scale *
-                          tolerances.length_scale);
+      std::max(numerics::kGeometryLengthFloorMm,
+               numerics::kGeometryTolerance * tolerances.length_scale);
   return tolerances;
 }
 
@@ -237,13 +215,21 @@ auto ReadCrxParams(const CrxModelData &model, CrxParams &params) -> bool {
   return true;
 }
 
-auto NormalizeProductionDhForAnalyticIk(CrxParams &params,
-                                        double &base_z_shift_mm) -> bool {
-  // The geometric IK in Sec. 2.6 assumes a normalized internal convention.
-  // Validate the production CRX DH signature and remap it only when every
-  // structural assumption matches.
+auto RecognizeCrxGeometry(const CrxParams &params, double &base_z_shift_mm)
+    -> bool {
+  // Validate the CRX DH signature before extracting canonical geometry.
   base_z_shift_mm = 0.0;
-  const double tol = kDhConventionToleranceRad;
+  const double tol = numerics::kRightAngleSnapToleranceRad;
+  // Captured nominal zero offsets carry subtraction roundoff proportional to
+  // the robot's length scale. Keep the physical FK acceptance gate unchanged.
+  double length_scale = 1.0;
+  for (std::size_t i = 0; i < params.a.size(); ++i) {
+    length_scale =
+        std::max({length_scale, std::abs(params.a[i]), std::abs(params.d[i])});
+  }
+  const double length_tol =
+      std::max(numerics::kDhLengthToleranceMm,
+               numerics::kElementaryRoundoff * length_scale);
 
   const bool alpha_ok = AngleDiffAbs(params.alpha_rad[0], 0.0) < tol &&
                         AngleDiffAbs(params.alpha_rad[1], -kHalfPi) < tol &&
@@ -259,33 +245,24 @@ auto NormalizeProductionDhForAnalyticIk(CrxParams &params,
                         AngleDiffAbs(params.theta0_rad[4], 0.0) < tol &&
                         AngleDiffAbs(params.theta0_rad[5], 0.0) < tol;
 
-  const bool a_ok =
-      std::abs(params.a[0]) <= kEpsilon && std::abs(params.a[1]) <= kEpsilon &&
-      params.a[2] > 0.0 && std::abs(params.a[3]) <= kEpsilon &&
-      std::abs(params.a[4]) <= kEpsilon && std::abs(params.a[5]) <= kEpsilon;
+  const bool a_ok = std::abs(params.a[0]) <= length_tol &&
+                    std::abs(params.a[1]) <= length_tol && params.a[2] > 0.0 &&
+                    std::abs(params.a[3]) <= length_tol &&
+                    std::abs(params.a[4]) <= length_tol &&
+                    std::abs(params.a[5]) <= length_tol;
 
-  const bool d_ok = params.d[0] > 0.0 && std::abs(params.d[1]) <= kEpsilon &&
-                    std::abs(params.d[2]) <= kEpsilon && params.d[3] > 0.0 &&
-                    params.d[4] <= -kEpsilon && // Pass-1 Fix #2
-                    params.d[5] > 0.0;
+  const bool d_ok =
+      params.d[0] > 0.0 && std::abs(params.d[1]) <= length_tol &&
+      std::abs(params.d[2]) <= length_tol && params.d[3] > 0.0 &&
+      params.d[4] <= -numerics::kDhLengthToleranceMm && // Pass-1 Fix #2
+      params.d[5] > 0.0;
 
   // Fail closed when a model differs from the CRX assumptions.
   if (!(alpha_ok && theta_ok && a_ok && d_ok)) {
     return false;
   }
 
-  // These remaps align the production FK convention with the paper's internal
-  // frame setup. base_z_shift_mm is undone on T06 by the IK facade.
   base_z_shift_mm = params.d[0];
-  params.d[0] = 0.0;
-  params.alpha_rad[2] = angle_conv::kPi;
-  params.d[3] = -params.d[3];
-  params.d[4] = -params.d[4];
-  params.d[5] = -params.d[5];
-  params.a2 = params.a[2];
-  params.r4 = params.d[3];
-  params.r5 = params.d[4];
-  params.r6 = params.d[5];
   return true;
 }
 
@@ -295,9 +272,10 @@ struct PlaneBasisXY {
 };
 
 // Specialized hot-path basis build for ConstructPlane(O4, UnitZ()).
-inline auto ConstructPlane_O4_UnitZ_XY(const Vec3 &O4,
-                                       const IkTolerancePack &tolerances,
-                                       PlaneBasisXY &basis) -> bool {
+inline auto
+ConstructPlane_O4_UnitZ_XY(const Vec3 &O4,
+                           const ClassificationTolerances &tolerances,
+                           PlaneBasisXY &basis) -> bool {
   const double o4_norm_sq = O4.squaredNorm();
   if (!std::isfinite(o4_norm_sq) || o4_norm_sq <= tolerances.eps_len2) {
     return false;
@@ -309,8 +287,11 @@ inline auto ConstructPlane_O4_UnitZ_XY(const Vec3 &O4,
   double plane_y_norm_sq = plane_y.squaredNorm();
   if (!std::isfinite(plane_y_norm_sq) ||
       plane_y_norm_sq <= tolerances.eps_len2) {
-    const Vec3 fallback_axis =
-        (std::abs(plane_x.z()) > 0.99) ? Vec3::UnitY() : Vec3::UnitZ();
+    // Choose the less aligned coordinate axis. Its projected squared norm is
+    // at least 1/2 for a unit plane_x; no empirical .99 alignment cutoff.
+    const Vec3 fallback_axis = (std::abs(plane_x.z()) > std::abs(plane_x.y()))
+                                   ? Vec3::UnitY()
+                                   : Vec3::UnitZ();
     plane_y = fallback_axis - plane_x.dot(fallback_axis) * plane_x;
     plane_y_norm_sq = plane_y.squaredNorm();
     if (!std::isfinite(plane_y_norm_sq) ||
@@ -331,396 +312,9 @@ inline auto ConstructPlane_O4_UnitZ_XY(const Vec3 &O4,
 #ifndef NDEBUG
   const Vec3 plane_z = basis.x.cross(basis.y);
   const double det_like = basis.x.dot(basis.y.cross(plane_z));
-  assert(std::abs(det_like - 1.0) < 1e-9 &&
+  assert(std::abs(det_like - 1.0) < numerics::kPlaneOrthonormalityTolerance &&
          "ConstructPlane_O4_UnitZ_XY: basis is not orthonormal");
 #endif
-  return true;
-}
-
-inline auto FindThirdTriangleCorner(double side_ab, double side_ac,
-                                    double side_bc, double &x_coord,
-                                    double &y_abs) -> bool {
-  if (!(std::isfinite(side_ab) && std::isfinite(side_ac) &&
-        std::isfinite(side_bc))) {
-    return false;
-  }
-  if (side_ab <= kEpsilon) {
-    return false;
-  }
-
-  x_coord = (side_ac * side_ac - side_bc * side_bc + side_ab * side_ab) /
-            (2.0 * side_ab);
-  const double y_squared = (side_ac * side_ac) - (x_coord * x_coord);
-  if (!std::isfinite(y_squared)) {
-    return false;
-  }
-
-  const double side_scale =
-      std::max({std::abs(side_ab), std::abs(side_ac), std::abs(side_bc)});
-  const double shell_len_tol =
-      kTriangleShellRelativeTolerance * std::max(1.0, side_scale);
-  const double eps_shell =
-      std::max(kTriangleNegativeTolerance, shell_len_tol * shell_len_tol);
-
-  if (y_squared < -eps_shell) {
-    return false;
-  }
-  y_abs = std::sqrt((y_squared < 0.0) ? 0.0 : y_squared);
-  return true;
-}
-
-inline auto JointTransformRad(const CrxParams &params, std::size_t joint_index,
-                              double joint_angle_rad) -> PoseIsoRT {
-  return DHM_FromRad(
-      static_cast<Scalar>(params.alpha_rad[joint_index]),
-      static_cast<Scalar>(params.a[joint_index]),
-      static_cast<Scalar>(params.theta0_rad[joint_index] + joint_angle_rad),
-      static_cast<Scalar>(params.d[joint_index]));
-}
-
-auto DetermineJointValues(const Vec3 &o3_point, const Vec3 &o4_point,
-                          const Vec3 &o5_point, const PoseIsoRT &target_pose_06,
-                          const CrxParams &params,
-                          const IkTolerancePack &tolerances,
-                          const Vec6 *approx_joints_rad, Vec6 &out_joints_rad)
-    -> bool {
-  // This back-substitution corresponds to the paper's Step 6 (Eq. 16..22):
-  // once a valid O3/O4 pair is known, solve J1..J6 from chained frame
-  // reductions.
-  const Vec3 o6_point = target_pose_06.translation().cast<double>();
-
-  const double raw_J1 = std::atan2(o4_point.y(), o4_point.x());
-  double J1 = raw_J1;
-  const double shoulder_radius = std::hypot(o4_point.x(), o4_point.y());
-  if (shoulder_radius < tolerances.eps_xy && approx_joints_rad != nullptr) {
-    J1 = (*approx_joints_rad)[0];
-  }
-
-  const Mat3 rotation_l1_from_l0 =
-      JointTransformRad(params, 0, J1).inverse().linear().cast<double>();
-
-  const Vec3 o3_in_l1 = rotation_l1_from_l0 * o3_point;
-  const double J2 = std::atan2(o3_in_l1.x(), o3_in_l1.z());
-
-  const Vec3 o4_in_l1 = rotation_l1_from_l0 * o4_point;
-  const Vec3 o4_minus_o3_in_l1 = o4_in_l1 - o3_in_l1;
-  const double raw_J3 =
-      std::atan2(o4_minus_o3_in_l1.z(), o4_minus_o3_in_l1.x());
-  double J3 = raw_J3;
-  const double elbow_radius =
-      std::hypot(o4_minus_o3_in_l1.x(), o4_minus_o3_in_l1.z());
-  if (elbow_radius < tolerances.eps_xy && approx_joints_rad != nullptr) {
-    J3 = (*approx_joints_rad)[2];
-  }
-
-  const PoseIsoRT transform_l2_from_l1 =
-      JointTransformRad(params, 1, J2).inverse();
-  // Joint 3 uses the coupled variable (J2 + J3) in the DH chain.
-  const PoseIsoRT transform_l3_from_l2 =
-      JointTransformRad(params, 2, J2 + J3).inverse();
-  const PoseIsoRT transform_l3_from_l0 =
-      transform_l3_from_l2 * transform_l2_from_l1 *
-      PoseIsoRT(rotation_l1_from_l0.cast<Scalar>());
-
-  const Vec3 o5_in_l3 = (transform_l3_from_l0 * o5_point.cast<Scalar>())
-                            .template head<3>()
-                            .cast<double>();
-  const double J4 = std::atan2(o5_in_l3.x(), o5_in_l3.z());
-
-  const PoseIsoRT transform_l4_from_l0 =
-      JointTransformRad(params, 3, J4).inverse() * transform_l3_from_l0;
-
-  const Vec3 o6_in_l4 = (transform_l4_from_l0 * o6_point.cast<Scalar>())
-                            .template head<3>()
-                            .cast<double>();
-  const double J5 = std::atan2(o6_in_l4.x(), -o6_in_l4.z());
-
-  const PoseIsoRT transform_l5_from_l0 =
-      JointTransformRad(params, 4, J5).inverse() * transform_l4_from_l0;
-  const Vec3 tool_x_axis_in_l5 =
-      (transform_l5_from_l0.linear() * target_pose_06.linear())
-          .cast<double>()
-          .col(0);
-  const double raw_J6 =
-      std::atan2(-tool_x_axis_in_l5.z(), tool_x_axis_in_l5.x());
-  double J6 = raw_J6;
-  const double sin_j5 = std::sin(J5);
-  if (std::abs(sin_j5) < tolerances.eps_sin && approx_joints_rad != nullptr) {
-    J6 = (*approx_joints_rad)[5];
-  }
-
-  if (!(std::isfinite(J1) && std::isfinite(J2) && std::isfinite(J3) &&
-        std::isfinite(J4) && std::isfinite(J5) && std::isfinite(J6))) {
-    return false;
-  }
-
-  out_joints_rad << NormalizeRadKeepSignedPi(J1), NormalizeRadKeepSignedPi(J2),
-      NormalizeRadKeepSignedPi(J3), NormalizeRadKeepSignedPi(J4),
-      NormalizeRadKeepSignedPi(J5), NormalizeRadKeepSignedPi(J6);
-
-  return true;
-}
-
-// ─────────────────────────── Circle sweep ───────────────────────────────────
-
-struct CircleEvalContext {
-  Vec3 o4_base = Vec3::Zero();
-  Vec3 o4_cos_axis = Vec3::Zero();
-  Vec3 o4_sin_axis = Vec3::Zero();
-  Vec3 o5_point = Vec3::Zero();
-  double reach_sq_clamp_tolerance = 0.0;
-  double min_o0_o4_dist_sq = 0.0;
-  double max_o0_o4_dist_sq = 0.0;
-  bool has_min_o0_o4_bound = false;
-};
-
-struct CircleEvaluation {
-  Vec3 o4_point = Vec3::Zero();
-  Vec3 o3_up_point = Vec3::Zero();
-  Vec3 o3_down_point = Vec3::Zero();
-  double up_dot_product = std::numeric_limits<double>::quiet_NaN();
-  double down_dot_product = std::numeric_limits<double>::quiet_NaN();
-};
-
-struct CircleDotEvaluation {
-  Vec3 o4_point = Vec3::Zero();
-  double triangle_x_coord = 0.0;
-  double triangle_y_abs = 0.0;
-  double up_dot_product = std::numeric_limits<double>::quiet_NaN();
-  double down_dot_product = std::numeric_limits<double>::quiet_NaN();
-};
-
-auto EvaluateCircleDots_cs(double cos_q, double sin_q,
-                           const CircleEvalContext &context,
-                           const CrxParams &params,
-                           const IkTolerancePack &tolerances,
-                           CircleDotEvaluation &evaluation,
-                           PlaneBasisXY *basis_out = nullptr) -> bool {
-  // Step 2/3/4 core: for one q sample, compute O4(q), both O3 branches, then
-  // the two normalized dot products UP(q)/DW(q) whose zeros define valid
-  // solutions.
-  evaluation.o4_point = context.o4_base + context.o4_cos_axis * cos_q +
-                        context.o4_sin_axis * sin_q;
-
-  double o0_o4_dist_sq = evaluation.o4_point.squaredNorm();
-  if (!std::isfinite(o0_o4_dist_sq) || o0_o4_dist_sq <= tolerances.eps_len2) {
-    return false;
-  }
-  if (o0_o4_dist_sq >
-      context.max_o0_o4_dist_sq + context.reach_sq_clamp_tolerance) {
-    return false;
-  }
-  o0_o4_dist_sq = std::min(o0_o4_dist_sq, context.max_o0_o4_dist_sq);
-  if (context.has_min_o0_o4_bound) {
-    if (o0_o4_dist_sq <
-        context.min_o0_o4_dist_sq - context.reach_sq_clamp_tolerance) {
-      return false;
-    }
-    o0_o4_dist_sq = std::max(o0_o4_dist_sq, context.min_o0_o4_dist_sq);
-  }
-
-  const double o0_o4_dist = std::sqrt(o0_o4_dist_sq);
-  // The paper's triangle uses signed CRX lengths; -r4 preserves that
-  // convention.
-  if (!FindThirdTriangleCorner(o0_o4_dist, params.a2, -params.r4,
-                               evaluation.triangle_x_coord,
-                               evaluation.triangle_y_abs)) {
-    return false;
-  }
-
-  PlaneBasisXY basis;
-  if (!ConstructPlane_O4_UnitZ_XY(evaluation.o4_point, tolerances, basis)) {
-    return false;
-  }
-  if (basis_out != nullptr) {
-    *basis_out = basis;
-  }
-
-  const Vec3 o4_to_o5_vector = context.o5_point - evaluation.o4_point;
-  const double o4_to_o5_norm_sq = o4_to_o5_vector.squaredNorm();
-  if (!std::isfinite(o4_to_o5_norm_sq) ||
-      o4_to_o5_norm_sq <= tolerances.eps_len2) {
-    return false;
-  }
-  const double inv_o4_to_o5_norm = 1.0 / std::sqrt(o4_to_o5_norm_sq);
-
-  const double dx = o0_o4_dist - evaluation.triangle_x_coord;
-  const double y_abs = evaluation.triangle_y_abs;
-  const double o3_to_o4_norm_sq = (dx * dx) + (y_abs * y_abs);
-  if (!std::isfinite(o3_to_o4_norm_sq) ||
-      o3_to_o4_norm_sq <= tolerances.eps_len2) {
-    return false;
-  }
-  const double inv_o3_to_o4_norm = 1.0 / std::sqrt(o3_to_o4_norm_sq);
-
-  const double o4_to_o5_x = o4_to_o5_vector.dot(basis.x);
-  const double o4_to_o5_y = o4_to_o5_vector.dot(basis.y);
-  if (!std::isfinite(o4_to_o5_x) || !std::isfinite(o4_to_o5_y)) {
-    return false;
-  }
-
-  const double up_dot_raw = (dx * o4_to_o5_x) - (y_abs * o4_to_o5_y);
-  const double down_dot_raw = (dx * o4_to_o5_x) + (y_abs * o4_to_o5_y);
-  evaluation.up_dot_product =
-      ClampCosineNearUnit(up_dot_raw * inv_o3_to_o4_norm * inv_o4_to_o5_norm);
-  evaluation.down_dot_product =
-      ClampCosineNearUnit(down_dot_raw * inv_o3_to_o4_norm * inv_o4_to_o5_norm);
-  return std::isfinite(evaluation.up_dot_product) &&
-         std::isfinite(evaluation.down_dot_product) &&
-         std::abs(evaluation.up_dot_product) <= 1.0 + kCosineClampTolerance &&
-         std::abs(evaluation.down_dot_product) <= 1.0 + kCosineClampTolerance;
-}
-
-auto EvaluateCircleFull_cs(double cos_q, double sin_q,
-                           const CircleEvalContext &context,
-                           const CrxParams &params,
-                           const IkTolerancePack &tolerances,
-                           CircleEvaluation &evaluation) -> bool {
-  CircleDotEvaluation dot_eval;
-  PlaneBasisXY basis;
-  if (!EvaluateCircleDots_cs(cos_q, sin_q, context, params, tolerances,
-                             dot_eval, &basis)) {
-    return false;
-  }
-
-  evaluation.o4_point = dot_eval.o4_point;
-  evaluation.o3_up_point =
-      basis.x * dot_eval.triangle_x_coord + basis.y * dot_eval.triangle_y_abs;
-  evaluation.o3_down_point =
-      basis.x * dot_eval.triangle_x_coord - basis.y * dot_eval.triangle_y_abs;
-  evaluation.up_dot_product = dot_eval.up_dot_product;
-  evaluation.down_dot_product = dot_eval.down_dot_product;
-  return true;
-}
-
-auto EvaluateCircleDots(double sample_q, const CircleEvalContext &context,
-                        const CrxParams &params,
-                        const IkTolerancePack &tolerances,
-                        CircleDotEvaluation &evaluation) -> bool {
-  double sin_q = 0.0;
-  double cos_q = 1.0;
-  SinCos(sample_q, sin_q, cos_q);
-  return EvaluateCircleDots_cs(cos_q, sin_q, context, params, tolerances,
-                               evaluation);
-}
-
-auto EvaluateCircleFull(double sample_q, const CircleEvalContext &context,
-                        const CrxParams &params,
-                        const IkTolerancePack &tolerances,
-                        CircleEvaluation &evaluation) -> bool {
-  double sin_q = 0.0;
-  double cos_q = 1.0;
-  SinCos(sample_q, sin_q, cos_q);
-  return EvaluateCircleFull_cs(cos_q, sin_q, context, params, tolerances,
-                               evaluation);
-}
-
-inline auto HasBracket(double f_left, double f_right) -> bool {
-  if (!(std::isfinite(f_left) && std::isfinite(f_right))) {
-    return false;
-  }
-  if (std::abs(f_left) <= kRootZeroTolerance ||
-      std::abs(f_right) <= kRootZeroTolerance) {
-    return true;
-  }
-  return f_left * f_right < 0.0;
-}
-
-template <typename EvalFn>
-auto RefineZeroIllinois(double q_left, double q_right, double f_left,
-                        double f_right, EvalFn eval_fn, double &root_out_q)
-    -> bool {
-  // Keep the bracket invariant but reduce evaluations vs pure bisection.
-  if (!(std::isfinite(f_left) && std::isfinite(f_right))) {
-    return false;
-  }
-  if (q_right < q_left) {
-    std::swap(q_left, q_right);
-    std::swap(f_left, f_right);
-  }
-  if (std::abs(f_left) <= kRootZeroTolerance) {
-    root_out_q = WrapRad2Pi(q_left);
-    return true;
-  }
-  if (std::abs(f_right) <= kRootZeroTolerance) {
-    root_out_q = WrapRad2Pi(q_right);
-    return true;
-  }
-  if (f_left * f_right > 0.0) {
-    return false;
-  }
-
-  double left_q = q_left;
-  double right_q = q_right;
-  // Weighted endpoint values used by Illinois' secant formula.
-  double left_weight_f = f_left;
-  double right_weight_f = f_right;
-  // True endpoint function values (never damped), used for sign checks.
-  double left_true_f = f_left;
-  double right_true_f = f_right;
-  double best_q = (std::abs(f_left) <= std::abs(f_right)) ? q_left : q_right;
-  double best_abs_f = std::min(std::abs(f_left), std::abs(f_right));
-  // -1: right endpoint moved, +1: left endpoint moved.
-  int last_update_side = 0;
-  int consecutive_same_side_updates = 0;
-  for (int iter = 0; iter < kRefineMaxIterations; ++iter) {
-    double next_q = 0.5 * (left_q + right_q);
-    // Hybrid safeguard: if the same side keeps updating, force a midpoint step
-    // to guarantee interval shrink in flat/singular regions.
-    const bool force_midpoint = consecutive_same_side_updates >= 2;
-    if (!force_midpoint) {
-      const double denom = right_weight_f - left_weight_f;
-      if (std::isfinite(denom) && std::abs(denom) > kEpsilon) {
-        const double secant_q =
-            (left_q * right_weight_f - right_q * left_weight_f) / denom;
-        if (std::isfinite(secant_q) && secant_q > left_q &&
-            secant_q < right_q) {
-          next_q = secant_q;
-        }
-      }
-    }
-
-    const double next_f = eval_fn(next_q);
-    if (!std::isfinite(next_f)) {
-      return false;
-    }
-    if (std::abs(next_f) < best_abs_f) {
-      best_abs_f = std::abs(next_f);
-      best_q = next_q;
-    }
-    if (std::abs(next_f) <= kRootZeroTolerance ||
-        (right_q - left_q) < kRefineXTolerance) {
-      root_out_q = WrapRad2Pi(next_q);
-      return true;
-    }
-
-    if (left_true_f * next_f < 0.0) {
-      right_q = next_q;
-      right_true_f = next_f;
-      right_weight_f = next_f;
-      if (last_update_side == -1) {
-        left_weight_f *= 0.5; // Illinois damping on repeated side updates.
-      }
-      consecutive_same_side_updates =
-          (last_update_side == -1) ? (consecutive_same_side_updates + 1) : 1;
-      last_update_side = -1;
-    } else if (right_true_f * next_f < 0.0) {
-      left_q = next_q;
-      left_true_f = next_f;
-      left_weight_f = next_f;
-      if (last_update_side == 1) {
-        right_weight_f *= 0.5; // Illinois damping on repeated side updates.
-      }
-      consecutive_same_side_updates =
-          (last_update_side == 1) ? (consecutive_same_side_updates + 1) : 1;
-      last_update_side = 1;
-    } else {
-      // Includes exact zero and rare same-sign tie from floating-point noise.
-      root_out_q = WrapRad2Pi(next_q);
-      return true;
-    }
-  }
-  root_out_q = WrapRad2Pi(best_q);
   return true;
 }
 
@@ -737,361 +331,162 @@ void DualSolutionRad(const Vec6 &source_solution, Vec6 &dual_solution_out) {
   NormalizeUserSolutionDomains(dual_solution_out);
 }
 
-template <typename EmitFn>
-auto ForEachSignedPiVariant(const Vec6 &base_solution, EmitFn emit) -> bool {
-  constexpr double kPiFlipTol = 1e-8;
-
-  std::vector<int> pi_flip_joint_ids;
-  pi_flip_joint_ids.reserve(kDofCount);
-  for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
-    if (std::abs(std::abs(base_solution[joint_id]) - angle_conv::kPi) <=
-        kPiFlipTol) {
-      pi_flip_joint_ids.push_back(joint_id);
+auto NominateBoundaryPosture(const Vec6 &command, const CrxModelData &model,
+                             Vec6 &bounded) -> bool {
+  bounded = command;
+  bool changed = false;
+  for (int joint = 0; joint < kDofCount; ++joint) {
+    const double lower = model.lower_limits_rad[joint];
+    const double upper = model.upper_limits_rad[joint];
+    if (upper - lower >= kTwoPi) {
+      continue; // Every phase has a lift in an interval spanning a full turn.
     }
-  }
-
-  // +PI and -PI represent the same physical angle but can map to different
-  // controller branches/joint-limit edges. Emit both to keep branch choice
-  // stable.
-  const auto variant_count =
-      static_cast<std::uint32_t>(1U << pi_flip_joint_ids.size());
-  for (std::uint32_t mask = 0; mask < variant_count; ++mask) {
-    Vec6 variant_solution = base_solution;
-    for (std::size_t bit = 0; bit < pi_flip_joint_ids.size(); ++bit) {
-      if ((mask & (1U << bit)) == 0U) {
-        continue;
-      }
-      const int joint_id = pi_flip_joint_ids[bit];
-      variant_solution[joint_id] =
-          (base_solution[joint_id] >= 0.0) ? -angle_conv::kPi : angle_conv::kPi;
-    }
-    if (!emit(variant_solution)) {
+    const double middle = lower / 2 + upper / 2;
+    const double nearest =
+        command[joint] +
+        kTwoPi * std::round((middle - command[joint]) / kTwoPi);
+    const double clamped = std::clamp(nearest, lower, upper);
+    if (!std::isfinite(nearest) ||
+        std::abs(clamped - nearest) > numerics::kJointPhaseToleranceRad) {
       return false;
     }
-  }
-  return true;
-}
-
-template <typename EmitFn>
-auto ForEachCandidateVariant(const Vec6 &base_solution, EmitFn emit) -> bool {
-  if (!ForEachSignedPiVariant(base_solution,
-                              [&](const Vec6 &signed_pi_variant) {
-                                return emit(signed_pi_variant);
-                              })) {
-    return false;
-  }
-
-  Vec6 dual_solution = Vec6::Zero();
-  DualSolutionRad(base_solution, dual_solution);
-  return ForEachSignedPiVariant(dual_solution, [&](const Vec6 &dual_variant) {
-    return emit(dual_variant);
-  });
-}
-
-struct Candidate {
-  Vec6 user_joints_rad = Vec6::Zero();
-  double distance_sq = 0.0;
-  bool is_preserved_seed = false;
-  std::size_t order = 0;
-};
-
-// ─────────────────────────── Closed-form CRX IK ─────────────────────────────
-
-void SolveCrxIk(const PoseIsoRT &target_pose_06, const CrxParams &params,
-                const Vec6 *approx_joints_rad,
-                std::vector<Vec6> &solutions_out) {
-  solutions_out.clear();
-  solutions_out.reserve(kMaxIkSolutions);
-
-  const IkTolerancePack tolerances = BuildIkTolerancePack(params);
-
-  CircleEvalContext circle_context;
-  const Mat3 target_rotation = target_pose_06.linear().cast<double>();
-  const Vec3 target_translation = target_pose_06.translation().cast<double>();
-  const Vec3 target_r6 = target_rotation.col(2) * params.r6;
-  circle_context.o4_base = target_translation + target_r6;
-  circle_context.o4_cos_axis = target_rotation.col(0) * params.r5;
-  circle_context.o4_sin_axis = target_rotation.col(1) * params.r5;
-  circle_context.o5_point = target_translation + target_r6;
-
-  // Step 3 inequality (Eq. 15): triangle feasibility window for d04.
-  const double triangle_side_a2 = std::abs(params.a2);
-  const double triangle_side_r4 = std::abs(params.r4);
-  const double reach_margin =
-      1e-6 * std::max(1.0, triangle_side_a2 + triangle_side_r4);
-  const double max_o0_o4_dist =
-      triangle_side_a2 + triangle_side_r4 + reach_margin;
-  const double min_o0_o4_dist =
-      std::abs(triangle_side_a2 - triangle_side_r4) - reach_margin;
-  circle_context.reach_sq_clamp_tolerance = tolerances.eps_reach_sq;
-  circle_context.max_o0_o4_dist_sq = max_o0_o4_dist * max_o0_o4_dist;
-  circle_context.has_min_o0_o4_bound = min_o0_o4_dist > 0.0;
-  circle_context.min_o0_o4_dist_sq = circle_context.has_min_o0_o4_bound
-                                         ? min_o0_o4_dist * min_o0_o4_dist
-                                         : 0.0;
-
-  std::vector<Vec6> primal_solutions;
-  primal_solutions.reserve(kMaxIkSolutions);
-
-  const auto evaluate_up_dot = [&](double q_eval) -> double {
-    CircleDotEvaluation evaluation;
-    return EvaluateCircleDots(q_eval, circle_context, params, tolerances,
-                              evaluation)
-               ? evaluation.up_dot_product
-               : std::numeric_limits<double>::quiet_NaN();
-  };
-  const auto evaluate_down_dot = [&](double q_eval) -> double {
-    CircleDotEvaluation evaluation;
-    return EvaluateCircleDots(q_eval, circle_context, params, tolerances,
-                              evaluation)
-               ? evaluation.down_dot_product
-               : std::numeric_limits<double>::quiet_NaN();
-  };
-
-  Vec6 candidate_joints_rad = Vec6::Zero();
-  const auto try_store_solution = [&](const Vec3 &o3_candidate,
-                                      const CircleEvaluation &evaluation) {
-    if (primal_solutions.size() >= kMaxIkSolutions) {
-      return;
-    }
-    if (DetermineJointValues(o3_candidate, evaluation.o4_point,
-                             circle_context.o5_point, target_pose_06, params,
-                             tolerances, approx_joints_rad,
-                             candidate_joints_rad)) {
-      NormalizeVecKeepSignedPi(candidate_joints_rad);
-      primal_solutions.push_back(candidate_joints_rad);
-    }
-  };
-
-  const double sample_step_q = kTwoPi / static_cast<double>(kIkQSamples);
-  double sin_step = 0.0;
-  double cos_step = 1.0;
-  SinCos(sample_step_q, sin_step, cos_step);
-
-  CircleDotEvaluation previous_eval;
-  CircleDotEvaluation current_eval;
-  CircleEvaluation root_eval;
-
-  double previous_q = 0.0;
-  double cos_q = 1.0;
-  double sin_q = 0.0;
-
-  bool previous_ok = EvaluateCircleDots_cs(cos_q, sin_q, circle_context, params,
-                                           tolerances, previous_eval);
-
-  const auto try_store_sample_root = [&](double sample_q, bool use_up_branch) {
-    if (primal_solutions.size() >= kMaxIkSolutions) {
-      return;
-    }
-    if (EvaluateCircleFull(sample_q, circle_context, params, tolerances,
-                           root_eval)) {
-      try_store_solution(use_up_branch ? root_eval.o3_up_point
-                                       : root_eval.o3_down_point,
-                         root_eval);
-    }
-  };
-
-  if (previous_ok) {
-    if (std::abs(previous_eval.up_dot_product) <= kRootSampleHitTolerance) {
-      try_store_sample_root(previous_q, true);
-    }
-    if (std::abs(previous_eval.down_dot_product) <= kRootSampleHitTolerance) {
-      try_store_sample_root(previous_q, false);
+    if (clamped != nearest) {
+      bounded[joint] = clamped;
+      changed = true;
     }
   }
-
-  for (int sample_idx = 1; sample_idx <= kIkQSamples; ++sample_idx) {
-    const double current_q = sample_step_q * static_cast<double>(sample_idx);
-
-    // Trig recurrence avoids repeated sin/cos calls in the hot loop.
-    const double next_cos_q = (cos_q * cos_step) - (sin_q * sin_step);
-    const double next_sin_q = (sin_q * cos_step) + (cos_q * sin_step);
-    cos_q = next_cos_q;
-    sin_q = next_sin_q;
-
-    const bool current_ok = EvaluateCircleDots_cs(
-        cos_q, sin_q, circle_context, params, tolerances, current_eval);
-
-    if (previous_ok && current_ok) {
-      if (HasBracket(previous_eval.up_dot_product,
-                     current_eval.up_dot_product)) {
-        double root_q = 0.0;
-        if (RefineZeroIllinois(
-                previous_q, current_q, previous_eval.up_dot_product,
-                current_eval.up_dot_product, evaluate_up_dot, root_q) &&
-            EvaluateCircleFull(root_q, circle_context, params, tolerances,
-                               root_eval)) {
-          try_store_solution(root_eval.o3_up_point, root_eval);
-        }
-      }
-      if (HasBracket(previous_eval.down_dot_product,
-                     current_eval.down_dot_product)) {
-        double root_q = 0.0;
-        if (RefineZeroIllinois(
-                previous_q, current_q, previous_eval.down_dot_product,
-                current_eval.down_dot_product, evaluate_down_dot, root_q) &&
-            EvaluateCircleFull(root_q, circle_context, params, tolerances,
-                               root_eval)) {
-          try_store_solution(root_eval.o3_down_point, root_eval);
-        }
-      }
-    }
-    if (current_ok) {
-      if (std::abs(current_eval.up_dot_product) <= kRootSampleHitTolerance) {
-        try_store_sample_root(current_q, true);
-      }
-      if (std::abs(current_eval.down_dot_product) <= kRootSampleHitTolerance) {
-        try_store_sample_root(current_q, false);
-      }
-    }
-    previous_q = current_q;
-    previous_eval = current_eval;
-    previous_ok = current_ok;
-
-    if (primal_solutions.size() >= kMaxIkSolutions) {
-      break;
-    }
-  }
-
-  // Keep SolveCrxIk focused on geometric roots. Dual/signed-pi expansion and
-  // duplicate suppression happen after full FK/limit validation in SolveIK.
-  solutions_out = primal_solutions;
+  return changed;
 }
 
 auto FinalizeIkCandidates(const std::vector<Vec6> &geometric_solutions,
-                          const CrxModelData &model,
-                          const PoseIsoRT &target_pose,
+                          const PreparedFk &fk, const PoseIsoRT &target_pose,
                           const Eigen::Quaterniond &target_quaternion,
-                          const Vec6 *approx_joints_rad, int max_solutions,
-                          std::vector<Vec6> &solutions_out) -> int {
-  solutions_out.clear();
-  if (max_solutions <= 0 || geometric_solutions.empty()) {
-    return 0;
+                          const Vec6 *approx_joints_rad, int max_solutions)
+    -> IkResult {
+  const auto &model = fk.model;
+  IkResult result;
+  std::vector<Vec6> command_postures;
+  command_postures.reserve(2 * geometric_solutions.size());
+  for (const Vec6 &solution : geometric_solutions) {
+    command_postures.push_back(ApplyFanucJointCoupling(solution));
+    Vec6 dual = Vec6::Zero();
+    DualSolutionRad(solution, dual);
+    command_postures.push_back(ApplyFanucJointCoupling(dual));
   }
-
-  const Vec6 &lower_limits_rad = model.lower_limits_rad;
-  const Vec6 &upper_limits_rad = model.upper_limits_rad;
-
-  const bool has_approximate_joints = (approx_joints_rad != nullptr);
-  Vec6 approx_joints_rad_local = Vec6::Zero();
-  if (has_approximate_joints) {
-    approx_joints_rad_local = *approx_joints_rad;
+  // Root reconstruction can place a boundary posture just beyond a limit,
+  // even when other branches remain feasible. Nominate the actual boundary
+  // only within posture identity tolerance, then recheck the complete pose.
+  // Command enumeration and its limit roundoff allowance remain unchanged.
+  for (auto &command : command_postures) {
+    Vec6 bounded;
+    if (NominateBoundaryPosture(command, model, bounded) &&
+        IsFkRoundtripValid(RemoveFanucJointCoupling(bounded), target_pose,
+                           target_quaternion, fk)) {
+      command = bounded;
+    }
   }
-
-  std::vector<Candidate> ranked_candidates;
-  ranked_candidates.reserve(kMaxIkSolutions);
-  std::size_t next_candidate_order = 0;
-
-  auto is_candidate_better = [](const Candidate &a, const Candidate &b) {
-    if (a.distance_sq != b.distance_sq) {
-      return a.distance_sq < b.distance_sq;
-    }
-    if (a.is_preserved_seed != b.is_preserved_seed) {
-      return a.is_preserved_seed;
-    }
-    return a.order < b.order;
-  };
-
-  auto is_direct_duplicate = [&](const Vec6 &candidate_joints_rad) {
-    return std::any_of(ranked_candidates.begin(), ranked_candidates.end(),
-                       [&](const Candidate &candidate) {
-                         return MaxAbsDiffRadDirect(
-                                    candidate_joints_rad,
-                                    candidate.user_joints_rad) <=
-                                kSolutionAngleToleranceRad;
-                       });
-  };
-
-  auto replace_worst_candidate_if_better = [&](const Candidate &incoming) {
-    auto worst_candidate_it =
-        std::max_element(ranked_candidates.begin(), ranked_candidates.end(),
-                         is_candidate_better);
-    if (worst_candidate_it != ranked_candidates.end() &&
-        is_candidate_better(incoming, *worst_candidate_it)) {
-      *worst_candidate_it = incoming;
-    }
-  };
-
-  for (Vec6 solution : geometric_solutions) {
-    NormalizeUserSolutionDomains(solution);
-
-    const bool processed_all_variants =
-        ForEachCandidateVariant(solution, [&](Vec6 variant) {
-          if (!ClampToLimits(variant, lower_limits_rad, upper_limits_rad,
-                             kJointLimitToleranceRad)) {
-            return true;
-          }
-
-          if (!IsFkRoundtripValid(variant, target_pose, target_quaternion,
-                                  model)) {
-            return true;
-          }
-
-          if (is_direct_duplicate(variant)) {
-            return true;
-          }
-
-          const double distance_sq =
-              has_approximate_joints
-                  ? WrappedDist2Rad(variant, approx_joints_rad_local)
-                  : static_cast<double>(ranked_candidates.size());
-
-          if (ranked_candidates.size() < kMaxIkSolutions) {
-            ranked_candidates.push_back(
-                Candidate{variant, distance_sq, false, next_candidate_order++});
-          } else if (has_approximate_joints) {
-            replace_worst_candidate_if_better(
-                Candidate{variant, distance_sq, false, next_candidate_order++});
-          }
-          return true;
-        });
-
-    if (!processed_all_variants) {
+  const Vec6 command_seed = approx_joints_rad != nullptr
+                                ? ApplyFanucJointCoupling(*approx_joints_rad)
+                                : Vec6::Zero();
+  const auto selected = SelectCommandLifts(
+      command_postures, model.lower_limits_rad, model.upper_limits_rad,
+      approx_joints_rad != nullptr ? &command_seed : nullptr, max_solutions,
+      [&](const Vec6 &command) {
+        return IsFkRoundtripValid(RemoveFanucJointCoupling(command),
+                                  target_pose, target_quaternion, fk);
+      });
+  if (selected.status != CommandSelectionStatus::Complete) {
+    switch (selected.status) {
+    case CommandSelectionStatus::InvalidInput:
+      result.status = IkStatus::InvalidInput;
+      break;
+    case CommandSelectionStatus::RangeFailure:
+      result.status = IkStatus::NumericalRangeFailure;
+      break;
+    case CommandSelectionStatus::WorkLimit:
+      result.status = IkStatus::WorkLimit;
+      break;
+    case CommandSelectionStatus::Complete:
       break;
     }
+    return result;
   }
+  result.solutions.reserve(selected.commands.size());
+  for (const auto &command : selected.commands) {
+    result.solutions.push_back(RemoveFanucJointCoupling(command.command_rad));
+  }
+  result.truncated = selected.truncated;
+  result.status = result.solutions.empty() ? IkStatus::NoCandidate
+                                           : IkStatus::StrictCandidates;
+  return result;
+}
 
-  if (has_approximate_joints) {
-    Vec6 approx_candidate_rad = approx_joints_rad_local;
-    if (ClampToLimits(approx_candidate_rad, lower_limits_rad, upper_limits_rad,
-                      kJointLimitToleranceRad) &&
-        IsFkRoundtripValid(approx_candidate_rad, target_pose, target_quaternion,
-                           model) &&
-        !is_direct_duplicate(approx_candidate_rad)) {
+// Seed fallback is permitted only for an empty geometric search, before limits
+// and ranking. A filtered nonempty search must not enable approximate success.
+void ApplyEmptySearchSeed(const PreparedFk &fk, const PoseIsoRT &target,
+                          const Eigen::Quaterniond &rotation, const Vec6 *seed,
+                          IkResult &result) {
+  const auto &model = fk.model;
+  result.status = IkStatus::NoCandidate;
+  if (seed == nullptr) {
+    return;
+  }
+  Vec6 command = ApplyFanucJointCoupling(*seed);
+  if (!ClampCommandToLimits(command, model.lower_limits_rad,
+                            model.upper_limits_rad)) {
+    return;
+  }
+  const Vec6 user = RemoveFanucJointCoupling(command);
+  const bool strict = IsFkRoundtripValid(user, target, rotation, fk);
+  if (strict || IsFkRoundtripValidWithTolerances(
+                    user, target, rotation, fk,
+                    numerics::kApproxFallbackPositionToleranceMm *
+                        numerics::kApproxFallbackPositionToleranceMm,
+                    numerics::kApproxFallbackAngleToleranceRad)) {
+    result.solutions.push_back(user);
+    result.status = strict ? IkStatus::StrictSeed : IkStatus::ApproximateSeed;
+  }
+}
 
-      if (ranked_candidates.size() < kMaxIkSolutions) {
-        ranked_candidates.push_back(
-            Candidate{approx_candidate_rad, 0.0, true, next_candidate_order++});
-      } else {
-        replace_worst_candidate_if_better(
-            Candidate{approx_candidate_rad, 0.0, true, next_candidate_order++});
-      }
+auto CorrectConstrainedCandidates(const std::vector<Vec6> &geometric_solutions,
+                                  const CrxModelData &model,
+                                  const canonical::Lengths &lengths,
+                                  const PoseIsoRT &target_pose_06,
+                                  const canonical::PoseTolerance &tolerance)
+    -> std::vector<Vec6> {
+  // Rounded Cartesian targets at a limit can have their exact geometric
+  // posture just outside the command box (MIN_Z). Nominate the nearest box
+  // point only within one bounded joint update, then solve the original pose
+  // with active limits. This is strict FK correction, never limit slack or
+  // the approximate empty-search seed policy.
+  std::vector<Vec6> constrained;
+  for (const Vec6 &user : geometric_solutions) {
+    canonical::JointCandidate candidate;
+    candidate.joints = ApplyFanucJointCoupling(user);
+    const Vec6 middle = (model.lower_limits_rad + model.upper_limits_rad) / 2;
+    candidate.joints +=
+        kTwoPi *
+        ((middle - candidate.joints) / kTwoPi).array().round().matrix();
+    const Vec6 clamped = candidate.joints.cwiseMax(model.lower_limits_rad)
+                             .cwiseMin(model.upper_limits_rad);
+    if ((clamped - candidate.joints).cwiseAbs().maxCoeff() >
+        numerics::kPolishMaxStepRad) {
+      continue;
+    }
+    candidate.joints = clamped;
+    if (canonical::PolishJointCandidate(
+            lengths, target_pose_06, tolerance, numerics::kPolishIterations,
+            candidate, &model.lower_limits_rad, &model.upper_limits_rad)) {
+      constrained.push_back(RemoveFanucJointCoupling(candidate.joints));
     }
   }
-
-  if (ranked_candidates.empty()) {
-    return 0;
-  }
-
-  std::sort(ranked_candidates.begin(), ranked_candidates.end(),
-            is_candidate_better);
-
-  const auto solution_count = std::min<std::size_t>(
-      static_cast<std::size_t>(max_solutions), ranked_candidates.size());
-
-  solutions_out.reserve(solution_count);
-  for (std::size_t solution_idx = 0; solution_idx < solution_count;
-       ++solution_idx) {
-    solutions_out.push_back(ranked_candidates[solution_idx].user_joints_rad);
-  }
-
-  return static_cast<int>(solution_count);
+  return constrained;
 }
 
 struct ArmClassificationGeometry {
   Vec3 o3_point = Vec3::Zero();
   Vec3 o4_point = Vec3::Zero();
-  IkTolerancePack tolerances{};
+  ClassificationTolerances tolerances{};
 };
 
 auto BuildArmClassificationGeometry(const CrxModelData &model,
@@ -1108,16 +503,14 @@ auto BuildArmClassificationGeometry(const CrxModelData &model,
   }
 
   double convention_base_z_shift_mm = 0.0;
-  if (!NormalizeProductionDhForAnalyticIk(crx_params,
-                                          convention_base_z_shift_mm)) {
+  if (!RecognizeCrxGeometry(crx_params, convention_base_z_shift_mm)) {
     return false;
   }
 
   PoseIsoRT unused_pose = PoseIsoRT::Identity();
-  std::vector<PoseIsoRT> joint_poses(static_cast<std::size_t>(kDofCount + 1),
-                                     PoseIsoRT::Identity());
-  if (SolveFKCore(user_joints_rad, unused_pose, &joint_poses, false, model) !=
-      1) {
+  JointPoseBuffer joint_poses;
+  if (SolveFKCore(user_joints_rad, unused_pose, &joint_poses, false,
+                  PreparedFk(model)) != 1) {
     return false;
   }
 
@@ -1128,19 +521,19 @@ auto BuildArmClassificationGeometry(const CrxModelData &model,
   geometry_out.o4_point = (frame_1_inverse * joint_poses[kJoint4FrameIndex])
                               .translation()
                               .cast<double>();
-  geometry_out.tolerances = BuildIkTolerancePack(crx_params);
+  geometry_out.tolerances = BuildClassificationTolerances(crx_params);
   return geometry_out.o3_point.allFinite() && geometry_out.o4_point.allFinite();
 }
 } // namespace
 
 auto SolveFkIsometry(const CrxModelData &model, const Vec6 &user_joints_rad,
-                     PoseIsoRT &pose_out, std::vector<PoseIsoRT> *joint_poses,
+                     PoseIsoRT &pose_out, JointPoseBuffer *joint_poses,
                      bool check_limits) -> int {
   if (!IsModelDataValid(model) || !user_joints_rad.allFinite()) {
     return -1;
   }
   return SolveFKCore(user_joints_rad, pose_out, joint_poses, check_limits,
-                     model);
+                     PreparedFk(model));
 }
 
 auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &user_joints_rad,
@@ -1157,7 +550,8 @@ auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &user_joints_rad,
   const double shoulder_radius =
       std::hypot(geometry.o4_point.x(), geometry.o4_point.y());
   const double singular_radius = std::max(
-      geometry.tolerances.eps_xy, 0.011 * geometry.tolerances.length_scale);
+      geometry.tolerances.eps_xy, numerics::kConfigShoulderRadiusFraction *
+                                      geometry.tolerances.length_scale);
   if (!std::isfinite(shoulder_radius) || shoulder_radius <= singular_radius) {
     return false;
   }
@@ -1177,28 +571,29 @@ auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &user_joints_rad,
   const bool rear = geometry.o4_point.x() < 0.0;
   const bool geometric_lower_arm = elbow_side < -geometry.tolerances.eps_xy;
   const bool lower_arm = geometric_lower_arm != rear;
-  constexpr double kWristZeroToleranceRad = angle_conv::DegToRad(0.01);
-  const bool flip = user_joints_rad[4] > kWristZeroToleranceRad;
+  const bool flip = user_joints_rad[4] > numerics::kConfigWristZeroRad;
 
   posture_out = ArmPosture{rear, lower_arm, flip};
   return true;
 }
 
 auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
-                     const Vec6 *approx_joints_rad, int max_solutions,
-                     std::vector<Vec6> &solutions_out) -> int {
-  solutions_out.clear();
+                     const Vec6 *approx_joints_rad, int max_solutions)
+    -> IkResult {
+  IkResult result;
   if (max_solutions <= 0) {
-    return 0;
+    result.status = IkStatus::NoOutputRequested;
+    return result;
   }
   if (!IsModelDataValid(model) || !target_pose.matrix().allFinite() ||
       (approx_joints_rad != nullptr && !approx_joints_rad->allFinite())) {
-    return -1;
+    return result;
   }
 
   CrxParams crx_params;
   if (!ReadCrxParams(model, crx_params)) {
-    return -1;
+    result.status = IkStatus::UnsupportedModel;
+    return result;
   }
 
   const Eigen::Quaterniond target_quaternion(
@@ -1209,54 +604,93 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
                                        model.tool_transform.inverse();
 
   double convention_base_z_shift_mm = 0.0;
-  if (!NormalizeProductionDhForAnalyticIk(crx_params,
-                                          convention_base_z_shift_mm)) {
-    return -1;
+  if (!RecognizeCrxGeometry(crx_params, convention_base_z_shift_mm)) {
+    result.status = IkStatus::UnsupportedModel;
+    return result;
   }
 
   PoseIsoRT target_pose_06 = target_pose_06_raw;
-  if (std::abs(convention_base_z_shift_mm) > kEpsilon) {
+  if (std::abs(convention_base_z_shift_mm) > numerics::kDhLengthToleranceMm) {
     PoseIsoRT convention_shift_transform = PoseIsoRT::Identity();
     convention_shift_transform.translation() << 0.0, 0.0,
         -convention_base_z_shift_mm;
     target_pose_06 = convention_shift_transform * target_pose_06_raw;
   }
 
-  Vec6 approx_joints_rad_local = Vec6::Zero();
-  const bool has_approximate_joints = (approx_joints_rad != nullptr);
-  if (has_approximate_joints) {
-    approx_joints_rad_local = *approx_joints_rad;
-  }
-
   std::vector<Vec6> geometric_solutions;
 
-  const Vec6 *approx_for_finalize =
-      has_approximate_joints ? &approx_joints_rad_local : nullptr;
-
-  SolveCrxIk(target_pose_06, crx_params, nullptr, geometric_solutions);
-
-  if (geometric_solutions.empty()) {
-    if (has_approximate_joints) {
-      Vec6 approx_fallback_joints_rad = approx_joints_rad_local;
-      if (ClampToLimits(approx_fallback_joints_rad, model.lower_limits_rad,
-                        model.upper_limits_rad, kJointLimitToleranceRad)) {
-        if (IsFkRoundtripValid(approx_fallback_joints_rad, target_pose,
-                               target_quaternion, model) ||
-            IsFkRoundtripValidWithTolerances(
-                approx_fallback_joints_rad, target_pose, target_quaternion,
-                model, kApproxFallbackPositionToleranceMmSquared,
-                kApproxFallbackAngleToleranceRad)) {
-          solutions_out.push_back(approx_fallback_joints_rad);
-          return 1;
-        }
+  // The six supported CRX assets use these joint senses.
+  // Keep model recognition/equivalence evidence in the Python asset oracle.
+  // The existing DH guard and base/tool conversion above remain authoritative.
+  constexpr std::array<double, kDofCount> kCrxSenses{1, 1, -1, -1, -1, -1};
+  if (!Eigen::Map<const Vec6>(model.joint_senses.data())
+           .isApprox(Eigen::Map<const Vec6>(kCrxSenses.data()),
+                     numerics::kUnitTolerance)) {
+    result.status = IkStatus::UnsupportedModel;
+    return result;
+  }
+  // Canonical lengths use positive arm offsets and the signed wrist offset.
+  const canonical::Lengths lengths{crx_params.a2, crx_params.r4, crx_params.r6,
+                                   -crx_params.r5};
+  const canonical::PoseTolerance tolerance{
+      numerics::kSolutionPositionToleranceMm,
+      numerics::kSolutionAngleToleranceRad};
+  const auto discovered =
+      canonical::DiscoverJointCandidates(lengths, target_pose_06, tolerance);
+  if (discovered.status != canonical::RecoveryStatus::Candidates &&
+      discovered.status != canonical::RecoveryStatus::NoCandidate) {
+    // Unresolved discovery must not be accepted through the seed policy.
+    result.status =
+        discovered.status == canonical::RecoveryStatus::InvalidInput
+            ? IkStatus::InvalidInput
+        : discovered.status == canonical::RecoveryStatus::NumericalRangeFailure
+            ? IkStatus::NumericalRangeFailure
+            : IkStatus::Unresolved;
+    return result;
+  }
+  result.used_singular_representatives =
+      discovered.used_singular_representatives;
+  // Every command still receives a complete FK check; only model constants
+  // are shared across those checks during this solve.
+  const PreparedFk fk(model);
+  if (discovered.status == canonical::RecoveryStatus::Candidates) {
+    geometric_solutions.reserve(discovered.count);
+    for (std::size_t i = 0; i < discovered.count; ++i) {
+      // Discovery returns coupled canonical J3; the existing finalizer
+      // consumes decoupled user J3, then selects lifts in command coordinates.
+      Vec6 user = RemoveFanucJointCoupling(discovered.candidates[i].joints);
+      // Subtracting two canonical representatives can add a full J3 turn.
+      // Use principal geometric representatives before selecting command lifts.
+      NormalizeVecKeepSignedPi(user);
+      if (!IsFkRoundtripValid(user, target_pose, target_quaternion, fk)) {
+        result.status = IkStatus::Unresolved;
+        return result;
       }
+      geometric_solutions.push_back(user);
     }
-    return 0;
   }
 
-  return FinalizeIkCandidates(geometric_solutions, model, target_pose,
-                              target_quaternion, approx_for_finalize,
-                              max_solutions, solutions_out);
+  if (geometric_solutions.empty()) {
+    ApplyEmptySearchSeed(fk, target_pose, target_quaternion, approx_joints_rad,
+                         result);
+    return result;
+  }
+
+  auto finalized =
+      FinalizeIkCandidates(geometric_solutions, fk, target_pose,
+                           target_quaternion, approx_joints_rad, max_solutions);
+  if (finalized.status == IkStatus::NoCandidate) {
+    const auto constrained = CorrectConstrainedCandidates(
+        geometric_solutions, model, lengths, target_pose_06, tolerance);
+    if (!constrained.empty()) {
+      finalized =
+          FinalizeIkCandidates(constrained, fk, target_pose, target_quaternion,
+                               approx_joints_rad, max_solutions);
+    }
+  }
+  finalized.used_singular_representatives =
+      result.used_singular_representatives;
+  return finalized;
 }
 
 } // namespace crx

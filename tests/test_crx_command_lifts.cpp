@@ -1,0 +1,286 @@
+#include "crx_command_lifts.h"
+#include "crx_math_helpers.h"
+#include "crx_numerics.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <limits>
+#include <random>
+
+namespace {
+using crx::CommandSelectionStatus;
+using crx::Vec6;
+constexpr double kTau = 6.283185307179586476925286766559;
+
+void Require(bool test, const char *message) {
+  if (!test) {
+    std::fprintf(stderr, "Command selection: %s\n", message);
+    std::exit(EXIT_FAILURE);
+  }
+}
+
+auto Accept(const Vec6 &) -> bool { return true; }
+
+void AngleNormalizationReference() {
+  const auto check = [](double angle) {
+    double expected = std::fmod(angle, kTau);
+    if (expected > kTau / 2) {
+      expected -= kTau;
+    } else if (expected < -kTau / 2) {
+      expected += kTau;
+    }
+    const double actual = crx::NormalizeRadKeepSignedPi(angle);
+    Require(std::isnan(expected)
+                ? std::isnan(actual)
+                : actual == expected &&
+                      std::signbit(actual) == std::signbit(expected),
+            "angle normalization preserves fmod and signed-zero semantics");
+  };
+  const double infinity = std::numeric_limits<double>::infinity();
+  for (double boundary : {-kTau, -kTau / 2, -0.0, 0.0, kTau / 2, kTau}) {
+    check(boundary);
+    check(std::nextafter(boundary, -infinity));
+    check(std::nextafter(boundary, infinity));
+  }
+  check(infinity);
+  check(-infinity);
+  check(std::numeric_limits<double>::quiet_NaN());
+  // Include subnormals and large turn counts, not just typical robot angles.
+  constexpr unsigned kNormalizationSeed = 20261013;
+  constexpr int kNormalizationTrials = 10000;
+  std::mt19937_64 generator(kNormalizationSeed);
+  for (int trial = 0; trial < kNormalizationTrials; ++trial) {
+    const std::uint64_t bits = generator();
+    double angle = 0;
+    static_assert(sizeof(angle) == sizeof(bits));
+    std::memcpy(&angle, &bits, sizeof(angle));
+    check(angle);
+  }
+}
+
+void SelectionMetadata() {
+  // Python exhaustively checks commands, ranking and capacity through both
+  // DLLs. Retain only selection bookkeeping that is absent from the C ABI.
+  const Vec6 phase = Vec6::Zero();
+  const Vec6 lo = Vec6::Constant(-kTau);
+  const Vec6 hi = Vec6::Constant(kTau);
+  constexpr std::size_t kExpectedLifts =
+      729; // Three turns on each of six axes.
+  const auto result = crx::SelectCommandLifts(
+      {phase, phase + Vec6::Constant(kTau)}, lo, hi, nullptr, 1, Accept);
+  Require(result.status == CommandSelectionStatus::Complete,
+          "metadata selection completed");
+  Require(result.geometric_postures == 1 && result.feasible_postures == 1,
+          "periodic input postures deduplicated");
+  Require(result.valid_lifts == kExpectedLifts && result.truncated,
+          "all 3^6 lifts counted despite capacity one");
+}
+
+void BoundariesAndFailures() {
+  Vec6 phase = Vec6::Zero();
+  phase[5] = -angle_conv::DegToRad(170.0);
+  Vec6 lo = Vec6::Constant(-0.1), hi = Vec6::Constant(0.1);
+  lo[5] = angle_conv::DegToRad(180.0);
+  hi[5] = angle_conv::DegToRad(225.0);
+  auto result = crx::SelectCommandLifts({phase}, lo, hi, nullptr, 64, Accept);
+  Require(result.commands.size() == 1 && result.commands[0].turns[5] == 1,
+          "shifted lift");
+  Require(std::abs(result.commands[0].command_rad[5] -
+                   angle_conv::DegToRad(190.0)) < 1e-12,
+          "-170 to 190");
+
+  phase[5] = angle_conv::kPi;
+  lo[5] = -angle_conv::kPi;
+  hi[5] = angle_conv::kPi;
+  Vec6 seed = Vec6::Zero();
+  result =
+      crx::SelectCommandLifts({phase}, lo, hi, &seed, 64, [](const Vec6 &q) {
+        return std::abs(std::abs(q[5]) - angle_conv::kPi) < 1e-12;
+      });
+  Require(result.commands.size() == 2, "both midpoint ties");
+  Require(result.commands[0].command_rad[5] < 0,
+          "lower command breaks exact tie");
+  seed[5] = angle_conv::kPi;
+  result = crx::SelectCommandLifts({phase}, lo, hi, &seed, 64, Accept);
+  Require(result.commands.size() == 2 && result.commands[0].preserved_seed &&
+              result.commands[0].turns[5] == 1,
+          "seed turn metadata uses the same [-pi,pi) phase convention");
+
+  result =
+      crx::SelectCommandLifts({Vec6::Zero()}, Vec6::Constant(-100.0),
+                              Vec6::Constant(100.0), nullptr, 1, Accept, 100);
+  Require(result.status == CommandSelectionStatus::WorkLimit &&
+              result.commands.empty(),
+          "budget has no partial results");
+  result = crx::SelectCommandLifts({Vec6::Zero()}, Vec6::Constant(-1e10),
+                                   Vec6::Constant(1e10), nullptr, 1, Accept);
+  Require(result.status == CommandSelectionStatus::RangeFailure &&
+              result.commands.empty(),
+          "checked count overflow");
+  result = crx::SelectCommandLifts({Vec6::Zero()}, Vec6::Constant(-1e300),
+                                   Vec6::Constant(1e300), nullptr, 1, Accept);
+  Require(result.status == CommandSelectionStatus::RangeFailure &&
+              result.commands.empty(),
+          "checked integer conversion");
+  // An empty early axis must not hide an unrepresentable later turn bound.
+  Vec6 mixed_lower = Vec6::Zero(), mixed_upper = Vec6::Zero();
+  mixed_lower[0] = mixed_upper[0] = 0.5;
+  mixed_lower[5] = mixed_upper[5] = 1e300;
+  result = crx::SelectCommandLifts({Vec6::Zero()}, mixed_lower, mixed_upper,
+                                   nullptr, 1, Accept);
+  Require(result.status == CommandSelectionStatus::RangeFailure &&
+              result.commands.empty(),
+          "all axes checked before accepting an empty lift box");
+  mixed_lower[5] = mixed_upper[5] = 0.0;
+  result = crx::SelectCommandLifts({Vec6::Zero()}, mixed_lower, mixed_upper,
+                                   nullptr, 1, Accept);
+  Require(result.status == CommandSelectionStatus::Complete &&
+              result.commands.empty() && result.box_lifts == 0,
+          "finite empty lift box");
+  seed.setConstant(1e300);
+  result = crx::SelectCommandLifts({Vec6::Zero()}, Vec6::Constant(-1.0),
+                                   Vec6::Constant(1.0), &seed, 1, Accept);
+  Require(result.status == CommandSelectionStatus::RangeFailure &&
+              result.commands.empty(),
+          "travel overflow");
+  seed[0] = std::numeric_limits<double>::quiet_NaN();
+  result = crx::SelectCommandLifts({Vec6::Zero()}, lo, hi, &seed, 1, Accept);
+  Require(result.status == CommandSelectionStatus::InvalidInput,
+          "nonfinite seed");
+
+  Vec6 boundary = Vec6::Zero();
+  boundary[0] = std::nextafter(1.0, 2.0);
+  Require(crx::ClampCommandToLimits(boundary, Vec6::Zero(), Vec6::Ones()),
+          "roundoff clamp");
+  Require(crx::numerics::Scalar(boundary[0])
+              .isApproxToConstant(1.0, crx::numerics::kEpsilon),
+          "clamped boundary");
+  boundary[0] = 1.00001;
+  Require(!crx::ClampCommandToLimits(boundary, Vec6::Zero(), Vec6::Ones()),
+          "no physical tolerance expansion");
+}
+
+void LateCandidatesAndSeed() {
+  std::vector<Vec6> phases(80, Vec6::Constant(0.25));
+  phases.insert(phases.end(), 80,
+                Vec6::Constant(std::numeric_limits<double>::quiet_NaN()));
+  for (int i = 0; i < 40; ++i) {
+    Vec6 q = Vec6::Zero();
+    q[0] = 0.01 * i;
+    phases.push_back(q);
+  }
+  Vec6 seed = Vec6::Zero();
+  seed[0] = 0.39;
+  seed[5] = 0.01; // Not a target witness: selection cannot insert it.
+  auto result = crx::SelectCommandLifts(
+      phases, Vec6::Constant(-1.0), Vec6::Constant(1.0), &seed, 1,
+      [](const Vec6 &q) {
+        return crx::numerics::Scalar(q[5]).isZero(crx::numerics::kEpsilon);
+      });
+  Require(result.valid_lifts == 40 && result.commands.size() == 1,
+          "late valid phases survive invalid raw hits and 32 cap");
+  Require(std::abs(result.commands[0].command_rad[0] - 0.39) < 1e-12,
+          "late nearest survives cap");
+  seed[5] = 0.0;
+  result = crx::SelectCommandLifts(
+      phases, Vec6::Constant(-1.0), Vec6::Constant(1.0), &seed, 64,
+      [](const Vec6 &q) {
+        return crx::numerics::Scalar(q[5]).isZero(crx::numerics::kEpsilon);
+      });
+  Require(result.valid_lifts == 40 && result.commands.size() == 40,
+          "seed deduplication");
+  Require(result.seed_added && result.seed_matches_discovery &&
+              result.commands.front().preserved_seed,
+          "seed accounted separately");
+  const Vec6 command = (Vec6() << 0.0, 1.0, -1.0, 0.0, 0.0, 0.0).finished();
+  Require(crx::numerics::Scalar(crx::RemoveFanucJointCoupling(command)[2])
+              .isApproxToConstant(-2.0, crx::numerics::kEpsilon),
+          "coupling");
+  Require(crx::ApplyFanucJointCoupling(crx::RemoveFanucJointCoupling(command))
+              .isApprox(command, crx::numerics::kEpsilon),
+          "command mapping inverse");
+}
+
+void CoupledMetricCounterexample() {
+  // G7: equal command travel becomes [[2,1],[1,1]] in decoupled J2/J3.
+  // Independent rounding of the decoupled seed (.49,.49) would choose (0,0).
+  Vec6 user_seed = Vec6::Zero();
+  user_seed[1] = user_seed[2] = 0.49 * kTau;
+  const Vec6 seed = crx::ApplyFanucJointCoupling(user_seed);
+  Vec6 lo = Vec6::Zero(), hi = Vec6::Zero();
+  hi[1] = kTau;
+  hi[2] = 2.0 * kTau;
+  const auto result = crx::SelectCommandLifts(
+      {Vec6::Zero()}, lo, hi, &seed, 10, [](const Vec6 &q) {
+        const Vec6 user = crx::RemoveFanucJointCoupling(q);
+        return user[2] >= -1e-12 && user[2] <= kTau + 1e-12 &&
+               q.unaryExpr([](double x) { return std::remainder(x, kTau); })
+                       .cwiseAbs()
+                       .maxCoeff() < 1e-12;
+      });
+  Require(result.commands.size() == 4, "coupled finite catalogue");
+  const Vec6 best =
+      crx::RemoveFanucJointCoupling(result.commands.front().command_rad);
+  Require(crx::numerics::Scalar(best[1]).isZero(crx::numerics::kEpsilon) &&
+              crx::numerics::Scalar(best[2]).isApproxToConstant(
+                  kTau, crx::numerics::kEpsilon),
+          "transported command metric");
+  Require(std::abs(result.commands.front().travel_squared / (kTau * kTau) -
+                   0.2405) < 1e-12,
+          "cross-term reference cost");
+}
+
+void RoundoffBoundariesAndOrdering() {
+  for (double sign : {-1.0, 1.0}) {
+    for (double ulps : {1.0, 32.0, 256.0}) {
+      Vec6 phase = Vec6::Zero();
+      phase[5] = angle_conv::kPi + sign * ulps * crx::numerics::kEpsilon;
+      const auto result = crx::SelectCommandLifts(
+          {phase}, Vec6::Constant(-angle_conv::kPi),
+          Vec6::Constant(angle_conv::kPi), nullptr, 64, Accept);
+      Require(
+          result.commands.size() == (ulps < 64 ? 2U : 1U),
+          "roundoff near pi retains boundary lifts without widening limits");
+    }
+  }
+  // Different phases with almost equal squared travel. A fuzzy comparator
+  // could mistake these for ties and prefer the lexicographically lower one.
+  std::vector<Vec6> phases(3, Vec6::Zero());
+  phases[0][0] = 1;
+  phases[1][0] = -1 - 4 * crx::numerics::kEpsilon;
+  phases[2][1] = 1 + 8 * crx::numerics::kEpsilon;
+  Vec6 seed = Vec6::Zero();
+  for (int permutation = 0; permutation < 3; ++permutation) {
+    for (int capacity : {1, 2, 3}) {
+      const auto result = crx::SelectCommandLifts(
+          phases, Vec6::Constant(-2), Vec6::Constant(2), &seed, capacity,
+          [](const Vec6 &q) { return q.norm() > .5; });
+      Require(result.commands.size() == static_cast<std::size_t>(capacity),
+              "near-tie capacity");
+      Require(result.commands.front().command_rad[0] > .5,
+              "nearest cost wins even inside approximate equality tolerance");
+      for (std::size_t i = 1; i < result.commands.size(); ++i) {
+        Require(result.commands[i - 1].travel_squared <
+                    result.commands[i].travel_squared,
+                "near-tie costs remain strictly ordered");
+      }
+    }
+    std::rotate(phases.begin(), phases.begin() + 1, phases.end());
+  }
+}
+} // namespace
+
+auto main() -> int {
+  AngleNormalizationReference();
+  SelectionMetadata();
+  BoundariesAndFailures();
+  LateCandidatesAndSeed();
+  CoupledMetricCounterexample();
+  RoundoffBoundariesAndOrdering();
+  std::puts(
+      "Command lift reference, capacity, boundary and failure checks passed");
+}

@@ -1,32 +1,28 @@
 import ctypes
+import json
+import math
 import os
+import subprocess
 import sys
 from pathlib import Path
-import math
+
 import pytest
 
 
-ROBOT_ROWS = 32
-ROBOT_STRIDE = 20
-DOFS = 6
+from crx_test_support import RobotT, _set_row, DOFS
 
 
 def pytest_addoption(parser):
+    parser.addoption(
+        "--require-solver-reliability", action="store_true", default=False,
+        help="Require the solver DLL for the generated reachable-pose gate",
+    )
     parser.addoption(
         "--run-robodk",
         action="store_true",
         default=False,
         help="Run live RoboDK tests using an already deployed matching DLL",
     )
-
-
-class RobotT(ctypes.Structure):
-    _fields_ = [("data", (ctypes.c_double * ROBOT_STRIDE) * ROBOT_ROWS)]
-
-
-def _set_row(robot: RobotT, row: int, values, col: int = 0) -> None:
-    for idx, value in enumerate(values):
-        robot.data[row][col + idx] = float(value)
 
 
 def _library_path(repo_root: Path | None = None) -> Path:
@@ -43,9 +39,7 @@ def _library_path(repo_root: Path | None = None) -> Path:
         return library_path.resolve()
 
 
-@pytest.fixture(scope="session")
-def kinematics_lib():
-    lib = _library_path()
+def _load_kinematics_library(lib):
     print(f"Loading crx_kinematics library from:\n  {lib}")
 
     if not lib.exists():
@@ -88,6 +82,45 @@ def kinematics_lib():
     lib.Joints2Config.restype = ctypes.c_int
 
     return lib
+
+
+@pytest.fixture(scope="session")
+def kinematics_lib(request):
+    path = _library_path()
+    if os.environ.get("CRXKIN_LIBRARY_PATH") or request.config.getoption("--require-solver-reliability"):
+        assert path is not None and path.is_file(), f"Reliability gate requires the DLL: {path}"
+    return _load_kinematics_library(path)
+
+
+@pytest.fixture(scope="session")
+def baseline_kinematics_lib():
+    """Optional external snapshot, selected independently of the current build."""
+    configured = os.environ.get("CRXKIN_BASELINE_LIBRARY_PATH")
+    if not configured:
+        pytest.skip("Set CRXKIN_BASELINE_LIBRARY_PATH to compare an external snapshot")
+    path = Path(configured).expanduser().resolve()
+    assert path.is_file(), f"Configured baseline DLL is missing: {path}"
+    assert path != _library_path(), "Baseline and candidate must be separate DLL files"
+    return _load_kinematics_library(path)
+
+
+@pytest.fixture(scope="session")
+def canonical_probe():
+    configured = os.environ.get("CRXKIN_ROOT_PROBE_PATH")
+    path = (Path(configured) if configured else
+            Path(__file__).resolve().parents[1] / "build/Release/crx_canonical_tests.exe")
+    if configured:
+        assert path.is_file(), f"Configured native probe is missing: {path}"
+    elif not path.is_file():
+        pytest.skip("Build crx_canonical_tests or set CRXKIN_ROOT_PROBE_PATH")
+
+    def run(mode, values):
+        completed = subprocess.run(
+            [str(path), mode, *(repr(float(value)) for value in values)],
+            check=True, capture_output=True, text=True, timeout=20,
+        )
+        return json.loads(completed.stdout)
+    return run
 
 
 kRobotBaseXyzwprRow = 9

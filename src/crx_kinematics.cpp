@@ -32,14 +32,12 @@ auto SolveFkApi(const real_T *joints, real_T pose[crx::kPoseElementCount],
   }
 
   crx::PoseIsoRT fk_pose = crx::PoseIsoRT::Identity();
-  std::vector<crx::PoseIsoRT> joint_pose_isometries;
-  std::vector<crx::PoseIsoRT> *joint_pose_ptr = nullptr;
+  crx::JointPoseBuffer joint_pose_isometries;
+  crx::JointPoseBuffer *joint_pose_ptr = nullptr;
   if (joint_poses != nullptr) {
     if (max_poses < crx::kDofCount + 1) {
       return -1;
     }
-    joint_pose_isometries.resize(crx::kDofCount + 1,
-                                 crx::PoseIsoRT::Identity());
     joint_pose_ptr = &joint_pose_isometries;
   }
 
@@ -109,15 +107,14 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
     approx_joints_ptr = &approx_joints_rad;
   }
 
-  std::vector<crx::Vec6> ranked_solutions_rad;
-  const int solution_count =
-      crx::SolveIkIsometry(model, target_pose, approx_joints_ptr, max_solutions,
-                           ranked_solutions_rad);
+  const auto result = crx::SolveIkIsometry(model, target_pose,
+                                           approx_joints_ptr, max_solutions);
+  const int solution_count = crx::IkResultToRoboDkReturn(result);
   if (solution_count <= 0) {
     return solution_count;
   }
 
-  if (!crx::UserJointsRadToRoboDkCoupledDeg(ranked_solutions_rad[0], joints)) {
+  if (!crx::UserJointsRadToRoboDkCoupledDeg(result.solutions[0], joints)) {
     return -1;
   }
   if (joints_all != nullptr) {
@@ -129,8 +126,8 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
       real_T *solution_slot = joints_all + solution_offset;
       std::fill(solution_slot, solution_slot + kRoboDkSolutionStride,
                 static_cast<real_T>(0.0));
-      if (!crx::UserJointsRadToRoboDkCoupledDeg(
-              ranked_solutions_rad[solution_idx], solution_slot)) {
+      if (!crx::UserJointsRadToRoboDkCoupledDeg(result.solutions[solution_idx],
+                                                solution_slot)) {
         return -1;
       }
     }

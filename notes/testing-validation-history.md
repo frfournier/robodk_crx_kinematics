@@ -1,0 +1,1328 @@
+# Testing validation history
+
+Archived from the test README during test-suite simplification. The commands,
+counts and implementation descriptions below record successive investigations
+and can describe earlier states. Use [the testing guide](../tests/README.md)
+for current entry points and suite organization.
+
+## 2026-10-13: baseline validation and correction cost
+
+### Accepted tradeoff and local merge preparation
+
+The user accepted the measured tradeoff and requested cleanup and merge into
+local `main`. The implementation uses one polynomial solver, preserves the
+public C ABI, and keeps comparison to the external snapshot at
+`baseline/pre-polynomial-2026-10-13`. Release version 0.3.1 is unchanged; the
+version bump remains with the user. No remote push or RoboDK deployment is part
+of this integration.
+
+The final capacity-one check closes the saved plan's small-buffer measurement:
+all 3929 reachable targets solve strictly in both modes, with zero invalid
+candidate commands. Every selected command (7858 case/mode rows, including
+signed zeros and full turns) exactly matches the capacity-512 result. Baseline
+strict solves are 3748 unseeded / 3672 seeded, giving 181 / 257 gains with none
+lost. These gains differ from capacity 64 because strict validation checks every
+returned command. Common-success mean speedup is 1.434x / 1.433x; unseeded
+reachable p95 is 98.49 versus 48.59 us and mixed p95 177.15 versus 50.50 us.
+The measurement uses nine paired rounds of eight native calls and the same
+verified DLL as the final Release workflow. Source/DLL hashes match. Evidence:
+`build/merge-final-audit/capacity-one/` and `capacity-audit.json`.
+
+The final patch audit finds no temporary profiling hooks or backend-selection
+references in active code/tests. Relative to the pre-cleanup branch commit,
+the 4313-case corpus changes only 64 names and group labels; numeric inputs are
+unchanged. The complete branch also includes intentional frozen corpus/asset
+reference additions and the previously recorded ABBES-TABLE6 solution-4
+configuration-label correction (`UD=D`, `TB=B`) in the CSV and generated JSON.
+Robot asset binaries are unchanged. The full Release gate and numerical limits
+are recorded below; no solver edits followed that successful gate.
+
+### Latest folded-arm refinement follow-up
+
+Folded-elbow correction derives the opposite base posture from the first
+corrected posture using the canonical base symmetry. The identity holds for
+unequal arm lengths as well as equal ones. The rounded joint vector receives
+full FK validation; failed validation falls back to independent correction.
+Extended-elbow nominations retain independent correction. Wrist windows,
+physical tolerances, ranking, command limits and the C ABI are unchanged.
+New allocation-guarded native tests check both base postures with unequal arms,
+both wrist-offset signs and three length scales using independent FK.
+
+Final five-round, capacity-512 paired comparisons against the preceding verified
+DLL retain every strict solve and known witness, with zero invalid outputs.
+Unseeded mixed-singularity p95 falls from 217.76 to 180.00 microseconds on the
+original corpus and 197.07 to 166.59 on the independently scaled corpus: 17.3%
+and 15.5% reductions. Overall common-success mean ratios are 1.072x and 1.085x;
+mixed ratios are 1.172x and 1.163x. All five paired rounds improve both means.
+Reachable p95 falls from 119.11 to 104.49 and 146.98 to 127.28 respectively.
+
+This change does alter singular-family representatives. Counts change on 264
+original and 252 scaled case/mode rows. Maximum preceding-to-current absolute
+command distances, including turns, are 0.0489134 and 0.00105023 degrees; reverse
+distances are 0.000590813 and 0.00180056 degrees. On 28 original case/mode rows,
+150 preceding commands have no current counterpart within the 0.009-degree
+witness convention. All 17 sampled interpolation points between each such
+command and its nearest replacement pass strict independent FK (maximum
+2.81108e-5 mm / 7.56853e-6 degrees). This supports a change of near-family
+representatives, but is not a proof of exhaustive branch preservation. Recorded
+generating witnesses and existing fixture-count assertions are all preserved.
+
+The final nine-round comparison to `baseline/pre-polynomial-2026-10-13`
+(`b837dc85c16384a34f575357d383b5db2017dec2`) retains 484 additional strict solves
+per seed mode, no lost strict solves or known witnesses, and zero invalid
+candidate commands. It solves all 3929 reachable poses and rejects all 384
+unreachable controls. Common-success throughput is 1.320x unseeded / 1.331x
+seeded; regular-pose ratios are 2.132x / 2.153x.
+
+**The measured tradeoff was subsequently accepted for local integration.** Unseeded
+reachable p95 is 97.63 versus 46.26 microseconds for the baseline. On the 3445
+common strict successes it is 90.92 versus 46.59; mixed p95 is 173.72 versus
+48.11. Seeded reachable p95 is 97.25 versus 46.92. These quantiles describe
+per-pose median batch times, not individual-call deadlines. The user selected
+review of this tradeoff after further improvement rather than a fixed p95 target.
+
+The final Release workflow passes all five targets: 14016 Python regression
+passes, 89 opt-in live RoboDK skips, one existing import warning, and 8640
+reliability passes. The new local-refinement test initially assumed uniqueness
+before discovery deduplication; that new assertion was corrected without
+changing existing uniqueness checks. New readability warnings were resolved;
+existing Eigen/index diagnostics remain visible. DLL/source hashes and all four
+C export names/ordinals are verified. Commands, rejected narrower variants,
+absolute-command audits, full gate logs and final measurements are under
+`build/folded-dual/`; final snapshots are `final-existing/`, `final-stress/` and
+`main-comparison/`. No new fixture or asset data changes occurred in this
+follow-up. Live RoboDK, qmake and unsupported-platform checks remain unrun.
+No version bump, commit, merge or deployment occurred.
+
+### Preceding accuracy-residual follow-up
+
+Bounded accuracy refinement computes its rotation logarithm without redundant
+quaternion normalization. A small-angle series replaces `atan2` only where its
+omitted term is below binary64 rounding; larger rotations retain general
+evaluation. Geometric recovery retains its Eigen AngleAxis calculation, and
+final acceptance still checks the full orientation matrix. Pose, rank, posture
+window and command-limit thresholds are unchanged. Native tests cover signed
+subnormal angles, the series/chart boundaries, pi, matrix roundoff and allocation
+guards. Applying the formula throughout geometric recovery was rejected after
+it moved some singular-family commands by up to 0.036 degrees.
+
+The retained accuracy-only variant preserves every strict solve and known
+witness in both capacity-512 corpora, with no invalid commands. Audits in both
+seed modes include full-turn choices: every preceding command has a counterpart
+within 8.65e-8 degrees original and 1.30e-6 degrees scaled. Newly retained
+representatives have reverse distances at most 0.000332 and 2.62e-6 degrees.
+Counts differ on 40 original and 104 scaled case/mode rows; this is not an
+exact-output claim.
+
+Five paired rounds reduce mixed-singularity p95 by 0.7–4.0% across both corpora
+and seed modes. Unseeded p95 changes from 243.70 to 236.80 microseconds original
+and 216.13 to 214.60 scaled; seeded values change from 242.27 to 232.68 and
+218.33 to 211.74. Mixed mean ratios are 1.022–1.032x. Overall gains are modest,
+and folded-arm p95 does not improve in these paired samples.
+
+The final Release workflow passes all five targets: 14016 Python regression
+passes, 89 opt-in live RoboDK skips, one existing import warning, and 8640
+reliability passes. New formula/test readability warnings were fixed without
+weakening assertions or lint rules. The paired-test and final DLLs have identical
+contents in every PE section, including executable code and constants.
+
+The final nine-round baseline run retains all 484 strict gains per mode, with
+no lost strict solves or known witnesses and zero invalid candidate commands.
+Overall common-success ratios are 1.234x unseeded and 1.248x seeded; regular
+ratios are 2.123x and 2.142x. **Merge readiness remains open:** unseeded reachable
+p95 is 122.40 versus 50.68 microseconds, common-success p95 108.61 versus 51.07,
+and mixed p95 233.38 versus 52.01. These are per-pose median batch-time quantiles.
+Current DLL/source hashes and the unchanged C ABI are verified. Commands, audits,
+rejected variants and final evidence are under `build/refinement-rotation/`, with
+the final baseline report in `main-final/`. No version bump, commit, merge or
+deployment occurred. Live RoboDK, qmake and unsupported-platform checks remain
+unrun.
+
+### Preceding command-finalization follow-up
+
+Command selection prepares its joint-limit roundoff allowances once per solve.
+Duplicate postures are discarded before their redundant phase validation;
+every retained lifted command still receives full FK validation. Integer-turn
+bound calculations preserve their subtraction order. Limits, tolerances,
+ranking and seed preservation are unchanged. Five-round capacity-512 comparisons
+preserve all 384216 ordered command rows exactly, including signed zeros and
+turn choices, across the original and independent scaled corpora.
+
+The retained change improves overall common-success throughput by 3.26% original
+and 2.75% scaled, with regular-pose improvements of 5.17% and 4.92%. Singularity
+tail evidence is mixed: unseeded mixed p95 is 251.63 to 252.02 microseconds on the
+original corpus and 224.19 to 216.68 scaled. This is not a consistent tail gain.
+A separate fixed-rank triangular-solve experiment was rejected: overall timing
+was effectively unchanged, tail results varied by seed mode, and very close
+representatives changed. The correction source was restored exactly.
+
+The final Release workflow passes all five targets: 14016 Python regression
+passes, 89 opt-in live RoboDK skips, one existing import warning, and 8640
+reliability passes. New const/reference-member lint warnings were resolved by
+using a plain data aggregate; existing include/index and Eigen diagnostics remain
+visible. No checks or lint rules were weakened.
+
+The refreshed nine-round external-baseline comparison retains all 484 strict
+gains per mode, zero lost strict solves or known witnesses, and zero invalid
+candidate commands. Overall ratios are 1.220x unseeded and 1.232x seeded;
+regular-pose ratios are 2.122x and 2.138x. **Merge readiness remains open:**
+unseeded reachable p95 is 124.08 versus 49.42 microseconds, common-success p95
+111.40 versus 49.83, and mixed p95 232.74 versus 50.77. These are per-pose median
+batch-time quantiles. Source/DLL hashes and unchanged public C header/export
+names/ordinals are verified. Commands, audits, rejected experiment and reports
+are under `build/prepared-command-limits/`. Live RoboDK, qmake and unsupported
+platform checks were not run; no version bump, commit, merge or deployment.
+
+### Preceding candidate-deduplication follow-up
+
+Discovery now stops a posture comparison at the first differing joint and stops
+searching after finding a duplicate. Differences within pi use their absolute
+value directly; wider differences retain the same remainder calculation. The
+posture identity tolerance, candidate order and retained representatives are
+unchanged. Full-capacity comparisons against the preceding verified DLL preserve
+all 200870 original and 183346 scaled command rows exactly, including signed
+zeros, ordering and turn choices. Independent FK finds no invalid commands.
+
+Five paired rounds show common-success mean ratios of 1.044x on both corpora.
+Mixed-singularity mean ratios are 1.051x original and 1.049x scaled, with a gain
+in all five rounds. Mixed p95 falls from 252.17 to 246.71 microseconds original
+and 232.44 to 219.39 scaled; all-reachable p95 falls from 140.23 to 130.39 and
+167.43 to 159.05 respectively. The earlier early-exit-only experiment is retained
+separately; its measurements are not combined with these paired results.
+
+After fixing two formatting lines, the full Release workflow passes all five
+CTest targets: 14016 Python regression passes, 89 opt-in live RoboDK skips, one
+existing import warning, and 8640 reliability passes. The refreshed nine-round
+external baseline run solves all 3929 reachable poses in both seed modes,
+retaining 484 gains, no lost strict solves or known witnesses, and no invalid
+candidate commands. Common-success ratios are 1.174x unseeded and 1.183x seeded;
+regular random ratios are 2.009x and 2.023x.
+
+**Merge readiness remains open for singularity latency.** Unseeded reachable
+p95 is 125.89 microseconds versus 48.93 for the baseline. On the 3445 common
+strict successes, p95 is 112.24 versus 49.13; mixed-singularity p95 is 235.63
+versus 50.64. These are quantiles of per-pose median batch times.
+
+The final DLL and recorded source hashes match the worktree. The public C header
+and all four export names/ordinals are unchanged. Commands, exact-output audits,
+paired results and the full gate log are under `build/dedup-short-circuit/`.
+Live RoboDK, qmake and unsupported-platform checks were not run. There was no
+version bump, commit, merge or deployment.
+
+### Preceding accuracy-refinement follow-up
+
+Accuracy refinement now uses the rank-revealing minimum-norm correction directly;
+geometric nomination correction retains its LU condition and backward-error
+checks. Removing LU from geometric correction still fails the existing MIN_Z
+count regression, so that change was rejected without changing the assertion.
+The QR correction applies only the first `rank` left reflectors: later ones affect
+the discarded tail. Native coverage now includes folded-arm/wrist accuracy
+refinement at three length scales, independent strict FK, posture-window bounds
+and allocation guards. Pose, rank and command-limit thresholds are unchanged.
+
+Five paired capacity-512 rounds against the preceding candidate retain every
+strict solve and known witness, with no invalid commands. Mixed-singularity p95
+falls from 256.08 to 244.38 microseconds on the original corpus and from 241.94 to
+231.05 microseconds on the independent scaled corpus, about 4.5% in both.
+Counts of very close representatives differ on 12 original and 15 scaled poses
+(in both seed modes); this is not an exact-output claim for the method change.
+Every preceding absolute command, including its turn choice, has a counterpart
+within 4.51e-8 degrees on the original corpus and 3.07e-6 degrees on the scaled
+corpus. The reverse distances are at most 1.24e-7 and 1.34e-6 degrees. A separate
+full-capacity check confirms the reflector truncation alone preserves all 384216
+ordered command rows exactly, including signed zeros; its one-round timings are
+not used as performance evidence.
+
+The final Release workflow again passes all five CTest targets, including 14016
+Python passes and 89 opt-in live RoboDK skips, with the external baseline enabled.
+The new nine-round baseline comparison is 1.127x faster overall unseeded and
+1.135x seeded on common strict successes. Both modes solve all 3929 reachable
+poses, gaining 484 strict solves with none lost, no lost known witnesses and no
+invalid candidate commands. Regular random poses are 1.958x/1.973x faster.
+
+**Merge readiness remains open for singularity latency.** All-reachable unseeded
+p95 is 133.78 microseconds versus 49.25 for the baseline; on the 3445 common strict
+successes it is 120.12 versus 49.58. Mixed-singularity p95 is 239.62 versus 50.30
+microseconds. These are per-pose median quantiles, not individual-call jitter.
+
+The measured final DLL and source hashes match the worktree. The public C header
+and four export names/ordinals remain unchanged. Commands, failed experiments,
+absolute and modulo-turn catalogue audits, accuracy distributions, full-workflow
+output and the final baseline report are under `build/correction-policy/`.
+Additional rejected cost investigations are under `build/correction-reuse/`
+and `build/inverse-condition/`. No version bump, commit, merge or deployment
+occurred; live RoboDK, qmake and unsupported-platform checks were not run.
+
+### Preceding correction-cost measurement
+
+The current production build uses polynomial discovery, with comparisons against
+an independently built snapshot DLL. The baseline is
+`baseline/pre-polynomial-2026-10-13`, commit
+`b837dc85c16384a34f575357d383b5db2017dec2` (also `main` at measurement time).
+The public C ABI header and the four exported names/ordinals are unchanged.
+Fixture witness labels were made implementation-neutral; numeric fixture and
+robot asset values are unchanged. The release version remains `0.3.1`.
+
+A joint-limit regression now checks that a recovered posture just outside a
+boundary is retained after exact-boundary nomination and strict full FK, even
+when other feasible postures exist. Twelve cases cover both seed modes, shifted
+turn intervals, and an intentionally excluded witness. Limits and physical pose
+tolerances were not relaxed.
+
+Correction reuses each accepted trial's joint rotations for the next Jacobian.
+It also checks the LU correction's backward error before estimating conditioning;
+both original acceptance requirements remain. Five paired timing rounds at
+capacity 512 show mixed-singularity speedups of 1.080x on the original corpus
+and 1.115x on the independent scaled corpus. Mixed p95 improves from 272.20 to
+251.94 microseconds and from 270.31 to 242.91 microseconds respectively. Every
+ordered command value, including signed zeros, remains identical across 200756
+original-corpus rows and 183282 scaled-corpus rows. Two condition-bound shortcuts
+were discarded after complete-solver timing failed to justify them.
+
+The final Windows x64 clang-cl Release workflow passed all five CTest targets,
+including 14016 Python tests with the external baseline enabled. The 89 skips
+are opt-in live RoboDK tests. Formatting and clang-tidy ran; existing Eigen
+analyzer diagnostics and the RoboDK import warning were not suppressed. Live
+RoboDK, qmake and unsupported-platform checks were not run; no deployment occurred.
+
+A fresh baseline comparison on the i7-12700H used 4313 poses from six captured
+assets, capacity 64, nine paired rounds and eight calls per timing batch. Both
+seed modes retain all 3929 reachable strict solves, versus 3445 for the baseline:
+484 gains, no lost strict solves, no lost known witnesses, and no invalid
+candidate commands. Common-success mean speedups are 1.108x unseeded and 1.120x
+seeded; regular random poses are 1.962x and 1.978x faster.
+
+**Singularity latency remains an open merge requirement.** All-reachable p95 is
+139.78 microseconds unseeded versus 48.85 for the baseline. Restricting to the
+3445 targets strictly solved by both still gives 125.05 versus 49.15 microseconds.
+These quantiles describe per-pose timing medians, not individual-call jitter.
+The paired optimization results above are capacity-512 comparisons against the
+preceding candidate and must not be substituted for this baseline comparison.
+
+Reproduction follows [the testing guide](../tests/README.md): run
+`cmake --workflow --preset windows-clang-release-verify` with the external
+baseline configured, then `scripts/benchmark_solvers.py` with `--rounds 9
+--repeats 8` and the baseline revision above. Local command logs and raw evidence
+are retained under `build/boundary-recovery/`, `build/rotation-reuse/` and
+`build/residual-order/`; the final baseline report is
+`build/residual-order/main-comparison/report.md`. Paired optimization artifacts
+use `benchmark_accuracy.py --capacity 512 --rounds 5 --repeats 3` for both
+`--corpus existing` and `--corpus stress`.
+
+## Earlier validation archive
+
+The test suite covers the native C ABI, fixture-based forward and inverse
+kinematics, version metadata, and live RoboDK integration.
+
+Discovery tests use recorded poses or independent FK targets without supplying
+the generating posture as the IK seed. Exact-seed FK/IK roundtrips can pass by
+returning the seed, so seed preservation is covered by focused policy tests.
+CAD poses and link frames are checked against independent references and captured
+asset frames. Live RoboDK tests check recorded FK poses and configurations.
+
+- `test_crx_kinematics.py` exercises the compiled library directly through
+  `ctypes`.
+- `test_crx_robolink_kinematics.py` validates the library through a live RoboDK
+  instance and the Python RoboDK API.
+- `test_version_metadata.py` checks that release versions agree across build
+  and package metadata.
+
+Run the suite from the repository root after building the library:
+
+```powershell
+uv sync --locked
+uv run --locked pytest
+```
+
+Set `CRXKIN_LIBRARY_PATH` when the library is not in the default
+`build/Release` location.
+
+Live RoboDK tests are opt-in. After explicitly deploying the current Release DLL
+using the installation instructions, run `uv run --locked pytest --run-robodk`.
+The Windows integration setup checks that the deployed DLL matches the build and
+skips on a missing or stale deployment; tests never copy files into RoboDK.
+The default suite and CTest release gate skip live tests and run native checks.
+
+## Polynomial RoboDK comparison DLL
+
+Windows test builds also produce `crx_kinematics_polynomial.dll`. It exposes the
+same C ABI and runs polynomial discovery through the existing base/tool
+conversion, command-space limits, full-turn enumeration, seed ranking and result
+packing. It never calls the legacy scanner: unresolved discovery, non-asset
+joint senses and FK mismatches return `-1`; numerical no-candidate results use
+the existing empty-search/seed policy. The production DLL and deployment target
+still use the scanner as a temporary comparison baseline before cutover.
+
+`test_crx_polynomial_adapter.py` compares both DLLs: all 64 legacy witnesses
+(including the four production defects), all 25 fixture targets, random legal
+commands for all six assets, transformed base/tool frames, restricted limits,
+seed ranking, capacity and reserved-field/buffer boundaries. Fixture targets are
+compared by postures and independently recomputed FK, not discovery ordering.
+`CRXKIN_POLYNOMIAL_LIBRARY_PATH` overrides the comparison DLL location; CTest
+sets it to the matching build and fails if it is absent. The additional
+`crx.polynomial-api` CTest target runs the existing API regression module against
+the comparison DLL. Both gates run in the Release verification workflow.
+
+This is an integration comparison, not production cutover or a new completeness
+guarantee. Calibrated geometry and remaining continuous-family cases are still
+pending. The four strict production xfails remain until production switches;
+the comparison DLL must recover those same witnesses without exceptions.
+
+## Complete-solver benchmark snapshot
+
+`scripts/benchmark_solvers.py` and the opt-in `crx_solver_benchmark` target
+compare the current legacy scanner DLL with the integrated polynomial DLL
+through the same `SolveIK` C ABI. Unlike `benchmark_discovery`, both sides
+include adaptation, discovery, limits/turns, final FK checks and result packing.
+The legacy baseline is the current scanner implementation, not a released
+v0.3.x binary. There is no generic-solver fallback in these measurements.
+
+```powershell
+cmake --preset windows-clang-release-tidy
+cmake --build --preset windows-clang-release-tidy --target crx_solver_benchmark
+uv run python scripts/benchmark_solvers.py --output build/solver-performance-snapshot-20261009
+```
+
+Use a new output directory for another run. Defaults cover 4,313 poses from six
+captured assets: 1,536 random targets, 2,304 wrist/elbow/base-axis/mixed/joint-limit
+challenges, 25 fixtures, 64 legacy witnesses and 384 unreachable controls. Both
+unseeded and nearby-seed modes use nine rounds of eight calls per pose/path;
+timing is native, warmed, interleaved and pinned to one allowed logical CPU.
+Latency percentiles describe per-pose batch times, not individual-call tails.
+
+Strict solve rate requires a valid best command and all returned commands to
+pass independent captured-DH FK at 0.0001 mm / 0.001 degree, plus command limits.
+The report separates witness recovery, invalid returns, ABI fallback requests,
+capacity hits and speed on common successful targets. Exact/near-singular input
+offsets are explicit in the corpus; `stress-offsets.csv` exposes their individual
+solve rates. Report, raw timing/error CSVs, source archive, frozen binaries and
+hash/CPU/build metadata stay together in the snapshot directory. The benchmark
+adds no timed work to normal tests and changes no solver policy or deployment.
+
+The completed reliability fixes and pre-removal checks are recorded in
+`notes/solver-premerge-validation-2026-10-09.md`. Final matched-capacity snapshots
+are `build/solver-premerge-final-20261009/` (64) and
+`build/solver-premerge-final-capacity1-20261009/` (1). Earlier snapshots are
+preserved, including the first reliable implementation before the measured
+correction-stopping optimization. Use the final report for current accuracy and
+latency: successful near-family correction changes the old worst-error tail.
+
+## Numerical constants and sensitivity evidence
+
+`src/crx_numerics.h` owns numerical guards, search thresholds, physical pose
+contracts, and work budgets. The supported x86-64 implementation requires IEEE
+binary64 (53 significand bits). `epsilon` means machine epsilon, not a physical
+length or an arbitrary `1e-12`. Length/squared-length floors have explicit units;
+canonical guards use normalized geometry. Algebraic coefficients, matrix indices
+and ABI table offsets retain their mathematical/protocol meanings.
+
+The discardable **N1017 experiment, 2026-10-09**, tested 168 one-at-a-time
+parameter/path settings over 1,017 poses: 25 fixture targets, 768 random poses,
+96 singular stress poses across the six captured assets, 64 legacy witnesses,
+and 64 additional folded/vertical/extended-arm boundary cases. The latter sweep
+joint offsets from zero through `1e-12` to `.01` radians. It checked statuses,
+candidate counts, known-posture recovery, configuration labels and independent
+transform-product FK for every returned command/posture. The original production
+DLL and disposable scanner baseline agreed on all 1,017 result counts.
+
+| Quantity | Sensitivity observation and decision |
+| --- | --- |
+| Incidence residual / recovery geometry | `64*eps` incidence and `512*eps` geometry lose a folded-arm witness at a `1e-4`-rad offset. Larger guards can also lose witnesses. Retain tested `512*eps` / `4096*eps`. These factors are empirical margins, not formal error bounds. |
+| Root-slope classification | `1e-9` loses 16 PERCH/ABBES-TABLE5 witnesses. `sqrt(eps)` matches the stable `1e-8..1e-6` range; use the epsilon-derived value. |
+| Near-real root nomination | `1e-8..1e-4` produces identical outcomes. Use `64*sqrt(eps)`, near the previous `1e-6`; nomination always requires original-geometry/FK validation. |
+| Phase identity | `1e-12` changes near-duplicate counts; `1e-9` merges polynomial candidates. Retain rounded `1e-10` in the common stable range. This does not certify distinct branches. |
+| Polynomial residual | Counts remain stable at `1e-10..1e-8`; tighter settings change chart decisions. Retain `1e-10` and the independent strict FK acceptance gate. |
+| Polishing neighborhood / step | `.005/.01`-rad neighborhoods lose a near-folded witness. `.05.. .2` neighborhoods and `.1..1` step caps preserve counts; retain rounded `.05` / `.25` radians. |
+| Folded-arm chart / balancing | Chart fractions `.001.. .1` preserve counts; `.0001` changes one. Balancing ratios `.8.. .95` preserve counts; `.99/1` change one/two catalogues. Retain rounded `.01` / `.95`. |
+| Scanner small guards | Replace old decimal floors/denominator/interval guards with `4096*eps` at explicit unit scales, root zero with `64*eps`, and cosine allowance with `4096*eps`. The combined setting preserves observed results. A `1e-10` interval loses one near-folded witness. |
+| Sample-hit / triangle shell | `1e-7` sample-hit drops a vertical-arm case; retain rounded `1e-5`. Shell fractions `1e-8..1e-5` preserve counts, while `1e-4` changes ten outcomes; retain rounded `1e-6`. |
+| Configuration dead bands | Shoulder fraction `.010` changes ABBES-TABLE6 availability and `.020` changes eleven cases; retain `.011`. Zero wrist dead band changes twelve cases; retain the existing `.01`-degree API policy. These are label policies, not singularity proofs. |
+
+The selected values together preserve all N1017 statuses, counts, witness masks
+and configuration labels, with zero independently invalid returned poses. This
+supports the chosen values on the sampled nominal domain; it does not prove
+completeness, optimal thresholds, stability under all perturbations, or a speedup.
+Single-pass timings were recorded as diagnostics, not a controlled latency gate.
+The existing scanner misses and unresolved polynomial boundary cases are retained
+as baseline limitations, not counted as newly solved cases.
+
+Two additional micro checks cover scalar guards. For 1,700 plane constructions
+with horizontal/vertical ratios `1e-16..1`, the maximum determinant error was
+`5.56e-16`. Choosing the less aligned fallback axis removes the `.99` cutoff and
+guarantees a projected squared norm of at least one half. DH tilt checks show
+that the old `1e-5`-rad snap can erase `.005346 mm` over a 540-mm lever at a
+`9.9e-6` tilt. Snapping now uses `4096*eps`: nominal assets are unchanged; larger
+off-family tilts request IK fallback and FK retains their actual geometry.
+`test_crx_numerics.py` checks positive/negative alpha and theta offsets through
+both DLLs, including untouched outputs on fallback. Strict/approximate pose
+acceptance tolerances remain unchanged.
+
+Disposable source snapshots, the parameterized probe, raw per-pose CSVs,
+triangle-scale checks, selected-value comparison and command inventory live in
+`build/numerics/`. They add no runtime tuning or automatic benchmark target;
+the checked-in tests retain the observable DH-snapping contract. Work budgets
+remain explicit computational policy rather than numerical accuracy claims.
+
+The final Release gate passed all six CTest targets (1,801 main Python passes,
+1,327 polynomial API passes, 300 live opt-in skips and four unchanged production
+xfails). Both rebuilt DLLs matched their pre-change ABI result counts on all
+1,017 nominal corpus poses. The gate also exposed an undersized test robot
+buffer: `RobotT` now includes the diagnostic name field at row 90, and a dedicated
+test exercises its complete bounded name read. Captured fixture/asset bytes are
+unchanged.
+
+### Floating-point comparison policy
+
+Use Eigen's `isZero` for absolute near-zero checks, `isApprox` for relative
+vector comparisons, and `isApproxToConstant` for relative scalar/constant
+comparisons, with explicit tolerances from `crx_numerics.h`. The private
+`numerics::Scalar` wrapper exposes the same predicates for a single double.
+Do not use floating `==`/`!=`, including container equality or `std::find`,
+and do not disguise exact equality with zero-precision approximate predicates.
+`isApproxToConstant(0)` cannot express an absolute near-zero window.
+
+Representation checks use `std::fpclassify` through `IsRepresentedZero`:
+polynomial degree, vanished coefficients/lengths, and scale denominators must
+distinguish stored zero from a representable subnormal. A tolerance there would
+silently erase a polynomial term or hide underflow. The independent incidence
+oracle classifies directly. Heap/sort comparisons use directional `<`, preserving
+transitive ordering; approximate pairwise ties would violate that requirement.
+
+Boundary regressions cover signed perturbations of 1/64/256 epsilons in joint
+senses, revolute flags, ASCII diagnostic names and homogeneous rows. Unit-scale
+fields reuse the existing 128-epsilon budget; admitted joint-sense and character
+roundoff is snapped to the encoded sign/integer. Phase-endpoint checks cover
+1/32/256-epsilon offsets around pi using the existing 64-epsilon elementary
+budget. Near-tie command costs differing by a few epsilons must retain their
+travel ordering at every tested capacity/input order. Canonical tests retain a
+`denorm_min` leading coefficient and a representable subnormal linear root,
+and reject actual normalization underflow. No new decimal cutoff is introduced.
+
+The 2026-10-09 comparison update passes all four focused native suites and
+120 numerical API cases. Both DLLs preserve status/counts over all 1,017 N1017
+poses against their pre-comparison binaries; the full Release gate passes all
+six CTest suites (1,897 main Python passes, 1,327 polynomial API passes, 300
+live opt-in skips and four existing scanner xfails). Existing RoboDK import and
+clang-tidy warnings remain visible. Discardable before binaries, corpus runner,
+logs and command inventory are in `build/comparisons/`.
+
+## Solver outcomes and fallback (#12)
+
+`SolveIkIsometry` returns a private `IkResult`. The adapter maps its status to
+the unchanged C ABI; the six reserved fields remain zero.
+
+| Private status | RoboDK return | Policy |
+| --- | --- | --- |
+| `StrictCandidates` | Returned count | All commands pass full FK at 0.0001 mm / 0.001 degrees. A preserved strict seed may accompany discovered commands. |
+| `StrictSeed` | 1 | An empty numerical search accepted the seed at strict tolerance. |
+| `ApproximateSeed` | 1 | Compatibility policy: only an empty numerical search may accept a legal seed at 0.01 mm / 0.01 degrees. |
+| `NoCandidate` | 0 | No accepted command; this is not certified infeasibility. |
+| `NoOutputRequested` | 0 | Caller capacity is nonpositive. |
+| `InvalidInput`, `UnsupportedModel`, `Unresolved`, `NumericalRangeFailure`, `WorkLimit` | -1 | Request RoboDK's generic solver without publishing partial results or accepting a seed. |
+
+`truncated` records successful output-capacity truncation independently of
+status. Work/range failures do not return a prefix. Approximate acceptance is
+not attempted when discovery produced postures that were subsequently filtered
+by command limits, or when discovery was unresolved. The public ABI cannot
+distinguish approximate success; callers requiring strict accuracy must check
+the returned pose. This preserves the existing compatibility behavior and
+tolerances rather than silently changing the meaning of existing calls.
+
+Singular policy: recovered finite candidates, including zero-wrist-sine cases,
+must pass the same strict full-pose checks. When both arm points lie on the base
+axis, canonical recovery chooses base zero and its base flip, reconstructs the
+wrist from the target rotation, and validates FK. Its private
+`used_singular_representatives` flag records this discovery policy even if later
+command limits filter those representatives. This flag is not a classification
+of all singularities. Ranking applies to the finite commands and admissible seed;
+it does not minimize over a continuous family. Coincident arm spheres,
+undetermined circles, and identically zero residuals remain unresolved handoffs
+when the backend cannot reconstruct them. They are not certified infeasible and
+are not rescued by the polynomial path's seed or legacy scanner.
+
+`crx.solver-scanner` and `crx.solver-polynomial` inspect private outcomes using
+the real solver and adapter, with no new DLL exports. Python outcome regressions
+exercise both DLLs and check buffer boundaries, reserved zeros, empty/failure
+mapping, and approximate-seed compatibility. Existing canonical tests cover
+exceptional incidence and independent FK; these tests do not certify completeness.
+
+## Command turns, ranking and capacity (#17)
+
+`crx.command-lifts` tests the private `crx_command_lifts` selector against 200
+independently enumerated finite catalogues, with seeded and seedless orderings
+and several capacities. Further cases cover shifted limits, both midpoint ties,
+the G7 coupled-metric counterexample, invalid/repeated early candidates, a late
+nearest candidate after more than 32 postures, seed preservation, clamped
+roundoff, count/integer/travel overflow and explicit work exhaustion.
+
+`test_crx_command_turns.py` runs against both DLLs through the C ABI. It covers
+shifted and negative turns, coupled J3 limits, negative rear-J3 commands,
+perturbed multiturn seeds, a 125-command exhaustive reference, capacities below,
+equal to and above the eligible count, optional alternatives, reserved zeros,
+and untouched buffer sentinels on success and failure. The six-asset random API
+tests now sample the full captured command box, without the former restriction
+to commands also legal in decoupled coordinates. Fixture catalogue checks use
+4096 output slots and assert that capacity was not exhausted; small-capacity
+tests independently require the correct ranked prefix.
+
+The policy follows RoboDK's [sample header](https://github.com/RoboDK/Plug-In-Interface/blob/master/robotextensions/samplekinematics/samplekinematics.h):
+chosen output included among alternatives, 12-double slots, caller capacity,
+and `-1` generic-solver handoff. Its dummy IK example does not specify turn
+enumeration, ranking, or a meaning for the six reserved fields. This library
+enumerates all finite admissible turns within its explicit work budget, ranks
+by equal-weight squared command travel, and keeps reserved fields zero.
+Seedless order and exact computed-score ties use lexicographic command order;
+a preserved strict-FK-valid seed takes precedence on a score tie.
+
+Limits and distances use coupled RoboDK commands in radians, before joint
+senses; internal FK joints remain decoupled. Integer coupling and signs preserve
+the full-turn lattice. Phase deduplication uses `1e-10` radians. Endpoint clamps
+allow only `min(1e-10, 64*epsilon*max(1,abs(boundary)))` radians, followed by full
+FK validation. The former physical 0.01-degree limit band is removed.
+
+The selector records unique geometric and feasible postures, box-lift count,
+FK-valid discovered lift count, seed inclusion/matching, returned commands and
+output truncation. Each retained command carries six internal signed turn
+indices. Angle/root counts remain discovery's responsibility. Checked uint64
+arithmetic and exactly representable turn bounds protect enumeration; a budget
+of 1,048,576 box lifts prevents unbounded work. A top-K heap bounds retained
+storage, while every lift is visited before success. Range/work failures expose
+no partial results and map to `-1`, independently of output truncation.
+
+The legacy scanner's raw 32-hit stop is removed: its 960 intervals bound the
+number of raw candidates instead. Neither the geometric regular-case bound nor
+configuration flags bound the number of commands. Continuous-family coverage,
+global optimality, and the legacy approximate empty-search fallback remain
+outside this command-selection guarantee. The selector uses dynamic storage;
+the canonical allocation guards do not establish allocation-free ABI calls.
+
+## Production versus polynomial timing snapshot
+
+From the x64 Visual Studio developer environment, build and run the opt-in
+native Release benchmark:
+
+```powershell
+cmake --preset windows-clang-release-tidy
+cmake --build --preset windows-clang-release-tidy --target crx_discovery_benchmark
+uv run python scripts/benchmark_discovery.py
+```
+
+Results go to `build/performance-snapshot/report.md`, with raw timings, returned
+joints, the exact corpus, source hashes, and compiler flags alongside it. Use
+`--output` to preserve separate snapshots. Defaults cover all 25 named fixture
+targets, 128 deterministic reachable random poses and 16 singular stress poses
+per approved asset, plus the separate 64 legacy discovery witnesses.
+
+Timing uses native loops with warmup, CPU affinity, shuffled case order, and
+alternating path order. Python independently checks returned joints afterward.
+Production measures the actual DLL, including command handling; polynomial
+measures canonical discovery before command handling and fallback integration.
+Compare candidate-producing cases separately from `NeedsRefinement` exits.
+The report's hypothetical fallback costs are estimates, not integrated timings.
+
+## Fixture provenance
+
+The parametrized CRX-10iA cases combine legacy regression observations from:
+
+1. FANUC RoboGuide simulation results.
+2. M. Abbes and G. Poisson,
+   [“Geometric Approach for Inverse Kinematics of the FANUC CRX Collaborative Robot”](https://doi.org/10.3390/robotics13060091).
+
+These observations and the callback model in `conftest.py` have not yet been
+reconciled with the approved assets. They do not override asset geometry or
+limits, or establish family support. `crx_assets.py` records the six authoritative
+robot files and their Git LFS SHA-256 IDs; offline tests verify the bytes and live
+configuration smoke tests use the same inventory. RoboDK model extraction and
+canonical coordinate validation remain pending under roadmap milestone #19 A.
+
+## Initial discovery gate
+
+`test_crx_discovery.py` starts roadmap package 1 (#2). Its 64 deterministic
+targets come from an independent NumPy product of elementary modified-DH
+transforms in `crx_reference.py`, using the legacy callback model. No native FK
+call or generating seed constructs or rescues these discovery targets. Each
+generating posture is a known witness; this is not a complete branch catalogue.
+Every returned pose is checked with the independent reference. A deletion test
+checks that the posture comparator detects a missing branch and compares modulo
+turns rather than configuration flags. Separate tests exercise selection with
+unrelated seeds and demonstrate generating-seed masking.
+
+Probes 8, 36, 42, and 57 reproduce missing witnesses against the pre-change DLL.
+They are explicit strict expected failures for the missing-witness assertion
+only. Invalid returned poses, no-solution results, and new missing witnesses
+fail normally. When a recorded witness is recovered, strict XPASS requires
+removing its exception. The underlying discovery/finalization cause remains to
+be isolated; the tests do not attribute all losses to the angle scanner.
+
+These four cases are required regression targets for the new implementation:
+recover the generating posture without a seed, preserve independent FK checks,
+and remove each strict expected-failure mark once production integration fixes
+it. They are not accepted permanent limitations or grounds to weaken assertions.
+
+The same reference checks all seven CAD frames, including synthetic base/tool
+transforms and joint senses, short-buffer rejection, and trailing-buffer
+sentinels. These are derived tests, not additional supported robots.
+
+The first native storage change replaces the seven-frame and six-index vectors
+with call-local fixed arrays. It preserves the C ABI and existing IK policy.
+Whole-solver allocation instrumentation, stage counters (roots, geometric
+postures, feasible postures, command lifts, returned rows), the asset coordinate
+bridge, polynomial discovery, and asset-backed reference catalogues remain pending.
+No timing or allocation guarantee follows from these regression checks.
+
+Run this gate after building with:
+
+```powershell
+uv run --locked pytest tests/test_crx_discovery.py
+```
+
+## Canonical residual and coefficient kernel
+
+`src/crx_canonical.h` and `src/crx_canonical.cpp` implement appendix G2/G4 of
+[`notes/crx-implementation-review.md`](../notes/crx-implementation-review.md).
+This internal component is compiled and tested, but production `SolveIK` does
+not call it yet. Inputs must already use the canonical frame and one consistent
+length unit; the six-asset adapter is still required before production use.
+
+The kernel normalizes lengths and translation by
+`L = max(abs(a), abs(b), abs(c), abs(r))`, accepts signed lengths with nonzero
+`a,b`, and forms the vector residual and nine ascending half-angle coefficients
+using bounded scalar convolution. It supports shifted charts, evaluates the
+omitted point separately, and includes Horner value/derivative evaluation.
+`RepresentedDegree` examines the stored coefficients without trimming tiny
+terms; a stored zero polynomial is an unresolved geometric case, not evidence
+of a feasible continuous family. Residual units are physical length to the sixth
+power divided by `L^6`; production FK tolerances are unchanged.
+
+The preparation policy rejects nonfinite inputs, zero arm lengths, non-affine
+bottom rows, and rotations whose maximum Gram-matrix or determinant error exceeds
+`128 * epsilon(double)`. Accepted rotation roundoff is retained without projection.
+Normalization underflow to zero and detected nonfinite intermediate/output
+values produce a numerical range failure. Successful preparation and coefficient
+construction do not establish feasibility, exact degree, or a coefficient error
+enclosure. Boundary/rank decisions, root isolation, shell arcs, and exceptional
+incidence reconstruction remain pending.
+
+CTest's `crx.canonical` target exercises 128 synthetic target/witness pairs with
+four charts, comparing the vector residual, compact expression, triangle identity,
+and polynomial evaluation. It also covers reciprocal-chart evaluation, canonical
+chain witnesses, signed uniform scales from `1e-250` to `1e250`, degree-zero and
+degree-four examples, zero polynomials, tiny leading coefficients, all represented
+degrees, derivatives, invalid poses, and overflow/underflow status handling.
+These are numerical derived tests, not additional robot models or certification.
+
+The standalone native harness compiles the same kernel with
+`EIGEN_RUNTIME_NO_MALLOC` and assertions enabled even in Release. It guards initial
+construction, chart/geometry changes, and error paths, restoring the previous
+Eigen allocation setting afterward. Test-only scalar, array, and aligned C++
+allocation replacements count calls on the current thread; positive controls
+check that interception is active. Passing demonstrates no observed C++ or
+guarded Eigen allocations in these tests. Direct CRT allocations, whole-solver
+allocations, concurrent stack use, and timing have not been measured.
+
+Run the narrow native gate with the configured Windows toolchain:
+
+```powershell
+cmake --preset windows-clang-release-tidy
+cmake --build --preset windows-clang-release-tidy --target crx_canonical_tests
+ctest --preset windows-clang-release-tidy -R '^crx.canonical$' --output-on-failure
+```
+
+The full `windows-clang-release-verify` workflow runs both this native gate and
+the existing Python regression suite. The qmake source list includes the kernel;
+the native CTest harness is provided by the default CMake build.
+
+## Polynomial root candidates and exact reference
+
+`src/crx_polynomial_roots.h/.cpp` add an internal candidate backend for the
+stored ascending polynomial coefficients. Degree one uses scalar division;
+degrees two through eight use fixed-size companion matrices and supported
+`Eigen::EigenSolver`, computing eigenvalues only. This avoids coupling to
+`unsupported/Eigen/Polynomials` and keeps balancing, iteration budgets, and
+failure reporting under local control. Production IK still uses the scanner.
+
+Power-of-two coefficient normalization and diagonal similarity balancing reject
+detected overflow or underflow to zero. Balancing defaults to at most 32 sweeps;
+the eigensolver receives a 256-iteration limit. Separate statuses identify
+invalid input, numerical range failure, each work limit, constant and zero
+polynomials, and unresolved leading coefficients. The default leading-term
+heuristic is `abs(leading)/max(abs(coefficients)) < 64*epsilon(double)`; it never
+trims the coefficient or claims a lower geometric degree. A zero candidate count
+must be interpreted with its status. Even a constant finite-chart polynomial
+still requires checking the chart's separately stored omitted point.
+
+Candidates retain all complex eigenvalues, including small imaginary parts and
+numerical splitting of repeated roots. Each carries the componentwise residual
+`abs(P(z))/sum(abs(c[k])*abs(z)^k)`, evaluated using the reciprocal
+polynomial for `abs(z)>1` to avoid large powers. This diagnostic has no acceptance
+threshold and does not establish reality, multiplicity, completeness, or geometric
+feasibility.
+The native harness guards first construction of every degree, scale and degree
+changes, zero/repeated and complex roots, and numerical/work-limit paths against
+C++ and Eigen allocations. These checks retain the allocation scope limits above.
+
+`polynomial_reference.py` is an offline reference using standard-library
+`Fraction`, exact square-free factorization, and Sturm sign counts. It returns
+rational isolating intervals and multiplicities, or distinct zero-polynomial and
+subdivision-limit exceptions. It certifies the supplied rational polynomial
+only: converting a float to `Fraction` does not recover uncertain geometric
+coefficients. Its subdivision budget does not bound rational arithmetic cost.
+
+`test_polynomial_roots.py` checks known rational and irrational roots, close pairs,
+repeated roots, complex-only and mixed cases, degree drops, and signed coefficient
+scales. A test-only JSON probe in `crx_canonical_tests --roots c0 ... c8` enables
+one-to-one native comparisons and missing/duplicate-candidate mutation checks.
+CTest sets `CRXKIN_ROOT_PROBE_PATH` to its build's executable; direct pytest uses
+that variable or `build/Release/crx_canonical_tests.exe`, skipping native probe
+tests if the default executable is absent. Run the narrow Python gate after build:
+
+```powershell
+uv run --locked pytest tests/test_polynomial_roots.py
+```
+
+This partially addresses roadmap #8/#9/#11. Numerical acceptance policy,
+the six-asset bridge, latency measurements and production integration remain
+open. Formal root certification is deferred under the CRX scope decision below.
+
+## Fixed-angle elbow incidence
+
+`src/crx_incidence.h/.cpp` implement a direct nominal-CRX elbow reconstruction.
+For normalized signed arm lengths `a,b`, wrist point `x`, and unit fifth axis `u`,
+the two arm spheres intersect the vertical base plane in at most two elbows.
+The implementation constructs both, then checks both arm lengths and the
+unsquared wrist constraint `(y-x).u=0`. It has no SVD, numerical rank API, or
+circle descriptor. This remains an internal candidate component; production IK
+still uses the existing scanner.
+
+Near tangency, the wrist plane supplies a stable signed elbow height instead
+of subtracting nearly equal squared arm lengths and taking a square root.
+On the base axis, the horizontal arm circle is intersected with the wrist plane.
+Coincident arm spheres and undetermined circles still return `NeedsRefinement`,
+with no partial list. `NoCandidate` concerns only the supplied wrist point.
+
+Unit-axis tolerance is `128*epsilon(double)`, small-direction tolerance is
+`256*epsilon(double)` times the largest arm/wrist length, and relative residual
+tolerance is `512*epsilon(double)`. Sphere checks scale by squared lengths;
+wrist perpendicularity scales by the largest arm/wrist length. An eightfold
+compatibility band retains roundoff-sized candidates for strict full-FK checks.
+These are roundoff heuristics, not physical calibration tolerances or certificates.
+
+The earlier SVD implementation and its broader singular/circle cases live in
+`tests/crx_incidence_reference.*` and `test_crx_incidence_reference.cpp`. CMake
+links them only into the test executable, never the library or qmake target.
+They provide an independent algebraic comparison, not production feature scope.
+Its provisional SVD ranks and heuristic classifications are not exact oracles.
+The scalar-zero counterexample is rejected by both implementations.
+The direct path recovers all 128 synthetic canonical FK
+witnesses, including sample 55 that the SVD may leave unresolved. Two-branch,
+ambiguity, tangency, invalid-input and range checks also run under the existing
+Eigen/C++ allocation guards in `crx.canonical`.
+
+## Canonical joint recovery and full-pose validation
+
+`src/crx_joint_recovery.h/.cpp` recover joint candidates for one supplied
+wrist-circle angle or unit sine/cosine pair. They prepare the normalized circle,
+reconstruct elbows,
+and recover both base-angle branches using appendix G6. The result holds at
+most four canonical postures (two elbows, two bases), with each joint in
+`[-pi, pi]`. There is no seed input, division by `sin(q5)`, or singularity-based
+override of J3/J6. A vertical wrist uses its recovered elbow to determine the
+base plane. When both arm points lie on the base axis, base=0 and its opposite
+are deterministic representatives, not enumeration of the continuous family.
+
+Recovery carries normalized sine/cosine pairs through scalar vector rotations,
+then extracts the joint angles. J6 uses two target-axis dot products instead of
+constructing a full wrist matrix. The independent FK check below still rebuilds
+the pose from the emitted angles. Tests cover each joint's quadrants and branch
+cuts, equivalent angle/coordinate inputs, and rejection of invalid unit pairs.
+
+Every recovered posture is checked by recomputing the complete canonical FK
+from its joint vector. Callers must supply a positive position tolerance in
+the target's physical length unit and an orientation tolerance in radians.
+Position error is computed in normalized coordinates then rescaled; orientation
+uses the rotation-matrix chordal distance converted to an angle, preserving
+resolution near zero. Results include both errors. A failed reconstruction or
+pose check publishes no partial list and does not widen the supplied tolerances.
+
+The native allocation harness checks 128 generating postures and their base
+flips against an independent homogeneous-transform FK implementation. Additional
+cases cover four-posture output, duplicate prevention, periodic wrist angles,
+signed lengths, length scales `1e-200` and `1e200`, and `q5=0`, near zero and
+`+/-pi` with a nonzero J6. Position and orientation gates are independently
+tested with tight tolerances, alongside invalid inputs and refinement/range
+handoffs. These are synthetic nominal-CRX tests, not validation of the six
+asset-coordinate mappings or calibrated robots.
+
+This component consumes a wrist-circle point; it does not discover or polish
+polynomial roots itself. The discovery stage below supplies those points.
+
+## Target-only polynomial discovery
+
+`src/crx_discovery.h` declares discovery's options, result and entry point;
+`src/crx_discovery.cpp` implements them and keeps polishing/boundary helpers
+private. Recovery's header declares only recovery, without a root-solver
+dependency. Ordinary math, pose and vector helpers likewise use matching
+headers and `.cpp` files together in `src/`; `include/` contains only the public
+RoboDK C ABI header. Only compile-time constants and the two `constexpr`
+degree/radian conversions keep definitions in headers.
+
+`DiscoverJointCandidates` connects the existing
+coefficient, eigenvalue and joint-recovery components. It takes nominal canonical
+lengths, a target pose and physical pose tolerances, with no generating angle or
+joint seed. The model/coordinate oracle remains in Python; no new C++ robot-model
+bridge or public ABI is introduced. Production `SolveIK` still uses the scanner.
+
+The usual half-angle chart is zero; nearly folded arms start with a chart
+centered on the wrist-circle point closest to the base origin. Up to five
+bounded chart attempts address numerical conditioning; coefficients are never
+trimmed. Small endpoint distances and equal-arm differences are formed without
+cancelling large squared terms. Each chart's omitted point is checked separately.
+Near-real complex projections and small slopes are starting guesses for original
+geometry, not automatic rejection or acceptance. Analytic crossings of the
+horizontal wrist axis, wrist plane and arm-shell boundaries retain multiple and
+tangent roots. These are numerical methods, not formal root certification.
+Boundary crossings solve `A*cos(theta)+B*sin(theta)=C` directly in circle
+coordinates with a scaled discriminant. Tangencies nominate one point, disjoint
+constraints nominate none, and a zero normal supplies no isolated crossing.
+Roundoff-sized negative discriminants can nominate a tangent point for the
+unchanged geometric/FK checks. Boundary recovery avoids inverse-trigonometric
+round trips; an angle is formed only when an unresolved root needs a proximity
+check against a boundary point.
+
+Real candidates are polished against the unsquared elbow/wrist constraint with
+an analytic derivative, at most 24 iterations by default (64 maximum), and eight
+backtracking attempts per iteration. Movement stays within 0.05 radians; regular
+roots also use a quarter of neighboring angular separation. Ill-conditioned
+clusters retain the larger bounded polishing window. Elbow selection uses the
+Newton correction instead of residual size alone, avoiding a flat incompatible
+branch. A smooth signed-height sphere residual handles tangency. Acceptance uses
+arm/wrist rechecks and independent full-pose FK calculation; tolerances are not
+widened. Postures within `1e-10` radians in every joint modulo full turns are
+deduplicated. The fixed buffer holds at most 36 numerical candidates; overflow
+returns an explicit unresolved status instead of truncating or overrunning it.
+
+`Candidates` and `NoCandidate` are numerical discovery outcomes, not proofs of
+coverage or infeasibility. Ambiguity, exhausted work and exceptional incidence
+return `NeedsRefinement` with no partial list. No fallback is implemented here.
+The comparison DLL supplies RoboDK mapping and existing finalization. Revised
+turn/limit semantics and production cutover remain pending.
+
+Validation uses both the allocation-guarded native harness and the test-only
+`--discover` probe, which receives only lengths/target/tolerances. Coverage:
+
+- 128 synthetic generating postures from targets alone, signed/scaled geometry,
+  half-angle endpoints, and a control proving geometric polishing is necessary.
+- All 96 captured mixed-joint asset targets, checked by the Python FK oracle.
+- All 64 legacy discovery witnesses, including 8, 36, 42 and 57, without seeds.
+  Their production xfails remain until the new path is actually integrated.
+- All recorded postures for ALL8, ONLY7, ABBES-TABLE4, ABBES-TABLE6 and
+  WRIST_SING_NEAR_RG_LIMIT. ABBES-TABLE6 returns 16 distinct postures. ONLY7
+  returns eight before command limits, as expected for this stage.
+- All 25 fixture targets now require candidates without a scanner. The rounded
+  MIN_Z target disagrees with its recorded posture by 0.00425 mm; exact target
+  results are checked by strict independent FK, and a separate exact-FK target
+  requires recovery of the recorded generating posture. Fixture data is unchanged.
+- Straight/near-straight arms across all six assets, perturbed multiple roots,
+  near-chart endpoints, and nearly folded arms are passing witness requirements.
+- Zero wrist sine with nonzero J6, no-candidate versus zero-polynomial handoff,
+  separate tight pose-tolerance failures, and missing/duplicate mutation checks.
+
+## CRX scope and calibration boundary
+
+Support is limited to the six approved CRX assets. The coordinate bridge and
+their reachable/limited configurations determine production requirements;
+synthetic reference cases do not add supported robot models. General continuous
+family enumeration and formal completeness certification are deferred. A clear
+refinement/failure outcome remains necessary for unsupported configurations.
+
+Joint zero offsets, base/tool frames and changes to the canonical lengths can
+preserve the nominal geometry when incorporated correctly into the coordinate
+bridge. Calibration of axis tilts or other offsets that break the assumed
+parallelism/intersections can invalidate the polynomial as well as incidence.
+Increasing incidence tolerances does not establish support for those models.
+
+The intended calibrated path uses nominal CRX candidates as initial guesses for
+bounded numerical correction against the actual calibrated FK, followed by
+position/orientation and command-limit validation. It must retain genuine
+calibration parameters rather than snap them to nominal geometry. That path,
+its physical acceptance tolerances, and its singular-case behavior are not yet
+implemented or validated. Target-only discovery now reaches validated canonical
+postures, with coordinate evidence in the Python oracle. The immediate priorities
+are command limits/turns, remaining singular families, and production cutover.
+
+## Asset-coordinate oracle
+
+`fixtures/crx_asset_frames.json` captures all six approved assets through RoboDK
+6.0.6's nominal `JointPoses`, `SolveFK`, and `JointLimits` APIs. Each record keeps
+the asset SHA-256, zero frames, six single-command probes, and 16 deterministic
+multi-joint samples. Dimensions are derived from those frames, not a model-name
+table. The `.robot` files and the solution CSV/JSON are unchanged.
+
+The extraction, modified-DH derivation, screw-axis/home-transform comparisons,
+and canonical FK oracle live in Python (`crx_asset_reference.py` and
+`test_crx_asset_bridge.py`). They add no C++ model abstraction, runtime model
+recognizer, or public API. For these six observed assets, canonical `q` equals
+the RoboDK command vector in radians; the current C ABI's internal decoupled
+coordinate satisfies `q3 = user2 + user3`. The base includes DH shoulder height
+once, and the canonical flange convention requires no extra rotation for the
+captured assets. Every captured link/flange is also compared with the existing
+`SolveFK_CAD` callback. CAD FK bypasses limits, so this is not evidence for the
+still-pending command/decoupled limit and turn-selection policy.
+
+Regenerate the capture explicitly with:
+
+```powershell
+uv run python tests/capture_crx_assets.py --robodk-path 'C:/Program Files/RoboDK/bin/RoboDK.exe'
+uv run pytest tests/test_crx_asset_bridge.py
+```
+
+The collector opens its own hidden, unsaved RoboDK instance, selects nominal
+accuracy, and closes it afterward. It does not deploy a DLL, save assets, or
+connect to hardware. API reference:
+[RoboDK JointPoses](https://robodk.com/doc/en/PythonAPI/robodk.html#robodk.robolink.Item.JointPoses).
+The installed custom DLL can participate in these API observations; its hash is
+recorded, and bypass is explicitly **not** claimed. The independent Python
+transform products check consistency of the observed nominal chain, not an
+independent complete IK catalogue or end-to-end new-solver support. A capture
+with the extension bypassed remains desirable before production cutover.
+
+## Fixture source
+
+The committed CSV is the editable source of truth. The JSON is the generated
+representation loaded by pytest:
+
+```text
+fixtures/CRX10iA-solutions.csv
+              |
+              v
+fixtures/compile_fixtures.py
+              |
+              v
+fixtures/CRX10iA-solutions.json
+              |
+              v
+parametrized FK, IK, configuration, and RoboDK integration tests
+```
+
+## CSV schema
+
+Each row in `fixtures/CRX10iA-solutions.csv` represents one joint solution.
+Rows with the same `TEST CASE` share a target pose.
+
+| Column | Description |
+| --- | --- |
+| `TEST CASE` | Test-case identifier used to group solutions |
+| `SOLUTION ID` | Solution identifier within the test case |
+| `TEST NAME` | Human-readable case name |
+| `X`, `Y`, `Z` | Target TCP position in millimetres |
+| `W`, `P`, `R` | Target TCP orientation in degrees |
+| `J1`–`J6` | Joint angles in degrees |
+| `FB`, `UD`, `TB` | Front/back, up/down, and turn/flip configuration letters |
+
+The fixture configuration maps to RoboDK's `[REAR, LOWERARM, FLIP]` result as
+follows:
+
+| Fixture | RoboDK flag | False value | True value |
+| --- | --- | --- | --- |
+| `TB` | `REAR` | `T` | `B` |
+| `UD` | `LOWERARM` | `U` | `D` |
+| `FB` | `FLIP` | `N` | `F` |
+
+## Generated JSON
+
+`compile_fixtures.py` groups CSV rows by test case and stores the shared target
+pose once:
+
+```json
+{
+  "meta": {
+    "robot_model": "CRX10iA",
+    "units": {
+      "position": "mm",
+      "orientation": "deg",
+      "joints": "deg"
+    }
+  },
+  "test_cases": [
+    {
+      "id": 1,
+      "name": "HOME",
+      "target": {
+        "xyz_mm": [540.0, -150.0, 380.0],
+        "wpr_deg": [-180.0, 0.0, 0.0]
+      },
+      "solutions": [
+        {
+          "id": 1,
+          "joints_deg": [0.0, 0.0, 0.0, 0.0, -90.0, 0.0],
+          "config": {
+            "FB": "N",
+            "UD": "U",
+            "TB": "T"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Regenerating fixtures
+
+### Complete-solver stress corpus
+
+`fixtures/generate_solver_cases.py` owns the 2026-10-09 performance corpus.
+It shares asset/recorded-pose construction with `generate_discovery_cases.py`;
+both benchmark scripts import these generators instead of maintaining separate
+pose lists. The default v1 corpus in `fixtures/crx_solver_cases.json` contains
+4,313 stable case IDs: 1,536 random targets, 2,304 singularity/limit challenges,
+384 unreachable controls, 25 recorded fixtures and 64 legacy witnesses, across
+six captured assets. It preserves every original target, seed, witness and
+perturbation; only newline encoding may differ from the historical snapshot.
+No existing CSV, captured asset or fixture JSON was changed.
+
+```powershell
+uv run python tests/fixtures/generate_solver_cases.py --check
+# Regenerate only after intentionally reviewing a generator change:
+uv run python tests/fixtures/generate_solver_cases.py
+uv run pytest tests/test_crx_solver_fixtures.py
+```
+
+The regression runs both complete DLLs with and without nearby seeds, validates
+every returned command and the best result against independent captured-DH FK,
+checks command limits, and rejects unreachable controls. Strict pose tolerances
+remain 0.0001 mm / 0.001 degrees. Stable IDs include asset, challenge and index;
+the JSON retains the offset and generating witness for diagnosis.
+
+`fixtures/crx_solver_known_failures.json` retains the exact 140 scanner misses
+and their ABI outcomes. All 258 polynomial exceptions have been removed after
+strict recovery passed. Routine runs mark only the remaining scanner
+IDs as strict expected failures, and only for missing solutions: an inaccurate
+return, changed failure code, new miss or unexpected recovery fails the test.
+Remove a resolved ID from the ledger after confirming its fix. The ledger is
+**defect tracking, not a reliability acceptance threshold**. DLL hashes identify
+the measured baseline; the corpus hash is checked with LF-normalized newlines.
+
+The readiness gate disables every expected-failure exception and requires both
+DLLs to exist. The release workflow runs it for the polynomial DLL as the
+`crx.polynomial-reliability` CTest target; selecting both backends also exposes
+the retained legacy defects:
+
+```powershell
+uv run pytest tests/test_crx_solver_fixtures.py --require-solver-reliability -k polynomial
+# Focused regression for the original 46.61% base-axis result:
+uv run pytest tests/test_crx_solver_fixtures.py --require-solver-reliability -k "polynomial and no-seed and base_axis"
+```
+
+The polynomial gate now passes **8,626 checks** (both seed modes), including
+all 384 base-axis targets per mode. Recovery uses better-conditioned sphere/
+plane intersection and base reconstruction, deterministic folded-family
+representatives, bounded full-pose correction and strict limit-aware correction
+for rounded Cartesian targets. Final FK tolerances remain unchanged. The
+historical investigation is in `notes/solver-failure-investigation-2026-10-09.md`;
+the completed validation is in `notes/solver-premerge-validation-2026-10-09.md`.
+
+`test_crx_solver_family.py` uses the same generators with independent seed
+20261010 and tests 1,560 new targets at length scales .001, 1 and 1000. These
+4,680 checks require unseeded strict solves and independently validate every
+command; regular random poses also require the generating posture among the
+returned branches. Captured structural-zero roundoff is snapped before scaling
+using the existing model encoding budget. Rounded recorded Cartesian targets
+are excluded from scaling. This suite has no known-failure exceptions.
+
+```powershell
+uv run pytest tests/test_crx_solver_family.py tests/test_crx_solver_fixtures.py --require-solver-reliability -k "polynomial or family_holdout"
+```
+
+The combined gate passes 13,306 checks. A discardable 9,082-pose numerical
+sensitivity sweep additionally checks root projection, folded chart radius,
+iteration count, maximum joint step and incidence budgets. Its source and raw
+results are in `build/premerge/sensitivity/` and `build/premerge/sensitivity.cpp`;
+retained values cite the observed ranges in `src/crx_numerics.h`. At the selected
+settings all 8,194 reachable targets solve with independently valid FK and all
+888 unreachable controls are rejected. This canonical sweep complements the
+full-DLL gates; it does not establish continuous-family completeness.
+
+### Elbow branches near double roots
+
+`test_near_double_root_retains_both_elbow_postures` in
+`test_crx_polynomial_discovery.py` checks three targets at length scales
+.001, 1 and 1000. Each target requires both isolated elbow postures and their
+base flips, with independent FK checks and joint matching at 1e-6 radians.
+The target alone enters discovery; the witnesses are never supplied as seeds.
+The saved pre-change solver misses an elbow on seven of these nine checks.
+
+The witnesses came from separate sphere/base-plane branch reconstruction using
+the [upstream reference](https://github.com/mattj23/crx-kinematics/blob/26e27c3dae5b2a3c84e1e35fb9faf4c113439e46/derivation/crx/ik_reference.py).
+The [linear-method derivation](https://github.com/mattj23/crx-kinematics/blob/26e27c3dae5b2a3c84e1e35fb9faf4c113439e46/docs/LINEAR_METHOD.md)
+and [Rust branch polisher](https://github.com/mattj23/crx-kinematics/blob/26e27c3dae5b2a3c84e1e35fb9faf4c113439e46/crx-kinematics/src/ik/geometry.rs)
+motivate keeping each elbow sign fixed during Newton iteration and backtracking.
+Our implementation retains analytic derivatives, conditioned geometric charts,
+bounded correction, and the existing physical acceptance tolerances.
+
+```powershell
+uv run pytest tests/test_crx_polynomial_discovery.py -k near_double_root
+```
+
+These checks test branch recovery, beyond the existence of any valid solution.
+They do not establish exhaustive coverage of continuous singular families.
+
+The 2026-10-13 paired complete-DLL benchmark compares the polynomial solver
+before and after this change, using the same 4,313 targets, both seed modes,
+capacity 64, nine rounds of eight calls, three warmups, and one pinned thread.
+Both versions solve all 3,929 reachable targets and reject all 384 unreachable
+controls per mode; every output passes independent FK and command limits.
+Unseeded witness recovery increases from 3,679 to 3,722 of 3,983 witnesses.
+The final Release workflow passes all seven CTest targets, including these nine
+regressions and the existing strict reliability and scale checks.
+
+| Unseeded group | Before median / p95 (us) | After median / p95 (us) | Mean latency ratio |
+|---|---:|---:|---:|
+| Random | 27.26 / 38.85 | 28.02 / 43.57 | 1.134x |
+| Base axis | 36.22 / 60.19 | 50.01 / 411.96 | 2.571x |
+| Mixed singularities | 304.45 / 1044.40 | 326.77 / 1039.53 | 1.167x |
+| All reachable | 28.77 / 331.86 | 29.75 / 378.50 | 1.250x |
+
+The additional branch work has a measurable cost, particularly in the base-axis
+tail. Percentiles describe per-pose batch medians; the balanced stress corpus
+does not represent a measured production workload. Capacity-limit returns
+increase from 141 to 145 unseeded targets, so command lists remain finite samples
+near singular families. Frozen binaries, sources, hashes, and raw results are in
+`build/branch-polish/final/`; `build/branch-polish/report.txt` and `commands.txt`
+record validation, reproduction commands, warnings, and skipped checks. No
+production backend switch or deployment was performed.
+
+### Accuracy and complete-DLL polishing (2026-10-13)
+
+This follow-up uses the working-tree polynomial DLL **after** the merged-elbow
+fix as its baseline. It skips identical conjugate-root projections only after
+the first projection has visited both elbow signs, uses a residual-checked LU
+step with SVD fallback, and applies at most six additional accuracy iterations
+after posture deduplication. The accuracy pass constrains joint motion, truncates
+nearly null directions, and tries damped descent on stalled steps. A failed
+accuracy improvement retains the accepted candidate. Physical acceptance stays
+at **0.0001 mm / 0.001 degree**, including independent command-limit checks.
+Nominal-zero DH recognition now accounts for length-scaled subtraction roundoff;
+the public C ABI and backend selection are unchanged.
+
+`crx_accuracy_stress.json` is an intentional new, frozen test-data artifact:
+3,024 independently generated reachable targets, seed 2026101301, all six
+captured models at 0.001x, 1x and 1000x length scales. Targets come from captured
+transform-product FK, with continuous logarithmic singularity offsets and legal
+command witnesses. No IK result selects or removes an input. The original
+4,313-pose corpus, recorded CSV fixtures, assets and failure ledger are unchanged.
+
+The paired final measurements use identical targets/seeds, three warmups,
+five rounds of three complete DLL calls, one pinned thread, shuffled pose order,
+and alternating DLL order. The table gives per-pose median / p95 batch latency
+in microseconds; it includes failures rather than allowing their exclusion to
+improve reported solve rates. Both seed modes are recorded in the raw reports.
+
+| Unseeded corpus/group | Before median / p95 (us) | After median / p95 (us) |
+|---|---:|---:|
+| Existing reachable, 3,929 poses | 32.60 / 416.53 | 32.77 / 356.55 |
+| Existing challenges, 2,304 poses | 38.22 / 573.11 | 38.05 / 502.26 |
+| Existing base axis, 384 poses | 55.37 / 449.42 | 52.43 / 117.25 |
+| Existing mixed singularities, 384 poses | 354.90 / 1156.05 | 319.92 / 848.48 |
+| Independent stress, 3,024 poses | 32.77 / 509.76 | 35.75 / 486.13 |
+
+An additional nine-round run times individual complete DLL calls (one call per
+sample). Its command dump is byte-identical to the independently validated
+paired run. This confirms the base-axis p95 improvement beyond batch means:
+
+| Unseeded individual calls | Before median / p95 / maximum (us) | After median / p95 / maximum (us) |
+|---|---:|---:|
+| Existing base axis | 63.10 / 477.25 / 5034.40 | 57.80 / 136.10 / 2561.70 |
+| Existing mixed singularities | 372.80 / 1315.48 / 4651.50 | 335.55 / 960.42 / 8435.50 |
+| Independent base axis | 53.20 / 523.71 / 5337.70 | 59.85 / 168.29 / 2830.60 |
+| Independent mixed singularities | 362.20 / 831.70 / 3123.90 | 384.65 / 792.68 / 3199.00 |
+
+Maximum observed call latency does not improve uniformly. Individual samples,
+including these outliers and p99 values, are retained in `single-call-timings.csv`
+and `build/ik-accuracy/single-call-summary.json`.
+
+All 3,929 existing reachable targets remain strict solves in both seed modes;
+all 384 unreachable controls remain rejected. Independent stress improves from
+**2,519/3,024 (83.3003%) to 3,023/3,024 (99.9669%)** in both modes. The 504
+additional solves are the formerly rejected 1000x CRX-5iA, CRX-25iA and CRX-30iA
+model inputs. The other models/scales retain their solve counts. Stress median
+latency rises as these formerly fast failures become full solves; on targets
+strictly solved by both DLLs, mean latency improves by 1.26x unseeded and 1.27x
+with a nearby seed. Existing overall median latency is essentially unchanged.
+
+Every positive-return best command and every listed command passed independent
+transform-product FK and joint limits. Error distributions below cover unseeded
+challenging outputs with capacity 64; different returned posture counts mean
+these are conditional output distributions. The JSON also reports errors on
+the common-success target subset and best-command errors.
+
+| Corpus / metric | Before p50 / p95 / maximum | After p50 / p95 / maximum |
+|---|---:|---:|
+| Existing challenges, position (mm) | 7.94e-13 / 3.24e-6 / 9.73e-5 | 7.22e-13 / 8.29e-7 / 9.27e-5 |
+| Existing challenges, orientation (deg) | 6.31e-14 / 6.58e-7 / 1.73e-5 | 5.95e-14 / 1.50e-7 / 3.27e-6 |
+| Independent challenges, position (mm) | 7.28e-13 / 2.69e-6 / 9.92e-5 | 2.31e-12 / 2.36e-7 / 9.12e-5 |
+| Independent challenges, orientation (deg) | 6.29e-14 / 6.81e-7 / 9.44e-4 | 6.20e-14 / 1.60e-7 / 3.09e-4 |
+
+All existing per-pose witness hits are preserved: 3,722/3,983 unseeded and
+3,725/3,983 seeded. Nine additional complete-DLL regressions check both merged
+elbows and both base postures at all three scales with capacity 64; the original
+nine target-only regressions also pass. Independent stress witness recovery at
+capacity 512 rises from 2,484 to 2,992 of 3,024, preserving every baseline hit in
+both modes, with no capacity-limit returns. At capacity 64, stress unseeded hits
+rise from 2,456 to 2,945, but some individual hits move into the truncated tail:
+capacity-limit returns rise from 154 to 222. This is a finite command-list limit,
+not evidence of exhaustive coverage of continuous singular families.
+
+One stress target remains explicitly unresolved in both modes:
+`Fanuc-CRX-10iA-L-Custom.robot@0.001:base_axis:12` (return -1). It remains in every
+denominator and in the frozen regression's explicit unresolved set. Neither a
+seed fallback nor weaker accuracy counts as a solve.
+
+Two experiments were benchmarked separately against the baseline, at the same
+stress inputs and five-round/three-call settings:
+
+| Isolated experiment | Before median / p95 (us) | Experiment median / p95 (us) | Decision |
+|---|---:|---:|---|
+| Adaptive geometric chart order | 33.33 / 518.83 | 33.17 / 545.91 | Not retained: worse p95, unchanged strict solves |
+| Hessenberg companion QR fast path | 34.43 / 529.37 | 34.30 / 531.41 | Not retained: no useful complete-DLL gain; identical commands |
+
+The alternatives' sources, DLLs and raw results are preserved in
+`build/ik-accuracy/chart-final-stress/` and `root-only-stress/`. Final paired
+snapshots are in `final-existing/`, `final-stress/` and `final-branches/`; each
+contains the exact input, binaries, source archive, hashes, timings, commands,
+independent errors, per-pose outcomes and JSON distributions. `commands.txt`
+records all verification commands, exploratory runs and superseded experiments.
+
+The full `windows-clang-release-verify` workflow passes all seven CTest targets:
+22,519 Python checks pass, 89 live RoboDK checks remain intentionally skipped
+(no deployment), and 284 existing legacy-backend expected failures remain.
+The separate polynomial reliability gate passes all 8,626 checks without
+expected-failure exceptions. Clang-tidy diagnostics and the RoboDK Python
+deprecation warning remain visible; no lint rules or tolerances were weakened.
+
+Reproduce from saved before/after DLLs, or save a fresh baseline before editing:
+
+```powershell
+uv run --locked python tests/fixtures/generate_accuracy_stress.py --check
+uv run --locked pytest tests/test_crx_accuracy_stress.py
+uv run --locked python scripts/benchmark_accuracy.py --before build/ik-accuracy/baseline/crx_kinematics_polynomial.dll --corpus existing --output build/new-existing
+uv run --locked python scripts/benchmark_accuracy.py --before build/ik-accuracy/baseline/crx_kinematics_polynomial.dll --output build/new-stress
+uv run --locked python scripts/benchmark_accuracy.py --before build/ik-accuracy/baseline/crx_kinematics_polynomial.dll --capacity 512 --rounds 1 --repeats 1 --output build/new-branches
+```
+
+### Recorded CSV fixtures
+
+After editing the CSV, regenerate the JSON from the repository root:
+
+```powershell
+uv run python tests\fixtures\compile_fixtures.py
+```
+
+Review the generated JSON diff and run the fixture tests:
+
+```powershell
+uv run pytest tests\test_crx_kinematics.py -v
+```
+
+Fixture changes are intentional test-data changes and should be called out in
+the release notes or change description.

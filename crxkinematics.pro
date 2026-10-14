@@ -28,18 +28,30 @@ win32 {
 INCLUDEPATH += $$PWD/include $$PWD/src $$PWD
 
 SOURCES += \
+    $$PWD/src/crx_command_lifts.cpp \
+    $$PWD/src/crx_canonical.cpp \
+    $$PWD/src/crx_discovery.cpp \
+    $$PWD/src/crx_incidence.cpp \
+    $$PWD/src/crx_joint_recovery.cpp \
+    $$PWD/src/crx_math_helpers.cpp \
+    $$PWD/src/crx_polynomial_roots.cpp \
     $$PWD/src/crx_kinematics.cpp \
     $$PWD/src/crx_solver.cpp \
     $$PWD/src/crx_robodk_adapter.cpp
 
 HEADERS += \
+    $$PWD/src/crx_numerics.h \
+    $$PWD/src/crx_command_lifts.h \
+    $$PWD/src/crx_canonical.h \
+    $$PWD/src/crx_discovery.h \
+    $$PWD/src/crx_incidence.h \
+    $$PWD/src/crx_joint_recovery.h \
+    $$PWD/src/crx_polynomial_roots.h \
     $$PWD/include/crx_kinematics.h \
-    $$PWD/include/crx_types.h \
-    $$PWD/include/crx_math_helpers.h \
-    $$PWD/include/crx_vector_helpers.h \
-    $$PWD/include/crx_pose_helpers.h \
-    $$PWD/include/crx_solver.h \
-    $$PWD/include/crx_robodk_adapter.h
+    $$PWD/src/crx_types.h \
+    $$PWD/src/crx_math_helpers.h \
+    $$PWD/src/crx_solver.h \
+    $$PWD/src/crx_robodk_adapter.h
 
 # -----------------------------------
 # Eigen headers (required by crxkinematics.cpp)

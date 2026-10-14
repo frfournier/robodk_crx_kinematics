@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 import sys
 
-import numpy as np
 import pytest
+from crx_assets import APPROVED_ROBOT_ASSETS
 from robodk.robolink import (
     ITEM_TYPE_ROBOT,
     Robolink,
@@ -12,32 +12,24 @@ from robodk.robolink import (
     WINDOWSTATE_HIDDEN,
 )
 
-from test_crx_kinematics import (
+from crx_test_support import _to_fk_api_joints_deg
+from crx_fixture_support import (
     CONFIG_FIXTURE_CASES,
-    JOINT_TOL_DEG,
     POSE_ANG_TOL_DEG,
     POSE_POS_TOL_MM,
-    _PARAMS,
+    SOLUTION_PARAMS,
     _fmt_f,
     _fmt_joints,
     _fmt_pose16,
     _expected_robodk_config,
-    _joints_close,
     _mat_to_pose16_col_major,
-    _from_fk_api_joints_deg,
     _pose_err_pos_mm_ang_deg,
-    _to_fk_api_joints_deg,
-    _wrapped_diff_deg,
 )
 
 _ROBOT_ASSET = (
     Path(__file__).resolve().parents[1] / "assets" / "Fanuc-CRX-10iA-Custom.robot"
 )
 _ROBODK_ARGS = ["/NOSPLASH", "/NOSHOW", "/NEWINSTANCE"]
-_ROBOLINK_FUZZ_SEEDS = 128
-_ROBOLINK_FUZZ_LIMIT_MARGIN_DEG = 2.0
-_ROBOLINK_FUZZ_POSE_POS_TOL_MM = POSE_POS_TOL_MM
-_ROBOLINK_FUZZ_POSE_ANG_TOL_DEG = POSE_ANG_TOL_DEG
 _MIN_ROBODK_VERSION = (6, 0, 6)
 
 
@@ -122,55 +114,6 @@ def _require_robolink_extension_or_skip() -> None:
     )
 
 
-def _sample_crx_coupled_joints_in_limits(
-    rng: np.random.Generator, lower_limits: list[float], upper_limits: list[float]
-) -> list[float]:
-    sampled: list[float] = []
-    for lower, upper in zip(lower_limits, upper_limits):
-        lo = float(lower)
-        hi = float(upper)
-        if hi <= lo:
-            sampled.append(lo)
-            continue
-        margin = min(_ROBOLINK_FUZZ_LIMIT_MARGIN_DEG, 0.45 * (hi - lo))
-        sampled.append(float(rng.uniform(lo + margin, hi - margin)))
-
-    # RoboDK's CRX API exposes coupled J3, while the custom solver validates
-    # decoupled J3 = J3_api - J2 against the model's J3 limits. Sample from the
-    # intersection so FK cannot silently fall back to RoboDK's default solver.
-    j2_deg = sampled[1]
-    j3_api_lo = max(float(lower_limits[2]), float(lower_limits[2]) + j2_deg)
-    j3_api_hi = min(float(upper_limits[2]), float(upper_limits[2]) + j2_deg)
-    margin = min(_ROBOLINK_FUZZ_LIMIT_MARGIN_DEG, 0.45 * (j3_api_hi - j3_api_lo))
-    sampled[2] = float(rng.uniform(j3_api_lo + margin, j3_api_hi - margin))
-    return sampled
-
-
-def _fit_angle_to_limits(
-    angle_deg: float, lower_deg: float, upper_deg: float
-) -> float | None:
-    candidates = [
-        angle_deg + 360.0 * turns
-        for turns in range(-2, 3)
-        if (lower_deg - 1e-9) <= (angle_deg + 360.0 * turns) <= (upper_deg + 1e-9)
-    ]
-    if not candidates:
-        return None
-    return min(candidates, key=lambda c: abs(c - angle_deg))
-
-
-def _wrap_joints_to_limits(
-    joints_deg: list[float], lower_limits: list[float], upper_limits: list[float]
-) -> list[float] | None:
-    wrapped: list[float] = []
-    for joint, lower, upper in zip(joints_deg, lower_limits, upper_limits):
-        fitted = _fit_angle_to_limits(float(joint), float(lower), float(upper))
-        if fitted is None:
-            return None
-        wrapped.append(float(fitted))
-    return wrapped
-
-
 @pytest.fixture(scope="session")
 def robolink_crx_10ia(request):
     if not request.config.getoption("--run-robodk"):
@@ -225,12 +168,7 @@ def robolink_crx_10ia(request):
 
 @pytest.mark.parametrize(
     "asset_name",
-    [
-        "Fanuc-CRX-5iA-Custom.robot",
-        "Fanuc-CRX-10iA-Custom.robot",
-        "Fanuc-CRX-10iA-L-Custom.robot",
-        "Fanuc-CRX-30iA-Custom.robot",
-    ],
+    list(APPROVED_ROBOT_ASSETS),
 )
 def test_robolink_crx_family_configuration(robolink_crx_10ia, asset_name: str):
     rdk = robolink_crx_10ia.RDK()
@@ -251,7 +189,7 @@ def test_robolink_crx_family_configuration(robolink_crx_10ia, asset_name: str):
             robot.Delete()
 
 
-@pytest.mark.parametrize("p", _PARAMS)
+@pytest.mark.parametrize("p", SOLUTION_PARAMS)
 def test_robolink_forward_kinematics(robolink_crx_10ia, p):
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
     fk_joints_deg = _to_fk_api_joints_deg(p["joints_deg"])
@@ -299,168 +237,29 @@ def test_robolink_forward_kinematics(robolink_crx_10ia, p):
     )
 
 
-@pytest.mark.parametrize("p", _PARAMS)
-def test_robolink_inverse_kinematics(robolink_crx_10ia, p):
-    hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']}"
-    fk_joints_deg = _to_fk_api_joints_deg(p["joints_deg"])
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows DLL deployment guard")
+@pytest.mark.parametrize("installed", [None, b"stale", b"current"])
+def test_live_test_setup_never_deploys(tmp_path, monkeypatch, installed):
+    repo = tmp_path / "repo"
+    build_dll = repo / "build" / "Release" / "crx_kinematics.dll"
+    build_dll.parent.mkdir(parents=True)
+    build_dll.write_bytes(b"current")
+    robodk_root = tmp_path / "RoboDK"
+    deployed_dll = robodk_root / "bin" / "robotextensions" / build_dll.name
+    if installed is not None:
+        deployed_dll.parent.mkdir(parents=True)
+        deployed_dll.write_bytes(installed)
 
-    try:
-        fk_pose = robolink_crx_10ia.SolveFK(fk_joints_deg)
-    except TargetReachError as exc:
-        pytest.skip(
-            "\n".join(
-                [
-                    f"{hdr}: FK seed rejected before IK",
-                    f"fixture_joints_deg={_fmt_joints(p['joints_deg'])}",
-                    f"robolink_fk_joints_deg={_fmt_joints(fk_joints_deg)}",
-                    f"error={exc}",
-                ]
-            )
-        )
+    monkeypatch.setattr(__name__ + ".__file__", str(repo / "tests" / "live.py"))
+    monkeypatch.setattr(__name__ + "._resolve_robodk_root", lambda: robodk_root)
 
-    try:
-        ik_best = robolink_crx_10ia.SolveIK(fk_pose, joints_approx=fk_joints_deg)
-    except TargetReachError as exc:
-        raise AssertionError(
-            "\n".join(
-                [
-                    f"{hdr}: RoboDK IK failed on FK-derived pose",
-                    f"  fixture_joints_deg: {_fmt_joints(p['joints_deg'])}",
-                    f"  robolink_fk_joints_deg: {_fmt_joints(fk_joints_deg)}",
-                    f"  error: {exc}",
-                ]
-            )
-        ) from exc
+    if installed == b"current":
+        _require_robolink_extension_or_skip()
+    else:
+        with pytest.raises(pytest.skip.Exception, match="Deploy the matching DLL"):
+            _require_robolink_extension_or_skip()
 
-    ik_best_vals = ik_best.list() if hasattr(ik_best, "list") else list(ik_best)
-    assert len(ik_best_vals) >= 6, "\n".join(
-        [
-            f"{hdr}: RoboDK IK returned no 6-axis solution",
-            f"  fixture_joints_deg: {_fmt_joints(p['joints_deg'])}",
-            f"  robolink_fk_joints_deg: {_fmt_joints(fk_joints_deg)}",
-            f"  ik_raw: {ik_best_vals}",
-            "  fk_pose16:",
-            _fmt_pose16(_mat_to_pose16_col_major(fk_pose)),
-        ]
-    )
-
-    ik_best_coupled_6 = [float(v) for v in ik_best_vals[:6]]
-    ik_best_6 = _from_fk_api_joints_deg(ik_best_coupled_6)
-    max_wrapped_diff = max(
-        _wrapped_diff_deg(a, b) for a, b in zip(ik_best_6, p["joints_deg"])
-    )
-    assert _joints_close(ik_best_6, p["joints_deg"], JOINT_TOL_DEG), "\n".join(
-        [
-            f"{hdr}: IK best solution diverges from fixture branch",
-            f"  tol_deg: {JOINT_TOL_DEG}",
-            f"  max_wrapped_diff_deg: {_fmt_f(max_wrapped_diff)}",
-            f"  fixture_joints_deg: {_fmt_joints(p['joints_deg'])}",
-            f"  ik_best_coupled_deg: {_fmt_joints(ik_best_coupled_6)}",
-            f"  ik_best_joints_deg: {_fmt_joints(ik_best_6)}",
-        ]
-    )
-
-
-@pytest.mark.parametrize(
-    "seed", range(_ROBOLINK_FUZZ_SEEDS), ids=lambda s: f"seed_{s:03d}"
-)
-def test_robolink_fuzz_fk_ik_roundtrip(robolink_crx_10ia, seed: int):
-    lower_limits, upper_limits, _ = robolink_crx_10ia.JointLimits()
-    lower_src = lower_limits.list() if hasattr(lower_limits, "list") else lower_limits
-    upper_src = upper_limits.list() if hasattr(upper_limits, "list") else upper_limits
-    lower = [float(v) for v in lower_src]
-    upper = [float(v) for v in upper_src]
-    rng = np.random.default_rng(seed)
-
-    coupled_seed = _sample_crx_coupled_joints_in_limits(rng, lower, upper)
-    decoupled_seed = _from_fk_api_joints_deg(coupled_seed)
-    hdr = f"FUZZ seed={seed:03d}"
-
-    try:
-        pose = robolink_crx_10ia.SolveFK(coupled_seed)
-    except TargetReachError as exc:
-        pytest.skip(
-            "\n".join(
-                [
-                    f"{hdr}: RoboDK FK rejected sampled seed",
-                    f"coupled_seed_deg={_fmt_joints(coupled_seed)}",
-                    f"error={exc}",
-                ]
-            )
-        )
-
-    try:
-        ik_best = robolink_crx_10ia.SolveIK(pose, joints_approx=coupled_seed)
-    except TargetReachError as exc:
-        raise AssertionError(
-            "\n".join(
-                [
-                    f"{hdr}: IK failed for FK-generated pose",
-                    f"coupled_seed_deg={_fmt_joints(coupled_seed)}",
-                    f"decoupled_seed_deg={_fmt_joints(decoupled_seed)}",
-                    f"error={exc}",
-                ]
-            )
-        ) from exc
-
-    ik_vals = ik_best.list() if hasattr(ik_best, "list") else list(ik_best)
-    assert len(ik_vals) >= 6, "\n".join(
-        [
-            f"{hdr}: IK returned no 6-axis solution",
-            f"coupled_seed_deg={_fmt_joints(coupled_seed)}",
-            f"decoupled_seed_deg={_fmt_joints(decoupled_seed)}",
-            f"ik_raw={ik_vals}",
-        ]
-    )
-
-    ik_coupled = [float(v) for v in ik_vals[:6]]
-    ik_decoupled = _from_fk_api_joints_deg(ik_coupled)
-    ik_coupled_wrapped = _wrap_joints_to_limits(ik_coupled, lower, upper)
-    if ik_coupled_wrapped is None:
-        pytest.skip(
-            "\n".join(
-                [
-                    f"{hdr}: IK branch has no equivalent coupled representation within limits",
-                    f"ik_decoupled_deg={_fmt_joints(ik_decoupled)}",
-                    f"ik_coupled_deg={_fmt_joints(ik_coupled)}",
-                ]
-            )
-        )
-
-    pose_seed16 = _mat_to_pose16_col_major(pose)
-    try:
-        pose_roundtrip = robolink_crx_10ia.SolveFK(ik_coupled_wrapped)
-    except TargetReachError as exc:
-        pytest.skip(
-            "\n".join(
-                [
-                    f"{hdr}: FK rejected IK result after limit wrapping",
-                    f"ik_decoupled_deg={_fmt_joints(ik_decoupled)}",
-                    f"ik_coupled_deg={_fmt_joints(ik_coupled)}",
-                    f"ik_coupled_wrapped_deg={_fmt_joints(ik_coupled_wrapped)}",
-                    f"error={exc}",
-                ]
-            )
-        )
-    pose_roundtrip16 = _mat_to_pose16_col_major(pose_roundtrip)
-
-    pos_err, ang_err = _pose_err_pos_mm_ang_deg(pose_seed16, pose_roundtrip16)
-    assert (
-        pos_err <= _ROBOLINK_FUZZ_POSE_POS_TOL_MM
-        and ang_err <= _ROBOLINK_FUZZ_POSE_ANG_TOL_DEG
-    ), "\n".join(
-        [
-            f"{hdr}: FK->IK->FK pose roundtrip mismatch",
-            f"  pos_err_mm: {_fmt_f(pos_err)} (tol={_ROBOLINK_FUZZ_POSE_POS_TOL_MM})",
-            f"  ang_err_deg: {_fmt_f(ang_err)} (tol={_fmt_f(_ROBOLINK_FUZZ_POSE_ANG_TOL_DEG)})",
-            f"  coupled_seed_deg: {_fmt_joints(coupled_seed)}",
-            f"  decoupled_seed_deg: {_fmt_joints(decoupled_seed)}",
-            f"  ik_decoupled_deg: {_fmt_joints(ik_decoupled)}",
-            f"  ik_coupled_deg: {_fmt_joints(ik_coupled)}",
-            f"  ik_coupled_wrapped_deg: {_fmt_joints(ik_coupled_wrapped)}",
-            "  pose_seed16:",
-            _fmt_pose16(pose_seed16),
-            "  pose_roundtrip16:",
-            _fmt_pose16(pose_roundtrip16),
-        ]
-    )
+    if installed is None:
+        assert not robodk_root.exists()
+    else:
+        assert deployed_dll.read_bytes() == installed
