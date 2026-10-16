@@ -27,8 +27,8 @@ commit references for traceability.
 
   These timings exclude RoboDK process/API overhead.
 
-- Seeded eight-solution IK passes at 100% on 40,000 random poses versus 87.8%
-  in 0.3.1. The tradeoff was a higher p95 across common successful poses:
+- Seeded eight-solution IK passes at 100% on 3,929 reachable targets versus
+  87.8% in 0.3.1. The tradeoff was a higher p95 across common successful poses:
   51.5 to 89.7 microseconds.
 
 ## 0.4.2
