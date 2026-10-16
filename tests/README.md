@@ -37,11 +37,11 @@ variables to select another build:
 | `test_baseline_comparison.py` | Comparison-report detection of gained/lost coverage and invalid commands |
 | `test_crx_command_turns.py`, `test_crx_solver_outcomes.py`, `test_crx_numerics.py` | Shared command limits, ranking, buffers, fallback and numerical guards |
 | `test_crx_nearby.py` | Single-output seed tracking across six assets, singularities, limits, transforms, turns, buffer packing and full-search fallback |
-| `test_crx_ranked.py` | Optional baseline comparison of restricted J3/J6 domains and ranked prefixes at capacities 1, 4 and 64; set `CRXKIN_BASELINE_LIBRARY_PATH` to the pre-optimization DLL |
+| `test_crx_ranked.py` | Exact candidate prefixes at capacities 1, 4 and 64; optional complete command-catalogue comparison with `CRXKIN_BASELINE_LIBRARY_PATH` |
 | `test_crx_solver_fixtures.py`, `test_crx_solver_family.py`, `test_crx_accuracy_stress.py` | Frozen corpus, independent holdouts and singularity/scale regressions |
 | `test_polynomial_roots.py`, `test_crx_polynomial_discovery.py` | Native probe compared with independent root/geometry references |
 | `test_crx_asset_bridge.py` | Captured asset frames and model mapping |
-| `test_crx_robolink_kinematics.py` | Opt-in live integration and offline deployment-guard checks |
+| `test_crx_robolink_kinematics.py` | Opt-in live FK, CAD, configuration, seeded/current-state/all-solutions IK, command limits, turns and tool/reference transforms; offline deployment-guard checks |
 | `test_version_metadata.py` | Release metadata consistency |
 | `test_*.cpp` | Internal invariants, metadata, option budgets and allocation guards; run through CTest |
 
@@ -82,6 +82,32 @@ copy files into RoboDK. After deploying using the root README instructions:
 ```powershell
 uv run --locked pytest tests/test_crx_robolink_kinematics.py --run-robodk
 ```
+
+On Windows, `ROBODK_ROOT` selects the installation to launch and check. It can
+point to a separate test copy containing `bin/RoboDK.exe`, its dependencies and
+`bin/robotextensions/crx_kinematics.dll`. `CRXKIN_LIBRARY_PATH` selects the DLL
+whose hash must match that extension (default: `build/Release/crx_kinematics.dll`).
+This permits separate 0.4.2 and 0.4.3 runs without replacing an installed DLL.
+Tests require a new instance and close it afterward. With `--run-robodk`, setup
+failures and unexpected joint rejection fail the run rather than skip tests.
+
+The raw-command cases use recorded asset geometry and independent Python DH
+products for expected poses, including IK targets. They cover independent J2/J3
+changes, joint-limit corners, J3 turns, nonzero seeds, all returned IK commands,
+CAD frames and limits updated on a loaded robot. Four recorded Table 5 commands
+exceed the CRX-10iA asset's J3 limit; those cases assert rejection explicitly.
+
+Live callback tracing on RoboDK 6.1.1 verified all six `*-Custom.robot` assets
+from revision `0df62df` call this DLL. All six receive FK/CAD and IK checks.
+RoboDK passes command degrees and command limits unchanged to the callbacks,
+and requests eight solutions for both `SolveIK` and `SolveIK_All`. The latter
+therefore does not establish completeness beyond that capacity.
+
+The asset inventory and frame-capture metadata track revision `0df62df`.
+Fresh observations matched the original recorded geometry within `1e-9`, so
+the original numerical references remain unchanged, with their capture hashes
+preserved. The frozen stress corpora only rename the 20iA-L and 25iA case labels
+to match the updated asset filenames; targets, seeds and witnesses are unchanged.
 
 ## Fixtures and investigation tools
 
