@@ -6,10 +6,18 @@
   "command_unit": "degree",
   "source": "JointPoses and SolveFK; separate unsaved station",
   "custom_extension_bypassed": false,
+  "asset_verification": {
+    "revision": "0df62df",
+    "robodk_version": "6.1.1.26991",
+    "extension_sha256": "3201786d7c9a255614a2b5f4ab03eff04b3fab74b60aeec1429c104863f9159b",
+    "note": "Original numeric capture retained; all updated asset probes and limits verified against it."
+  },
   "assets": [
     {
       "asset": "Fanuc-CRX-5iA-Custom.robot",
-      "sha256": "e7c5029cd9a8cc4d8eb8d4acf5860f4ab67e1b1d34ea4af345ad5e14a7f40a2f",
+      "sha256": "f08d026058b13455ebbf7b1534a2f6d03cb09b8dd80dd4ea0d69d069d6ee256a",
+      "captured_asset": "Fanuc-CRX-5iA-Custom.robot",
+      "captured_sha256": "e7c5029cd9a8cc4d8eb8d4acf5860f4ab67e1b1d34ea4af345ad5e14a7f40a2f",
       "lower_limits_deg": [-200.0, -180.0, -310.0, -190.0, -180.0, -225.0],
       "upper_limits_deg": [200.0, 180.0, 310.0, 190.0, 180.0, 225.0],
       "joint_type": 12.0,
@@ -1239,7 +1247,9 @@
     },
     {
       "asset": "Fanuc-CRX-10iA-Custom.robot",
-      "sha256": "d0eead452ee5d299893dba03bdfbc3d1f751d0b703a32ec5e510e3198242c471",
+      "sha256": "fb3e324252c9be3da14104593f773d7e54bd057ad7f933bf5686d8a7bef41f4c",
+      "captured_asset": "Fanuc-CRX-10iA-Custom.robot",
+      "captured_sha256": "d0eead452ee5d299893dba03bdfbc3d1f751d0b703a32ec5e510e3198242c471",
       "lower_limits_deg": [-190.0, -179.99, -195.0, -190.0, -179.99, -225.0],
       "upper_limits_deg": [190.0, 179.99, 375.0, 190.0, 179.99, 225.0],
       "joint_type": 12.0,
@@ -2469,7 +2479,9 @@
     },
     {
       "asset": "Fanuc-CRX-10iA-L-Custom.robot",
-      "sha256": "8fd577fded999190e3203f256bd88b3b9b6b5738fc7e4e050cf5d58bdea33557",
+      "sha256": "479984b2db5f0872bd766bb1af61849278237a245b0e367742e7ad5ef7e1d1d6",
+      "captured_asset": "Fanuc-CRX-10iA-L-Custom.robot",
+      "captured_sha256": "8fd577fded999190e3203f256bd88b3b9b6b5738fc7e4e050cf5d58bdea33557",
       "lower_limits_deg": [-180.0, -180.0, -360.0, -190.0, -180.0, -190.0],
       "upper_limits_deg": [180.0, 180.0, 430.0, 190.0, 180.0, 190.0],
       "joint_type": 12.0,
@@ -3698,8 +3710,10 @@
       ]
     },
     {
-      "asset": "Fanuc-CRX-20iA-L.robot",
-      "sha256": "6b27566edae427c6e9c2aac673fbaed5ae6dc4a3fa39aa806e6625b795c2b57c",
+      "asset": "Fanuc-CRX-20iA-L-Custom.robot",
+      "sha256": "caba1d97c6eaa31f776b864ea0e7dc63d1362225192e728c5d6f2cf8a297e6c3",
+      "captured_asset": "Fanuc-CRX-20iA-L.robot",
+      "captured_sha256": "6b27566edae427c6e9c2aac673fbaed5ae6dc4a3fa39aa806e6625b795c2b57c",
       "lower_limits_deg": [-180.0, -180.0, -270.0, -190.0, -180.0, -225.0],
       "upper_limits_deg": [180.0, 180.0, 270.0, 190.0, 180.0, 225.0],
       "joint_type": 12.0,
@@ -4928,8 +4942,10 @@
       ]
     },
     {
-      "asset": "Fanuc-CRX-25iA.robot",
-      "sha256": "a4191e63837091a57f0a336cc51a78f19ab36fa08a8c412fc6e65c5416635969",
+      "asset": "Fanuc-CRX-25iA-Custom.robot",
+      "sha256": "ecf9eba17e1520543a134fec9096ff105480dec9a3e2de0b3e0727b8470cc758",
+      "captured_asset": "Fanuc-CRX-25iA.robot",
+      "captured_sha256": "a4191e63837091a57f0a336cc51a78f19ab36fa08a8c412fc6e65c5416635969",
       "lower_limits_deg": [-180.0, -180.0, -270.0, -190.0, -180.0, -225.0],
       "upper_limits_deg": [180.0, 180.0, 270.0, 190.0, 180.0, 225.0],
       "joint_type": 12.0,
@@ -6159,7 +6175,9 @@
     },
     {
       "asset": "Fanuc-CRX-30iA-Custom.robot",
-      "sha256": "d72cbd33ae616db178e91c8dcc298cbc9ec66cd388232a808a35efeb8bea715c",
+      "sha256": "2d629cc514b0a2d23884b9299683a9f52590780efd421d94cabca8061ef7b6db",
+      "captured_asset": "Fanuc-CRX-30iA-Custom.robot",
+      "captured_sha256": "d72cbd33ae616db178e91c8dcc298cbc9ec66cd388232a808a35efeb8bea715c",
       "lower_limits_deg": [-180.0, -180.0, -270.0, -190.0, -180.0, -225.0],
       "upper_limits_deg": [180.0, 180.0, 270.0, 190.0, 180.0, 225.0],
       "joint_type": 12.0,

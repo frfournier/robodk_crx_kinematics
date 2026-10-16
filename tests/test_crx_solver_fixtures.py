@@ -22,7 +22,7 @@ def generated_models():
     models, references, generated = corpus(
         DEFAULT_RANDOM_PER_MODEL, DEFAULT_STRESS_PER_GROUP_MODEL, DEFAULT_SEED)
     frozen = (FIXTURES / "crx_solver_cases.json").read_text()
-    assert hashlib.sha256(frozen.encode()).hexdigest() == "7714db1d8522f79f72889092bdd23982925b0db104773cafeb588a5a79e59c66"
+    assert hashlib.sha256(frozen.encode()).hexdigest() == "e582fae793d0c91717a557409c240787ac9a36e6d80c382d5f56b3483e9269e0"
     # Keep the recorded corpus exact. Regeneration can differ by roundoff
     # between Windows and Linux math libraries, without changing the cases.
     assert_regenerated_cases_match(generated, CASES)

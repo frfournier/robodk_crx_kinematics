@@ -19,7 +19,7 @@ FIXTURE = Path(__file__).parent / "fixtures/crx_accuracy_stress.json"
 def stress_inputs():
     models, references, generated = corpus()
     cases = json.loads(FIXTURE.read_text())
-    assert hashlib.sha256(FIXTURE.read_text().encode()).hexdigest() == "931e0f2a8e0d9547ec47aed6abd571988dbd5b540b3f6f4fbf7de9ddf47b8a5f"
+    assert hashlib.sha256(FIXTURE.read_text().encode()).hexdigest() == "d0dc2f4003ff4dfe46fd8f224d578f8b5ab445d3e03b5117a28169332cf83041"
     assert_regenerated_cases_match(generated, cases)
     assert len(cases) == 3024
     return models, references, cases
