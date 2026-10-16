@@ -27,7 +27,7 @@ auto SolveFkApi(const real_T *joints, real_T pose[crx::kPoseElementCount],
   }
 
   crx::Vec6 joints_rad = crx::Vec6::Zero();
-  if (!crx::RoboDkJointsDegCoupledToUserRad(joints, joints_rad)) {
+  if (!crx::RoboDkJointsDegToCommandRad(joints, joints_rad)) {
     return -1;
   }
 
@@ -100,8 +100,7 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
   crx::Vec6 approx_joints_rad = crx::Vec6::Zero();
   const crx::Vec6 *approx_joints_ptr = nullptr;
   if (joints_approx != nullptr) {
-    if (!crx::RoboDkJointsDegCoupledToUserRad(joints_approx,
-                                              approx_joints_rad)) {
+    if (!crx::RoboDkJointsDegToCommandRad(joints_approx, approx_joints_rad)) {
       return -1;
     }
     approx_joints_ptr = &approx_joints_rad;
@@ -114,7 +113,7 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
     return solution_count;
   }
 
-  if (!crx::UserJointsRadToRoboDkCoupledDeg(result.solutions[0], joints)) {
+  if (!crx::CommandRadToRoboDkJointsDeg(result.solutions[0], joints)) {
     return -1;
   }
   if (joints_all != nullptr) {
@@ -126,8 +125,8 @@ auto SolveIK(const real_T pose[16], real_T *joints, real_T *joints_all,
       real_T *solution_slot = joints_all + solution_offset;
       std::fill(solution_slot, solution_slot + kRoboDkSolutionStride,
                 static_cast<real_T>(0.0));
-      if (!crx::UserJointsRadToRoboDkCoupledDeg(result.solutions[solution_idx],
-                                                solution_slot)) {
+      if (!crx::CommandRadToRoboDkJointsDeg(result.solutions[solution_idx],
+                                            solution_slot)) {
         return -1;
       }
     }
@@ -149,13 +148,13 @@ auto Joints2Config(const real_T *joints, real_T config[3],
     return -1;
   }
 
-  crx::Vec6 user_joints_rad = crx::Vec6::Zero();
-  if (!crx::RoboDkJointsDegCoupledToUserRad(joints, user_joints_rad)) {
+  crx::Vec6 command_rad = crx::Vec6::Zero();
+  if (!crx::RoboDkJointsDegToCommandRad(joints, command_rad)) {
     return -1;
   }
 
   crx::ArmPosture posture;
-  if (!crx::ClassifyArmPosture(model, user_joints_rad, posture)) {
+  if (!crx::ClassifyArmPosture(model, command_rad, posture)) {
     return -1;
   }
 

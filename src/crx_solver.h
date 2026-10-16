@@ -7,6 +7,7 @@
 
 namespace crx {
 
+// All joint vectors are coupled RoboDK commands in radians.
 using JointPoseBuffer = std::array<PoseIsoRT, kDofCount + 1>;
 
 enum class IkStatus {
@@ -38,7 +39,7 @@ struct IkResult {
   std::vector<Vec6> solutions;
 };
 
-auto SolveFkIsometry(const CrxModelData &model, const Vec6 &user_joints_rad,
+auto SolveFkIsometry(const CrxModelData &model, const Vec6 &command_rad,
                      PoseIsoRT &pose_out, JointPoseBuffer *joint_poses,
                      bool check_limits) -> int;
 
@@ -46,7 +47,7 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
                      const Vec6 *approx_joints_rad, int max_solutions)
     -> IkResult;
 
-auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &user_joints_rad,
+auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &command_rad,
                         ArmPosture &posture_out) -> bool;
 
 } // namespace crx

@@ -75,6 +75,14 @@ auto RecoverPreparedJointCandidates(const WristCircle &circle,
                                     const PoseTolerance &tolerance)
     -> JointRecovery;
 
+// Complete a recovered posture's opposite base branch, validating its rounded
+// command vector against the same prepared target. This owns the base symmetry
+// used by geometric discovery and by limit-constrained correction.
+auto RecoverBaseFlip(const WristCircle &circle, const PoseIsoRT &target,
+                     const PoseTolerance &tolerance,
+                     const JointCandidate &first, JointCandidate &candidate)
+    -> bool;
+
 // Bounded full-pose correction of a geometric nomination. No random/joint-seed
 // search: accepted postures must remain in the nominated wrist-phase window.
 // Circle, target and tolerance must outlive the refiner and remain unchanged.

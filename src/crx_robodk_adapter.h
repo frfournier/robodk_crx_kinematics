@@ -20,9 +20,9 @@ auto BuildModelFromRoboDkRobot(const robot_T *robot, CrxModelData &model)
     -> bool;
 auto RoboDkPoseToCore(const real_T *pose, PoseIsoRT &pose_out) -> bool;
 auto CorePoseToRoboDk(const PoseIsoRT &pose, real_T *pose_out) -> bool;
-auto RoboDkJointsDegCoupledToUserRad(const real_T *joints_deg,
-                                     Vec6 &joints_user_rad) -> bool;
-auto UserJointsRadToRoboDkCoupledDeg(const Vec6 &joints_user_rad,
-                                     real_T *joints_deg) -> bool;
+auto RoboDkJointsDegToCommandRad(const real_T *joints_deg, Vec6 &command_rad)
+    -> bool;
+auto CommandRadToRoboDkJointsDeg(const Vec6 &command_rad, real_T *joints_deg)
+    -> bool;
 
 } // namespace crx

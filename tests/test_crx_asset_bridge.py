@@ -44,8 +44,8 @@ def all_observations(asset):
 @pytest.mark.parametrize("asset", ASSETS, ids=lambda asset: asset["asset"])
 def test_asset_dh_identity(asset):
     model = derive_model(asset)
-    # Measured command motion is diagonal for these six assets. The C++ core
-    # uses decoupled J3, while the external RoboDK commands used here do not.
+    # Measured command motion is diagonal for these six assets. Both the C++
+    # core and the external RoboDK interface now use these command coordinates.
     np.testing.assert_allclose(model["motion_map"], np.diag([1, 1, -1, -1, -1, -1]),
                                atol=1e-12, rtol=0)
     for observation in all_observations(asset):

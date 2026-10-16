@@ -42,6 +42,8 @@ struct DhRow {
   bool is_prismatic = false;
 };
 
+// Untrusted adapter input; the solver validates the CRX signature and extracts
+// its five lengths before evaluating any kinematics.
 struct CrxModelData {
   PoseIsoRT base_transform = PoseIsoRT::Identity();
   PoseIsoRT tool_transform = PoseIsoRT::Identity();

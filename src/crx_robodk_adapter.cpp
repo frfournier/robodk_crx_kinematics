@@ -235,33 +235,27 @@ auto CorePoseToRoboDk(const PoseIsoRT &pose, real_T *pose_out) -> bool {
   return true;
 }
 
-auto RoboDkJointsDegCoupledToUserRad(const real_T *joints_deg,
-                                     Vec6 &joints_user_rad) -> bool {
+auto RoboDkJointsDegToCommandRad(const real_T *joints_deg, Vec6 &command_rad)
+    -> bool {
   if (joints_deg == nullptr) {
     return false;
   }
 
-  // RoboDK API boundary convention for CRX uses coupled J3 (J2 + J3_decoupled).
-  // The canonical internal CRX joint vector uses decoupled J3 in radians.
-  const Vec6 command_rad =
-      Eigen::Map<const Vec6>(joints_deg) * angle_conv::DegToRad(1.0);
-  joints_user_rad = RemoveFanucJointCoupling(command_rad);
-  return joints_user_rad.allFinite();
+  command_rad = Eigen::Map<const Vec6>(joints_deg) * angle_conv::DegToRad(1.0);
+  return command_rad.allFinite();
 }
 
-auto UserJointsRadToRoboDkCoupledDeg(const Vec6 &joints_user_rad,
-                                     real_T *joints_deg) -> bool {
+auto CommandRadToRoboDkJointsDeg(const Vec6 &command_rad, real_T *joints_deg)
+    -> bool {
   if (joints_deg == nullptr) {
     return false;
   }
 
-  // Convert back to RoboDK CRX API convention before returning solutions.
-  if (!joints_user_rad.allFinite()) {
+  if (!command_rad.allFinite()) {
     return false;
   }
-  const Vec6 joints_api_rad = ApplyFanucJointCoupling(joints_user_rad);
   Eigen::Map<Vec6> joints_map(joints_deg);
-  joints_map = joints_api_rad * angle_conv::RadToDeg(1.0);
+  joints_map = command_rad * angle_conv::RadToDeg(1.0);
   return true;
 }
 

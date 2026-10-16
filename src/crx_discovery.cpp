@@ -802,6 +802,22 @@ auto ImproveDiscoveryAccuracy(const RecoveryProblem &problem,
     }
     result = precise;
   }
+  // Independent corrections can leave the two base branches at different
+  // nearby representatives. Complete each surviving representative here, once,
+  // so command finalization does not need to regenerate branches.
+  const auto recovered_count = result.count;
+  for (std::size_t i = 0; i < recovered_count; ++i) {
+    JointRecovery partner;
+    if (RecoverBaseFlip(circle, target, tolerance, result.candidates[i],
+                        partner.candidates[0])) {
+      partner.count = 1;
+      if (!AppendUnique(partner, result)) {
+        result.status = RecoveryStatus::NeedsRefinement;
+        result.count = 0;
+        return result;
+      }
+    }
+  }
   return result;
 }
 } // namespace

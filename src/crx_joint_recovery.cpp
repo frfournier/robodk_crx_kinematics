@@ -159,31 +159,6 @@ auto ForwardPose(const Lengths &lengths, const Vec6 &q) -> PoseIsoRT {
   return ForwardPose(lengths, q, JointRotations(q));
 }
 
-auto RecoverBaseFlip(const WristCircle &circle, const PoseIsoRT &target,
-                     const PoseTolerance &tolerance,
-                     const JointCandidate &first, JointCandidate &candidate)
-    -> bool {
-  // The base flip preserves the elbow point and R4, hence the complete pose,
-  // for unequal as well as equal arm lengths. Verify the rounded joint vector
-  // independently before using it in place of a second correction.
-  candidate = first;
-  auto &q = candidate.joints;
-  q[0] = std::remainder(q[0] + angle_conv::kPi, kTwoPi);
-  q[1] = -q[1];
-  q[2] = std::remainder(angle_conv::kPi - q[2], kTwoPi);
-  constexpr int wrist_roll = 3;
-  q[wrist_roll] = std::remainder(q[wrist_roll] + angle_conv::kPi, kTwoPi);
-  const auto forward = ForwardPose(circle.lengths, q);
-  candidate.position_error =
-      (target.translation() / circle.length_scale - forward.translation())
-          .norm() *
-      circle.length_scale;
-  candidate.orientation_error =
-      OrientationError(forward.linear(), target.linear());
-  return candidate.position_error <= tolerance.position &&
-         candidate.orientation_error <= tolerance.orientation;
-}
-
 using Jacobian = Eigen::Matrix<double, 6, 6>;
 
 auto BuildJacobian(const Lengths &l, const JointRotations &rotations)
@@ -336,6 +311,31 @@ auto detail::SolveMinimumNormStep(const Eigen::Matrix<double, 6, 6> &jacobian,
     }
   }
   return decomposition.colsPermutation() * correction;
+}
+
+auto RecoverBaseFlip(const WristCircle &circle, const PoseIsoRT &target,
+                     const PoseTolerance &tolerance,
+                     const JointCandidate &first, JointCandidate &candidate)
+    -> bool {
+  // The base flip preserves the elbow point and R4, hence the complete pose,
+  // for unequal as well as equal arm lengths. Verify the rounded joint vector
+  // independently before using it in place of a second correction.
+  candidate = first;
+  auto &q = candidate.joints;
+  q[0] = std::remainder(q[0] + angle_conv::kPi, kTwoPi);
+  q[1] = -q[1];
+  q[2] = std::remainder(angle_conv::kPi - q[2], kTwoPi);
+  constexpr int wrist_roll = 3;
+  q[wrist_roll] = std::remainder(q[wrist_roll] + angle_conv::kPi, kTwoPi);
+  const auto forward = ForwardPose(circle.lengths, q);
+  candidate.position_error =
+      (target.translation() / circle.length_scale - forward.translation())
+          .norm() *
+      circle.length_scale;
+  candidate.orientation_error =
+      OrientationError(forward.linear(), target.linear());
+  return candidate.position_error <= tolerance.position &&
+         candidate.orientation_error <= tolerance.orientation;
 }
 
 auto PoseTolerance::IsValid() const -> bool {

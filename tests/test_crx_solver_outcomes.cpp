@@ -2,10 +2,10 @@
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
 #include "crx_joint_trig.h"
-#include "crx_math_helpers.h"
 #include "crx_numerics.h"
 #include "crx_robodk_adapter.h"
 #include "crx_solver.h"
+#include "crx_types.h"
 
 #include <cmath>
 #include <cstdio>
@@ -113,35 +113,27 @@ void CheckJointTrig() {
           "exceptional trig lanes do not corrupt finite lanes");
 }
 
-void CheckGeneralForwardGeometry() {
+void CheckCrxForwardGeometry() {
   auto model = Model();
   model.base_transform.linear() =
       Eigen::AngleAxisd(.2, crx::Vec3::UnitZ()).toRotationMatrix();
   model.tool_transform.translation() = crx::Vec3(3, -2, 1);
   Vec6 q;
-  q << .4, -.7, .8, .6, -.9, -1.2;
-  for (std::size_t i = 0; i < model.dh_rows.size(); ++i) {
-    const double index = static_cast<double>(i + 1);
-    model.dh_rows[i] = {.13 * index, 10 * index, -.22 * index, 7 * index,
-                        i == 4};
-  }
+  q << .4, -.7, .1, .6, -.9, -1.2;
   for (const double offset : {0.0, 3.0}) {
     model.dh_rows[4].d += offset;
     crx::PoseIsoRT actual;
     crx::JointPoseBuffer joints;
     Require(crx::SolveFkIsometry(model, q, actual, &joints, false) == 1,
-            "general DH with a prismatic joint supports FK");
+            "CRX family geometry supports FK and CAD frames");
     crx::PoseIsoRT expected = model.base_transform;
     Require(joints[0].matrix().isApprox(expected.matrix(), 1e-12),
             "joint buffer starts at the model base");
     for (std::size_t i = 0; i < model.dh_rows.size(); ++i) {
       const auto &row = model.dh_rows[i];
-      double motion = q[static_cast<Eigen::Index>(i)] * model.joint_senses[i];
-      if (i == 2) {
-        motion -= q[1] * model.joint_senses[1];
-      }
-      const double theta = row.theta0_rad + (row.is_prismatic ? 0 : motion);
-      const double d = row.d + (row.is_prismatic ? motion : 0);
+      const double theta = row.theta0_rad + q[static_cast<Eigen::Index>(i)] *
+                                                model.joint_senses[i];
+      const double d = row.d;
       expected = expected * Eigen::Translation3d(row.a, 0, 0) *
                  Eigen::AngleAxisd(row.alpha_rad, crx::Vec3::UnitX()) *
                  Eigen::Translation3d(0, 0, d) *
@@ -153,6 +145,51 @@ void CheckGeneralForwardGeometry() {
     Require((actual.matrix() - expected.matrix()).norm() < 1e-10,
             "FK uses this call's geometry and tool transform");
   }
+}
+
+void CheckUnsupportedModels() {
+  const Vec6 command = Vec6::Constant(.3);
+  const auto target = Target(Model(), command);
+  const auto rejected = [&](const crx::CrxModelData &model) {
+    auto pose = crx::PoseIsoRT::Identity();
+    crx::JointPoseBuffer frames;
+    frames.fill(pose);
+    crx::ArmPosture posture{true, true, true};
+    Require(crx::SolveFkIsometry(model, command, pose, &frames, false) == -1 &&
+                crx::SolveFkIsometry(model, command, pose, nullptr, true) == -1,
+            "FK and CAD reject unsupported models");
+    Require(pose.matrix().isIdentity() && frames.back().matrix().isIdentity(),
+            "model rejection preserves FK outputs");
+    Require(!crx::ClassifyArmPosture(model, command, posture) && posture.rear &&
+                posture.lower_arm && posture.flip,
+            "configuration rejects unsupported models without writing outputs");
+    const auto ik = crx::SolveIkIsometry(model, target, &command, 1);
+    Require(ik.status == IkStatus::UnsupportedModel && ik.solutions.empty(),
+            "IK rejects unsupported models before seed acceptance");
+  };
+  for (std::size_t axis = 0; axis < crx::kDofCount; ++axis) {
+    auto model = Model();
+    model.dh_rows[axis].is_prismatic = true;
+    rejected(model);
+    model = Model();
+    model.joint_senses[axis] *= -1;
+    rejected(model);
+    model = Model();
+    model.dh_rows[axis].alpha_rad += 1e-8;
+    rejected(model);
+    model = Model();
+    model.dh_rows[axis].theta0_rad += 1e-8;
+    rejected(model);
+    model = Model();
+    model.dh_rows[axis].a = axis == 2 ? -1 : 1;
+    rejected(model);
+  }
+  auto model = Model();
+  model.dh_rows[1].d = 1;
+  rejected(model);
+  model = Model();
+  model.dh_rows[4].d = 0;
+  rejected(model);
 }
 
 void CheckMappings() {
@@ -184,10 +221,50 @@ void CheckMappings() {
   }
 }
 
+void CheckBaseBranchCoverage() {
+  for (const double forearm : {540.0, 760.0}) {
+    auto model = Model();
+    model.dh_rows[3].d = forearm;
+    Vec6 command;
+    command << .4, -.7, .1, .6, -.9, -1.2;
+    const auto target = Target(model, command);
+    // Independent command-coordinate base symmetry, for equal and unequal arms.
+    Vec6 dual = command;
+    dual[0] += kPi;
+    dual[1] *= -1;
+    dual[2] = kPi - dual[2];
+    dual[3] -= kPi;
+    const auto full = crx::SolveIkIsometry(model, target, nullptr, 4096);
+    Require(full.status == IkStatus::StrictCandidates && !full.truncated,
+            "enumerate both base branches without a seed");
+    for (const Vec6 &branch : {command, dual}) {
+      bool found = false;
+      for (const auto &solution : full.solutions) {
+        const Vec6 difference = (solution - branch).unaryExpr([](double angle) {
+          return std::remainder(angle, 2 * kPi);
+        });
+        found = found || difference.cwiseAbs().maxCoeff() < 1e-7;
+      }
+      Require(found, "both recovered base branches reach final output");
+      // Force each branch independently, including a nonprincipal J3 turn.
+      Vec6 lifted = branch;
+      lifted[2] += 2 * kPi;
+      model.lower_limits_rad = lifted.array() - .001;
+      model.upper_limits_rad = lifted.array() + .001;
+      const auto restricted = crx::SolveIkIsometry(model, target, nullptr, 64);
+      Require(restricted.status == IkStatus::StrictCandidates &&
+                  restricted.solutions.size() == 1 &&
+                  (restricted.solutions[0] - lifted).cwiseAbs().maxCoeff() <
+                      1e-7,
+              "limits retain either base branch in command coordinates");
+    }
+  }
+}
+
 void CheckSolves() {
   auto model = Model();
   Vec6 q;
-  q << .4, -.7, .8, .6, -.9, -1.2;
+  q << .4, -.7, .1, .6, -.9, -1.2;
   const auto target = Target(model, q);
   const auto full = crx::SolveIkIsometry(model, target, &q, 4096);
   Require(full.status == IkStatus::StrictCandidates && !full.truncated &&
@@ -227,7 +304,7 @@ void CheckSolves() {
 void CheckBoundaryStatusMetadata() {
   const auto model = Model();
   Vec6 seed;
-  seed << 0, kPi / 2, 0, 0, 0, 0;
+  seed << 0, kPi / 2, kPi / 2, 0, 0, 0;
   for (const double delta : {0.00005, 0.005}) {
     auto target = Target(model, seed);
     target.translation().x() += delta;
@@ -255,10 +332,9 @@ void CheckSingularRepresentatives() {
 
 void CheckPhaseDomains() {
   const auto model = Model();
-  Vec6 user;
-  user << .4, -.7, .8, .6, -.9, -1.2;
-  const auto target = Target(model, user);
-  const auto command = crx::ApplyFanucJointCoupling(user);
+  Vec6 command;
+  command << .4, -.7, .1, .6, -.9, -1.2;
+  const auto target = Target(model, command);
   const crx::canonical::Lengths lengths{540, 540, 160, 150};
   const crx::canonical::PoseTolerance tolerance{
       crx::numerics::kSolutionPositionToleranceMm,
@@ -312,8 +388,10 @@ void CheckPhaseDomains() {
 
 auto main() -> int {
   CheckJointTrig();
-  CheckGeneralForwardGeometry();
+  CheckCrxForwardGeometry();
+  CheckUnsupportedModels();
   CheckMappings();
+  CheckBaseBranchCoverage();
   CheckSolves();
   CheckBoundaryStatusMetadata();
   CheckSingularRepresentatives();

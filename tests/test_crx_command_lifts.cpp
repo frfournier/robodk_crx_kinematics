@@ -196,35 +196,27 @@ void LateCandidatesAndSeed() {
   Require(result.seed_added && result.seed_matches_discovery &&
               result.commands.front().preserved_seed,
           "seed accounted separately");
-  const Vec6 command = (Vec6() << 0.0, 1.0, -1.0, 0.0, 0.0, 0.0).finished();
-  Require(crx::numerics::Scalar(crx::RemoveFanucJointCoupling(command)[2])
-              .isApproxToConstant(-2.0, crx::numerics::kEpsilon),
-          "coupling");
-  Require(crx::ApplyFanucJointCoupling(crx::RemoveFanucJointCoupling(command))
-              .isApprox(command, crx::numerics::kEpsilon),
-          "command mapping inverse");
 }
 
 void CoupledMetricCounterexample() {
   // G7: equal command travel becomes [[2,1],[1,1]] in decoupled J2/J3.
   // Independent rounding of the decoupled seed (.49,.49) would choose (0,0).
-  Vec6 user_seed = Vec6::Zero();
-  user_seed[1] = user_seed[2] = 0.49 * kTau;
-  const Vec6 seed = crx::ApplyFanucJointCoupling(user_seed);
+  Vec6 seed = Vec6::Zero();
+  seed[1] = .49 * kTau;
+  seed[2] = .98 * kTau;
   Vec6 lo = Vec6::Zero(), hi = Vec6::Zero();
   hi[1] = kTau;
   hi[2] = 2.0 * kTau;
   const auto result = crx::SelectCommandLifts(
       {Vec6::Zero()}, lo, hi, &seed, 10, [](const Vec6 &q) {
-        const Vec6 user = crx::RemoveFanucJointCoupling(q);
-        return user[2] >= -1e-12 && user[2] <= kTau + 1e-12 &&
+        const double relative_elbow = q[2] - q[1];
+        return relative_elbow >= -1e-12 && relative_elbow <= kTau + 1e-12 &&
                q.unaryExpr([](double x) { return std::remainder(x, kTau); })
                        .cwiseAbs()
                        .maxCoeff() < 1e-12;
       });
   Require(result.commands.size() == 4, "coupled finite catalogue");
-  const Vec6 best =
-      crx::RemoveFanucJointCoupling(result.commands.front().command_rad);
+  const Vec6 best = result.commands.front().command_rad;
   Require(crx::numerics::Scalar(best[1]).isZero(crx::numerics::kEpsilon) &&
               crx::numerics::Scalar(best[2]).isApproxToConstant(
                   kTau, crx::numerics::kEpsilon),

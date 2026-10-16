@@ -117,10 +117,22 @@ def test_transformed_base_tool_and_restricted_limits(kinematics_lib, crx_10ia):
     assert not missing_postures([witness], actual[2])
 
 
-def test_non_asset_senses_are_explicitly_unsupported(kinematics_lib, crx_10ia):
-    _set_row(crx_10ia, 3, [-1, 1, -1, -1, -1, -1], col=4)
+@pytest.mark.parametrize("axis", range(6))
+def test_non_asset_senses_are_explicitly_unsupported(kinematics_lib, crx_10ia, axis):
+    crx_10ia.data[3][4 + axis] *= -1
     witness = discovery_joints(1)
     target, _ = reference_fk(crx_10ia, witness)
     pose = target.ravel(order="F").tolist()
     for seed in (None, witness):
         assert _call_ik(kinematics_lib, crx_10ia, pose, approx=seed)[0] == -1
+    command = _to_c_array(_to_fk_api_joints_deg(witness))
+    output = (ctypes.c_double * 16)(*([12345.] * 16))
+    frames = (ctypes.c_double * (7 * 16))(*([12345.] * (7 * 16)))
+    config = (ctypes.c_double * 3)(*([12345.] * 3))
+    robot = ctypes.byref(crx_10ia)
+    assert kinematics_lib.SolveFK(command, output, robot) == -1
+    assert kinematics_lib.SolveFK_CAD(command, output, frames, 7, robot) == -1
+    assert kinematics_lib.Joints2Config(command, config, robot) == -1
+    assert list(output) == [12345.] * 16
+    assert list(frames) == [12345.] * (7 * 16)
+    assert list(config) == [12345.] * 3

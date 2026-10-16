@@ -17,11 +17,14 @@ def test_dh_snapping_is_roundoff_only(kinematics_lib, crx_10ia, column, tilt):
     target, _ = reference_fk(crx_10ia, witness)
     command = _to_c_array(_to_fk_api_joints_deg(witness))
     actual = (ctypes.c_double * 16)()
-    assert kinematics_lib.SolveFK(command, actual, ctypes.byref(crx_10ia)) == 1
-    # FK must retain actual nonsnapped geometry. This reference uses raw DH
-    # transform products and never calls the library's snapping helper.
-    np.testing.assert_allclose(np.array(actual).reshape(4, 4, order="F"),
-                               target, atol=2e-10, rtol=0)
+    status = kinematics_lib.SolveFK(command, actual, ctypes.byref(crx_10ia))
+    if abs(tilt) > 1e-10:
+        assert status == -1
+    else:
+        assert status == 1
+        # CRX signature recognition admits encoding roundoff only.
+        np.testing.assert_allclose(np.array(actual).reshape(4, 4, order="F"),
+                                   target, atol=2e-10, rtol=0)
     best = (ctypes.c_double * 6)(*([12345.] * 6))
     alternatives = (ctypes.c_double * 12)(*([12345.] * 12))
     count = kinematics_lib.SolveIK(_to_c_array(target.ravel(order="F")), best,

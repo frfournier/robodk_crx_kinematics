@@ -88,14 +88,13 @@ def test_selection_with_independent_seed(kinematics_lib, crx_10ia, case_id):
 @pytest.mark.parametrize("transformed", [False, True])
 def test_reference_fk_and_all_cad_frames(kinematics_lib, crx_10ia, case_id, transformed):
     if transformed:
-        # Derived test transforms/signs; no claim that an asset has these values.
+        # Base/tool frames remain configurable for the supported CRX geometry.
         crx_10ia.data[9][:6] = [125, -37, 92, 0.3, -0.5, 0.7]
         crx_10ia.data[28][:6] = [-15, 24, 33, -0.2, 0.4, -0.6]
-        crx_10ia.data[3][4:10] = [-1, 1, 1, -1, 1, -1]
     joints = discovery_joints(case_id)
     # This test compares FK implementations, so choose a legal command lift.
     # The discovery witness generator samples decoupled J3; J2+J3 can lie below
-    # the RoboDK command limit even when both internal coordinates are legal.
+    # the RoboDK command limit even when both witness coordinates are legal.
     command_j3 = joints[1] + joints[2]
     lower, upper = crx_10ia.data[30][2], crx_10ia.data[31][2]
     if not lower <= command_j3 <= upper:
