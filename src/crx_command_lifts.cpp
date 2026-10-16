@@ -54,7 +54,7 @@ auto CommandPhase(double angle) -> double {
 auto SamePhase(const Vec6 &a, const Vec6 &b) -> bool {
   return (a - b)
       .unaryExpr([](double x) { return WrapRadPi(x); })
-      .isZero(numerics::kJointPhaseToleranceRad);
+      .isZero(numerics::kCommandDedupToleranceRad);
 }
 
 auto Better(const CommandLift &a, const CommandLift &b) -> bool {
@@ -132,6 +132,28 @@ auto LiftCommand(const LiftBox &box,
                  const std::array<std::int64_t, kDofCount> &turns) -> Vec6 {
   const Vec6 values = Eigen::Map<const TurnVector>(turns.data()).cast<double>();
   return box.phase + kTwoPi * values;
+}
+
+auto CoversLifts(const LiftBox &covering, const LiftBox &covered) -> bool {
+  if (!SamePhase(covering.phase, covered.phase)) {
+    return false;
+  }
+  if (covered.count == 0) {
+    return true;
+  }
+  if (covering.count == 0) {
+    return false;
+  }
+  // Compare actual commands across the +/-pi phase cut. A representative
+  // must retain every admitted turn, including exact joint-limit endpoints.
+  return ((LiftCommand(covering, covering.lower) -
+           LiftCommand(covered, covered.lower))
+              .array() <= numerics::kCommandDedupToleranceRad)
+             .all() &&
+         ((LiftCommand(covered, covered.upper) -
+           LiftCommand(covering, covering.upper))
+              .array() <= numerics::kCommandDedupToleranceRad)
+             .all();
 }
 
 struct RankedBox {
@@ -262,8 +284,9 @@ auto RankedPrefix(const std::vector<LiftBox> &boxes,
         feasible[node.posture] = true;
         ++result.feasible_postures;
       }
-      if (result.seed_added && (node.first.command_rad - preserved.command_rad)
-                                   .isZero(numerics::kJointPhaseToleranceRad)) {
+      if (result.seed_added &&
+          (node.first.command_rad - preserved.command_rad)
+              .isZero(numerics::kCommandDedupToleranceRad)) {
         result.seed_matches_discovery = true;
       } else {
         retain(node.first);
@@ -330,16 +353,31 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     }
     LiftBox box;
     box.phase = posture.unaryExpr(&CommandPhase);
-    if (std::any_of(boxes.begin(), boxes.end(),
-                    [&](const LiftBox &other) {
-                      return SamePhase(box.phase, other.phase);
-                    }) ||
-        !validate(box.phase)) {
+    if (!validate(box.phase)) {
       continue;
     }
-    if (!PrepareBox(box, lower, upper, limits) ||
-        result.box_lifts >
-            std::numeric_limits<std::uint64_t>::max() - box.count) {
+    if (!PrepareBox(box, lower, upper, limits)) {
+      result.status = CommandSelectionStatus::RangeFailure;
+      return result;
+    }
+    // Prefer a nearby representative covering all admitted turns. If neither
+    // range contains the other, retain both rather than lose legal commands.
+    if (std::any_of(boxes.begin(), boxes.end(), [&](const LiftBox &other) {
+          return CoversLifts(other, box);
+        })) {
+      continue;
+    }
+    boxes.erase(std::remove_if(boxes.begin(), boxes.end(),
+                               [&](const LiftBox &other) {
+                                 if (!CoversLifts(box, other)) {
+                                   return false;
+                                 }
+                                 result.box_lifts -= other.count;
+                                 return true;
+                               }),
+                boxes.end());
+    if (result.box_lifts >
+        std::numeric_limits<std::uint64_t>::max() - box.count) {
       result.status = CommandSelectionStatus::RangeFailure;
       return result;
     }
@@ -420,8 +458,9 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
         feasible = true;
         ++result.valid_lifts;
         const bool matches_seed =
-            result.seed_added && (command.command_rad - preserved.command_rad)
-                                     .isZero(numerics::kJointPhaseToleranceRad);
+            result.seed_added &&
+            (command.command_rad - preserved.command_rad)
+                .isZero(numerics::kCommandDedupToleranceRad);
         if (matches_seed) {
           // Count seed preservation separately, never as another discovered
           // lift.

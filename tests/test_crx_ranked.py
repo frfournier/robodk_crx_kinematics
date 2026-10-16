@@ -72,10 +72,11 @@ def test_restricted_catalogue_against_baseline(
     if expected[0] <= 0 or actual[0] <= 0:
         assert actual[0] == expected[0]
         return
-    # Keep the existing 1e-8 degree comparison, but compare full catalogues.
-    # A singular representative may merge with another within that tolerance.
+    # Old singular representatives may merge within the output deduplication
+    # tolerance. Retained commands must still match an original representative
+    # at the tighter comparison tolerance; this is not extra pose/limit slack.
     # Do not reduce modulo 360: losing a distinct command turn is a regression.
     difference = np.max(np.abs(
         np.asarray(actual[2])[:, None, :] - np.asarray(expected[2])), axis=2)
-    assert np.all(difference.min(axis=0) <= 1e-8), case["name"]
+    assert np.all(difference.min(axis=0) <= 1e-4 + 1e-8), case["name"]
     assert np.all(difference.min(axis=1) <= 1e-8), case["name"]

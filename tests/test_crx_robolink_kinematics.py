@@ -343,6 +343,26 @@ def test_robolink_command_coupling(robolink_crx_10ia, asset):
 
 
 @pytest.mark.parametrize("asset", _ASSET_CAPTURE, ids=lambda asset: asset["asset"])
+def test_robolink_home_deduplication(robolink_crx_10ia, asset):
+    robot = robolink_crx_10ia.RDK().AddFile(str(_ROBOT_ASSET.parent / asset["asset"]))
+    assert robot.Valid()
+    try:
+        robot.setAccuracyActive(0)
+        robot.setJoints([0]*6)
+        target = robot.SolveFK([0]*6)
+        commands = np.asarray(robot.SolveIK_All(target).rows)[:6, :].T
+        assert np.count_nonzero(np.max(np.abs(commands), axis=1) < 1e-3) == 1
+        difference = np.max(np.abs(commands[:, None, :] - commands[None, :, :]), axis=2)
+        assert np.all(difference[np.triu_indices(len(commands), 1)] > 1e-4)
+        np.testing.assert_array_equal(robot.SolveIK(target, [0]*6).list()[:6], np.zeros(6))
+        model = derive_model(asset)
+        _assert_live_pose(forward_models(model, commands),
+                          np.broadcast_to(np.asarray(target.rows), (len(commands), 4, 4)))
+    finally:
+        robot.Delete()
+
+
+@pytest.mark.parametrize("asset", _ASSET_CAPTURE, ids=lambda asset: asset["asset"])
 def test_robolink_coupling_with_tool_reference_and_limits(robolink_crx_10ia, asset):
     robot = robolink_crx_10ia.RDK().AddFile(str(_ROBOT_ASSET.parent / asset["asset"]))
     assert robot.Valid()

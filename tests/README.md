@@ -38,6 +38,7 @@ variables to select another build:
 | `test_crx_command_turns.py`, `test_crx_solver_outcomes.py`, `test_crx_numerics.py` | Shared command limits, ranking, buffers, fallback and numerical guards |
 | `test_crx_nearby.py` | Single-output seed tracking across six assets, singularities, limits, transforms, turns, buffer packing and full-search fallback |
 | `test_crx_ranked.py` | Exact candidate prefixes at capacities 1, 4 and 64; optional complete command-catalogue comparison with `CRXKIN_BASELINE_LIBRARY_PATH` |
+| `test_crx_dedup.py` | Singular home output deduplication across all six models, exact seed/prefix preservation and distinct command turns |
 | `test_crx_solver_fixtures.py`, `test_crx_solver_family.py`, `test_crx_accuracy_stress.py` | Frozen corpus, independent holdouts and singularity/scale regressions |
 | `test_polynomial_roots.py`, `test_crx_polynomial_discovery.py` | Native probe compared with independent root/geometry references |
 | `test_crx_asset_bridge.py` | Captured asset frames and model mapping |
@@ -90,6 +91,9 @@ whose hash must match that extension (default: `build/Release/crx_kinematics.dll
 This permits separate 0.4.2 and 0.4.3 runs without replacing an installed DLL.
 Tests require a new instance and close it afterward. With `--run-robodk`, setup
 failures and unexpected joint rejection fail the run rather than skip tests.
+
+The home-pose checks require one near-zero command from `SolveIK_All` and
+preserve the exact zero seed through `SolveIK` for all six custom assets.
 
 The raw-command cases use recorded asset geometry and independent Python DH
 products for expected poses, including IK targets. They cover independent J2/J3

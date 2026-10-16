@@ -342,6 +342,79 @@ void RankedPrefixReference() {
               overflow.commands.empty(),
           "ranked selection preserves travel overflow failure");
 }
+
+void CommandDeduplication() {
+  const double tolerance = angle_conv::DegToRad(1e-4);
+  const Vec6 zero = Vec6::Zero();
+  Vec6 near = zero, separate = zero;
+  near[3] = .4 * tolerance;
+  near[5] = -.4 * tolerance;
+  separate[3] = 2 * tolerance;
+  Vec6 lower = Vec6::Constant(-.1), upper = -lower;
+  lower[5] = -kTau - .1;
+  upper[5] = kTau + .1;
+  for (const auto mode : {crx::CommandSelectionMode::Exhaustive,
+                          crx::CommandSelectionMode::RankedPrefix}) {
+    for (const bool seeded : {false, true}) {
+      const Vec6 *seed = seeded ? &zero : nullptr;
+      const auto full = crx::SelectCommandLifts(
+          {near, -near, zero, separate}, lower, upper, seed, 64, Accept,
+          crx::numerics::kCommandLiftBudget, mode);
+      Require(full.status == CommandSelectionStatus::Complete &&
+                  full.commands.size() == 6 && !full.truncated,
+              "near postures merge while separate postures and turns survive");
+      if (seeded) {
+        Require(full.commands.front().preserved_seed &&
+                    full.commands.front().command_rad == zero,
+                "exact seed survives wider output deduplication");
+      }
+      for (const int capacity : {1, 4}) {
+        const auto prefix = crx::SelectCommandLifts(
+            {near, -near, zero, separate}, lower, upper, seed, capacity, Accept,
+            crx::numerics::kCommandLiftBudget, mode);
+        Require(prefix.commands.size() == static_cast<std::size_t>(capacity) &&
+                    prefix.truncated,
+                "deduplicated prefix capacity and truncation");
+        for (std::size_t i = 0; i < prefix.commands.size(); ++i) {
+          Require(prefix.commands[i].command_rad ==
+                      full.commands[i].command_rad,
+                  "deduplication preserves exact ranked prefixes");
+        }
+      }
+    }
+    const auto tight =
+        crx::SelectCommandLifts({near, zero}, zero, zero, nullptr, 8, Accept,
+                                crx::numerics::kCommandLiftBudget, mode);
+    Require(tight.commands.size() == 1 && tight.commands[0].command_rad == zero,
+            "out-of-limit near posture cannot hide a legal exact command");
+    const auto rejected = crx::SelectCommandLifts(
+        {near, zero}, lower, upper, nullptr, 8,
+        [](const Vec6 &q) { return q[3] == 0; },
+        crx::numerics::kCommandLiftBudget, mode);
+    Require(rejected.commands.size() == 3,
+            "invalid near posture cannot hide valid command turns");
+    Vec6 endpoint = zero;
+    endpoint[5] = -.4 * tolerance;
+    Vec6 turn_lower = zero, turn_upper = zero;
+    turn_lower[5] = -kTau;
+    turn_upper[5] = kTau;
+    for (const auto &postures : {std::vector<Vec6>{endpoint, zero},
+                                 std::vector<Vec6>{zero, endpoint}}) {
+      const auto boundary = crx::SelectCommandLifts(
+          postures, turn_lower, turn_upper, nullptr, 8, Accept,
+          crx::numerics::kCommandLiftBudget, mode);
+      Require(boundary.commands.size() == 3 && boundary.valid_lifts == 3,
+              "wider lift range replaces near duplicates regardless of order");
+      Require(boundary.commands.front().command_rad[5] == -kTau &&
+                  boundary.commands.back().command_rad[5] == kTau,
+              "both exact boundary turns survive deduplication");
+    }
+    Vec6 outside = zero;
+    outside[0] = .4 * tolerance;
+    Require(!crx::ClampCommandToLimits(outside, zero, zero),
+            "output identity tolerance is not joint-limit slack");
+  }
+}
 } // namespace
 
 auto main() -> int {
@@ -352,6 +425,7 @@ auto main() -> int {
   CoupledMetricCounterexample();
   RoundoffBoundariesAndOrdering();
   RankedPrefixReference();
+  CommandDeduplication();
   std::puts(
       "Command lift reference, capacity, boundary and failure checks passed");
 }

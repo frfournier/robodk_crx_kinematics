@@ -81,6 +81,10 @@ inline constexpr double kApproxFallbackAngleToleranceRad =
 // polynomial candidates. 1e-10 is the rounded overlap of the stable count
 // plateaus.
 inline constexpr double kJointPhaseToleranceRad = 1e-10;
+// Output posture identity only: merge numerical representatives at singular
+// poses within 0.0001 degree per joint. Discovery, limit slack and FK accuracy
+// retain their tighter, independent tolerances.
+inline constexpr double kCommandDedupToleranceRad = angle_conv::DegToRad(1e-4);
 // N1017: stable counts at 1e-10..1e-8. Lower settings alter chart/handoff
 // decisions; retain the conservative lower edge, with strict FK still final.
 inline constexpr double kRootResidualTolerance = 1e-10;

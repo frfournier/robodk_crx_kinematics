@@ -79,10 +79,25 @@ def test_boundary_witness_survives_other_feasible_postures(
 def test_singular_rotation_rounding_preserves_candidates(
     kinematics_lib, generated_models, seeded,
 ):
-    # Replacing Eigen's (1-cosine)+cosine axis diagonal with literal 1 changes
-    # polishing at this singular target, dropping ten established commands.
+    # The 0.4.3 catalogue had 25 commands. Ten differ from the retained 15 by
+    # at most 1.43e-6 degree, inside the new output identity tolerance. Preserve
+    # all three distinct front representatives, their base flips and turns.
     case = next(case for case in CASES if case["name"] == "MIN_Z")
     commands = check_solver_pose(
         kinematics_lib, generated_models, case, seeded)
     assert commands is not None
-    assert len(commands) == 26  # Best output followed by all 25 commands.
+    assert len(commands) == 16  # Best output followed by all 15 commands.
+    front = np.array([
+        [-0.00065651, 179.99, 89.98845166, 0.00460799, 0.00154834, -0.00395148],
+        [-0.00018331, 179.99, 89.99271310, -0.01120638, -0.00271310, 0.01138968],
+        [0.06941109, -179.99, 90.01154811, -0.00460683, -0.00154811, -0.06480426],
+    ])
+    expected = list(front)
+    for q in front:
+        for base_turn in (-180., 180.):
+            for wrist_turn in (-180., 180.):
+                expected.append([q[0]+base_turn, -q[1], 180-q[2],
+                                 q[3]+wrist_turn, q[4], q[5]])
+    difference = np.max(np.abs(commands[1:, None, :] - expected), axis=2)
+    assert np.all(difference.min(axis=0) <= 1e-4)
+    assert np.all(difference.min(axis=1) <= 1e-4)
