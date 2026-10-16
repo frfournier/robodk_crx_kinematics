@@ -15,7 +15,7 @@ CONFIG  += shared
 
 # Deterministic output base name (matches MSVC expectation)
 TARGET = crx_kinematics
-VERSION = 0.4.3
+VERSION = 0.4.4
 
 # On Windows, prevent "lib" prefix and ensure proper dll naming
 win32 {

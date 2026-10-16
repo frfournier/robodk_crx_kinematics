@@ -1,6 +1,6 @@
 # FANUC CRX custom kinematics for RoboDK
 
-**Current release:** `0.4.3` ([changelog](CHANGELOG.md))
+**Current release:** `0.4.4` ([changelog](CHANGELOG.md))
 
 RoboDK extension for forward and inverse kinematics for FANUC CRX robots with a non-spherical wrist.
 Targets RoboDK **6.0.6.26901+** on Windows 11 and Ubuntu 24.04 or newer,

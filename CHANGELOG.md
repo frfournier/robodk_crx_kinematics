@@ -3,6 +3,16 @@
 Release details are recorded below, with GitHub release tags and abbreviated
 commit references for traceability.
 
+## 0.4.4
+
+- Merge near-identical IK output postures within 0.0001 degree per joint,
+  including numerical duplicates at the all-zero home pose. Preserve distinct
+  command turns and legal joint-limit endpoints. Root discovery, joint-limit
+  slack and FK acceptance tolerances are unchanged.
+- Added regressions for singular home poses, exact seeds, ranked prefixes and
+  boundary turns; verified one near-zero home solution on all six CRX assets
+  through live RoboDK callbacks.
+
 ## 0.4.3
 
 - Specialized FK and CAD frame evaluation for validated nominal CRX geometry,
