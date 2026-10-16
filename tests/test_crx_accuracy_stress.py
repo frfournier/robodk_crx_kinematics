@@ -10,7 +10,7 @@ import pytest
 from crx_asset_reference import canonical_forward, forward_models, rigid_inverse
 from crx_test_support import RobotT
 from fixtures.generate_accuracy_stress import corpus
-from crx_fixture_support import MERGED_ELBOW_PAIRS
+from crx_fixture_support import MERGED_ELBOW_PAIRS, assert_regenerated_cases_match
 
 FIXTURE = Path(__file__).parent / "fixtures/crx_accuracy_stress.json"
 
@@ -20,7 +20,7 @@ def stress_inputs():
     models, references, generated = corpus()
     cases = json.loads(FIXTURE.read_text())
     assert hashlib.sha256(FIXTURE.read_text().encode()).hexdigest() == "931e0f2a8e0d9547ec47aed6abd571988dbd5b540b3f6f4fbf7de9ddf47b8a5f"
-    assert cases == generated
+    assert_regenerated_cases_match(generated, cases)
     assert len(cases) == 3024
     return models, references, cases
 

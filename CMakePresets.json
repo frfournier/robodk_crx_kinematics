@@ -27,7 +27,6 @@
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang-cl",
         "CMAKE_EXPORT_COMPILE_COMMANDS": true,
-        "CRXKIN_USE_VENDORED_EIGEN": true,
         "CRXKIN_ENABLE_CLANG_TIDY": false,
         "BUILD_TESTING": true,
         "ROBODK_DEPLOY": false
@@ -54,7 +53,7 @@
     {
       "name": "windows-clang-release",
       "displayName": "Windows clang-cl Release",
-      "description": "Native -O3 Release DLL",
+      "description": "Optimized Release DLL",
       "inherits": "windows-clang-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
@@ -77,9 +76,29 @@
       "cacheVariables": {
         "CRXKIN_ENABLE_CLANG_TIDY": true
       }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux x64 Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/vscode/${presetName}",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": true,
+        "ROBODK_DEPLOY": false
+      }
     }
   ],
   "buildPresets": [
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release"
+    },
     {
       "name": "windows-clang-debug",
       "displayName": "Build Debug",
@@ -137,6 +156,12 @@
     }
   ],
   "testPresets": [
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
+      "output": {"outputOnFailure": true},
+      "execution": {"noTestsAction": "error"}
+    },
     {
       "name": "windows-clang-debug",
       "displayName": "Test Debug",

@@ -15,7 +15,7 @@ CONFIG  += shared
 
 # Deterministic output base name (matches MSVC expectation)
 TARGET = crx_kinematics
-VERSION = 0.4.1
+VERSION = 0.4.2
 
 # On Windows, prevent "lib" prefix and ensure proper dll naming
 win32 {
@@ -46,12 +46,29 @@ HEADERS += \
     $$PWD/src/crx_discovery.h \
     $$PWD/src/crx_incidence.h \
     $$PWD/src/crx_joint_recovery.h \
+    $$PWD/src/crx_joint_trig.h \
     $$PWD/src/crx_polynomial_roots.h \
     $$PWD/include/crx_kinematics.h \
     $$PWD/src/crx_types.h \
     $$PWD/src/crx_math_helpers.h \
     $$PWD/src/crx_solver.h \
     $$PWD/src/crx_robodk_adapter.h
+
+# Compile the plain-array trig kernel with AVX2/FMA; keep Eigen's baseline
+# alignment and floating-point settings in every other translation unit.
+!equals(QT_ARCH, x86_64): error("crx_kinematics requires x86-64 with AVX2 and FMA")
+JOINT_TRIG_SOURCE = $$PWD/src/crx_joint_trig.cpp
+joint_trig.input = JOINT_TRIG_SOURCE
+joint_trig.output = ${QMAKE_FILE_BASE}_release$${QMAKE_EXT_OBJ}
+CONFIG(debug, debug|release): joint_trig.output = ${QMAKE_FILE_BASE}_debug$${QMAKE_EXT_OBJ}
+joint_trig.variable_out = OBJECTS
+joint_trig.dependency_type = TYPE_C
+contains(QMAKE_COMPILER, msvc) {
+    joint_trig.commands = $(CXX) $(CXXFLAGS) $(INCPATH) /arch:AVX2 /c ${QMAKE_FILE_IN} /Fo${QMAKE_FILE_OUT}
+} else {
+    joint_trig.commands = $(CXX) $(CXXFLAGS) $(INCPATH) -mavx2 -mfma -c ${QMAKE_FILE_IN} -o ${QMAKE_FILE_OUT}
+}
+QMAKE_EXTRA_COMPILERS += joint_trig
 
 # -----------------------------------
 # Eigen headers (required by crxkinematics.cpp)
@@ -97,8 +114,8 @@ win32 {
     QMAKE_POST_LINK += $$quote(cp -f "$$PWD/LICENSE" "$$DESTDIR/LICENSE") $$escape_expand(\\n\\t)
     QMAKE_POST_LINK += $$quote(cp -f "$$PWD/THIRD_PARTY_NOTICES.md" "$$DESTDIR/THIRD_PARTY_NOTICES.md") $$escape_expand(\\n\\t)
     QMAKE_POST_LINK += $$quote(cp -f "$$EIGEN3_INCLUDE_DIR/LICENSE" $$EIGEN3_INCLUDE_DIR/COPYING.* "$$EIGEN_LEGAL_DIR/") $$escape_expand(\\n\\t)
-    QMAKE_POST_LINK += $$quote(mkdir -p "$$EIGEN_LEGAL_DIR/source") $$escape_expand(\\n\\t)
-    QMAKE_POST_LINK += $$quote(cp -R "$$EIGEN3_INCLUDE_DIR/Eigen" "$$EIGEN_LEGAL_DIR/source/Eigen") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(mkdir -p "$$EIGEN_LEGAL_DIR/source/Eigen") $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cp -R "$$EIGEN3_INCLUDE_DIR/Eigen/." "$$EIGEN_LEGAL_DIR/source/Eigen/") $$escape_expand(\\n\\t)
 }
 
 # -----------------------------------

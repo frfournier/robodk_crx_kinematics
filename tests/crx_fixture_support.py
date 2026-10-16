@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import numpy as np
 import pytest
 from robodk import robomath as rm
 
@@ -30,6 +31,28 @@ CONFIG_FIXTURE_CASES = {
     "WRIST_SING",
     "WRIST_SING_NEAR_RG_LIMIT",
 }
+
+
+def assert_regenerated_cases_match(generated, recorded):
+    """Allow math-library roundoff while preserving corpus structure and metadata."""
+    for actual, expected in zip(generated, recorded, strict=True):
+        assert actual.keys() == expected.keys()
+        for field, value in expected.items():
+            if field in ("target", "witnesses", "seed_deg"):
+                observed, reference = np.asarray(actual[field]), np.asarray(value)
+                assert observed.shape == reference.shape
+                scale = max(1., np.abs(reference).max(initial=0))
+                np.testing.assert_allclose(
+                    observed, reference, rtol=0, atol=32 * np.finfo(float).eps * scale,
+                    err_msg=f"{expected['name']}: {field}",
+                )
+            elif field == "offset_rad" and value is not None:
+                np.testing.assert_allclose(
+                    actual[field], value, rtol=32 * np.finfo(float).eps, atol=0,
+                    err_msg=f"{expected['name']}: {field}",
+                )
+            else:
+                assert actual[field] == value, f"{expected['name']}: {field}"
 
 
 def _is_legal_fixture_config(config: Dict[str, str]) -> bool:

@@ -109,7 +109,7 @@ auto TriangleResidual(const WristCircle &circle, double angle) -> double {
 }
 
 void CheckCharts(const WristCircle &circle) {
-  for (const double chart : {0.0, 0.7, -1.3, kPi}) {
+  for (const double chart : {0.0, kPi / 2, kPi / 4, -kPi / 4, 0.7, -1.3, kPi}) {
     const auto polynomial = PolynomialFor(circle, chart);
     Near(polynomial.coefficients.back(), polynomial.omitted_point_residual,
          "leading coefficient equals omitted-point residual");
@@ -173,6 +173,32 @@ void TestResidualsAndCanonicalWitnesses() {
     Near(EvaluateResidual(circle, root_angle), 0,
          "canonical FK incidence witness");
     CheckCharts(circle);
+  }
+}
+
+void TestFoldedEndpointCoefficients() {
+  // With equal unit links, p=(x,0,0), v=ex and w=ey, the residual at
+  // u=+/-ex is |p+r*u|^6/4. This independent scalar identity checks tiny
+  // coefficients that an absolute residual tolerance would accept as zero.
+  for (const double scale : {1e-120, 1.0, 1e120}) {
+    const Lengths lengths{scale, scale, 0, 0.375 * scale};
+    for (const double offset : {0x1p-10, 0x1p-20, 0x1p-40}) {
+      for (const double side : {-1.0, 1.0}) {
+        PoseIsoRT target = PoseIsoRT::Identity();
+        target.translation().x() = side * (lengths.r - offset * scale);
+        const auto circle = Prepare(lengths, target);
+        const auto polynomial = PolynomialFor(circle);
+        const double distance = circle.p.x() - side * circle.lengths.r;
+        const double squared = distance * distance;
+        const double expected = 0.25 * squared * squared * squared;
+        const double actual = side < 0 ? polynomial.coefficients.front()
+                                       : polynomial.coefficients.back();
+        Require(actual > 0, "near-folded endpoint coefficient stays nonzero");
+        Near(actual / expected, 1.0,
+             "near-folded endpoint retains relative coefficient accuracy",
+             64 * crx::numerics::kEpsilon);
+      }
+    }
   }
 }
 
@@ -392,6 +418,7 @@ auto main(int argc, char **argv) -> int {
     const EigenAllocationGuard guard;
     // Include first construction, changing geometry/charts, and error paths.
     TestResidualsAndCanonicalWitnesses();
+    TestFoldedEndpointCoefficients();
     TestNormalization();
     TestDegeneratePolynomials();
     TestPolynomialUtilities();

@@ -19,6 +19,14 @@
 namespace crx::canonical {
 namespace {
 
+auto ValidRecoveryInput(const WristPhase &phase, const PoseTolerance &tolerance)
+    -> bool {
+  return std::isfinite(phase.cosine) && std::isfinite(phase.sine) &&
+         std::abs(phase.cosine * phase.cosine + phase.sine * phase.sine -
+                  1.0) <= numerics::kUnitTolerance &&
+         tolerance.IsValid();
+}
+
 // Right-multiply by a fixed-axis rotation using only the affected columns.
 // Keep (1 - cosine) + cosine on the fixed axis: rounding it to exactly one
 // changes polishing at singularities compared with Eigen's AngleAxis matrix.
@@ -341,8 +349,21 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
                           JointCandidate &candidate, const Vec6 *lower,
                           const Vec6 *upper, bool improve_accuracy) -> bool {
   WristCircle circle;
-  if (PrepareWristCircle(lengths, target, circle) != PreparationStatus::Ready ||
-      budget <= 0 || budget > numerics::kMaxPolishIterations ||
+  if (PrepareWristCircle(lengths, target, circle) != PreparationStatus::Ready) {
+    return false;
+  }
+  return PolishPreparedJointCandidate(circle, target, tolerance, budget,
+                                      candidate, lower, upper,
+                                      improve_accuracy);
+}
+
+auto PolishPreparedJointCandidate(const WristCircle &circle,
+                                  const PoseIsoRT &target,
+                                  const PoseTolerance &tolerance, int budget,
+                                  JointCandidate &candidate, const Vec6 *lower,
+                                  const Vec6 *upper, bool improve_accuracy)
+    -> bool {
+  if (budget <= 0 || budget > numerics::kMaxPolishIterations ||
       !candidate.joints.allFinite() || !tolerance.IsValid() ||
       (lower == nullptr) != (upper == nullptr)) {
     return false;
@@ -421,7 +442,7 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
   // to zero. Use the same full-matrix closure gate as direct recovery so an
   // unrealistically tight caller tolerance cannot publish that posture.
   candidate.orientation_error =
-      OrientationError(ForwardPose(l, q).linear(), target.linear());
+      OrientationError(ForwardPose(l, q, rotations).linear(), target.linear());
   if (!error.allFinite() || candidate.position_error > tolerance.position ||
       candidate.orientation_error > tolerance.orientation) {
     return false;
@@ -433,15 +454,13 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
 
 auto JointRefiner::Refine(double wrist_angle, double radius,
                           bool singular_representatives) -> JointRecovery {
-  const auto &lengths = lengths_;
+  const auto &circle = circle_;
   const auto &target = target_;
   const auto &tolerance = tolerance_;
   const int budget = budget_;
   JointRecovery result;
   result.status = RecoveryStatus::NeedsRefinement;
-  WristCircle circle;
-  if (budget <= 0 ||
-      PrepareWristCircle(lengths, target, circle) != PreparationStatus::Ready) {
+  if (budget <= 0) {
     return result;
   }
   Vec3 u = circle.v * std::cos(wrist_angle) + circle.w * std::sin(wrist_angle);
@@ -565,8 +584,8 @@ auto JointRefiner::Refine(double wrist_angle, double radius,
       }
       if (!RecoverAtBase(phase, circle.lengths, target.linear(), point, u,
                          elbow, candidate.joints, true) ||
-          !PolishJointCandidate(lengths, target, tolerance, budget,
-                                candidate)) {
+          !PolishPreparedJointCandidate(circle, target, tolerance, budget,
+                                        candidate)) {
         continue;
       }
       first = candidate;
@@ -596,10 +615,7 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                             const WristPhase &phase,
                             const PoseTolerance &tolerance) -> JointRecovery {
   JointRecovery result;
-  if (!std::isfinite(phase.cosine) || !std::isfinite(phase.sine) ||
-      std::abs(phase.cosine * phase.cosine + phase.sine * phase.sine - 1.0) >
-          numerics::kUnitTolerance ||
-      !tolerance.IsValid()) {
+  if (!ValidRecoveryInput(phase, tolerance)) {
     return result;
   }
   WristCircle circle;
@@ -608,6 +624,30 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
     result.status = preparation == PreparationStatus::InvalidInput
                         ? RecoveryStatus::InvalidInput
                         : RecoveryStatus::NumericalRangeFailure;
+    return result;
+  }
+  return RecoverPreparedJointCandidates(circle, target, phase, tolerance);
+}
+
+auto RecoverPreparedJointCandidates(const WristCircle &circle,
+                                    const PoseIsoRT &target, double wrist_angle,
+                                    const PoseTolerance &tolerance)
+    -> JointRecovery {
+  if (!std::isfinite(wrist_angle)) {
+    return {};
+  }
+  return RecoverPreparedJointCandidates(
+      circle, target, WristPhase{std::cos(wrist_angle), std::sin(wrist_angle)},
+      tolerance);
+}
+
+auto RecoverPreparedJointCandidates(const WristCircle &circle,
+                                    const PoseIsoRT &target,
+                                    const WristPhase &phase,
+                                    const PoseTolerance &tolerance)
+    -> JointRecovery {
+  JointRecovery result;
+  if (!ValidRecoveryInput(phase, tolerance)) {
     return result;
   }
   const Vec3 u = circle.v * phase.cosine + circle.w * phase.sine;

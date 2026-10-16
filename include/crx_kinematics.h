@@ -26,14 +26,14 @@
 
 #define CRX_KINEMATICS_VERSION_MAJOR 0
 #define CRX_KINEMATICS_VERSION_MINOR 4
-#define CRX_KINEMATICS_VERSION_PATCH 1
-#define CRX_KINEMATICS_VERSION_STRING "0.4.1"
+#define CRX_KINEMATICS_VERSION_PATCH 2
+#define CRX_KINEMATICS_VERSION_STRING "0.4.2"
 
 #if defined(_WIN32)
 #define MYLIB_EXPORT __declspec(dllexport)
 #define MYLIB_IMPORT __declspec(dllimport)
 #else
-#define MYLIB_EXPORT
+#define MYLIB_EXPORT __attribute__((visibility("default")))
 #define MYLIB_IMPORT
 #endif
 
@@ -96,7 +96,7 @@ MYLIB_EXPORT int SolveFK_CAD(const real_T *joints, real_T pose[16],
  * \param joints_all
  * list of optional solutions in mm or deg as a 12*n_solutions array (it should
  * include the joints solution)
- * \param max_solutions
+ * \param and max_solutions
  * maximum number of solution. This is the size of the joints_all solutions
  * buffer. For example, if max_solutions is 8, you can provide up to 8 valid
  * solutions (8x12 array)

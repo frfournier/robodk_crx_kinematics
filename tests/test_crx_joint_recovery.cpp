@@ -145,6 +145,21 @@ void CheckGeneratingWitness(const Lengths &lengths, const Vec6 &q) {
                          witness.axis.dot(circle.w)};
   const auto direct =
       RecoverJointCandidates(lengths, witness.pose, phase, tolerance);
+  const auto prepared =
+      RecoverPreparedJointCandidates(circle, witness.pose, phase, tolerance);
+  Require(prepared.status == direct.status && prepared.count == direct.count &&
+              prepared.used_singular_representatives ==
+                  direct.used_singular_representatives,
+          "prepared recovery preserves status and branch multiplicity");
+  for (std::size_t i = 0; i < direct.count; ++i) {
+    Require(
+        prepared.candidates[i].joints == direct.candidates[i].joints &&
+            prepared.candidates[i].position_error ==
+                direct.candidates[i].position_error &&
+            prepared.candidates[i].orientation_error ==
+                direct.candidates[i].orientation_error,
+        "prepared recovery preserves candidates and closure errors exactly");
+  }
   CheckCandidates(lengths, witness.pose, direct, tolerance);
   Require(direct.count == result.count && Contains(direct, q),
           "direct circle coordinates recover the generating posture");
@@ -246,6 +261,10 @@ void TestInvalidAndTightTolerance() {
     Require(strict.status == RecoveryStatus::NeedsRefinement &&
                 strict.count == 0,
             "position and orientation gates independently enforce tolerances");
+    const auto prepared =
+        RecoverPreparedJointCandidates(circle, witness.pose, angle, tight);
+    Require(prepared.status == strict.status && prepared.count == 0,
+            "prepared recovery retains both full-pose gates");
   }
   const double nan = std::numeric_limits<double>::quiet_NaN();
   for (const WristPhase phase :
@@ -256,6 +275,11 @@ void TestInvalidAndTightTolerance() {
     Require(invalid_phase.status == RecoveryStatus::InvalidInput &&
                 invalid_phase.count == 0,
             "non-unit or nonfinite circle coordinates rejected");
+    const auto prepared = RecoverPreparedJointCandidates(circle, witness.pose,
+                                                         phase, {1e-9, 1e-9});
+    Require(prepared.status == RecoveryStatus::InvalidInput &&
+                prepared.count == 0,
+            "prepared recovery still validates phase coordinates");
   }
   for (const PoseTolerance tolerance :
        {PoseTolerance{0, 1e-9}, PoseTolerance{1e-9, -1},
@@ -263,6 +287,10 @@ void TestInvalidAndTightTolerance() {
     Require(RecoverJointCandidates(lengths, witness.pose, angle, tolerance)
                     .status == RecoveryStatus::InvalidInput,
             "invalid pose tolerance rejected");
+    Require(
+        RecoverPreparedJointCandidates(circle, witness.pose, angle, tolerance)
+                .status == RecoveryStatus::InvalidInput,
+        "prepared recovery still validates tolerance");
   }
   Require(
       RecoverJointCandidates(lengths, witness.pose, nan, {1e-9, 1e-9}).status ==
@@ -435,7 +463,7 @@ void CheckRefinedBasePair(const Lengths &lengths, const Vec6 &q) {
   const PoseTolerance tolerance{circle.length_scale *
                                     crx::numerics::kGeometryTolerance,
                                 crx::numerics::kGeometryTolerance};
-  JointRefiner refiner(lengths, witness.pose, tolerance,
+  JointRefiner refiner(circle, witness.pose, tolerance,
                        crx::numerics::kPolishIterations);
   const auto allocations = crx::test::AllocationCount();
   const bool previous = Eigen::internal::is_malloc_allowed();
@@ -501,7 +529,7 @@ void TestFoldedNominationWindows() {
             "folded target prepares");
     const double closest =
         std::atan2(circle.p.dot(circle.w), circle.p.dot(circle.v)) + kPi;
-    JointRefiner refiner(lengths, target, tolerance,
+    JointRefiner refiner(circle, target, tolerance,
                          crx::numerics::kPolishIterations);
     const auto allocations = crx::test::AllocationCount();
     const bool previous = Eigen::internal::is_malloc_allowed();
@@ -539,6 +567,11 @@ void TestBoundedPoseCorrection() {
                                   crx::numerics::kGeometryTolerance};
     JointCandidate candidate;
     candidate.joints = q.array() + crx::numerics::kPolishMaxStepRad / 4;
+    auto prepared_candidate = candidate;
+    WristCircle circle;
+    Require(PrepareWristCircle(lengths, target, circle) ==
+                PreparationStatus::Ready,
+            "prepare bounded correction target");
     const auto allocations = crx::test::AllocationCount();
     const bool previous = Eigen::internal::is_malloc_allowed();
     Eigen::internal::set_is_malloc_allowed(false);
@@ -548,6 +581,14 @@ void TestBoundedPoseCorrection() {
     Eigen::internal::set_is_malloc_allowed(previous);
     Require(solved && allocations == crx::test::AllocationCount(),
             "bounded joint correction is allocation-free across scales");
+    Require(PolishPreparedJointCandidate(circle, target, tolerance,
+                                         crx::numerics::kPolishIterations,
+                                         prepared_candidate) &&
+                prepared_candidate.joints == candidate.joints &&
+                prepared_candidate.position_error == candidate.position_error &&
+                prepared_candidate.orientation_error ==
+                    candidate.orientation_error,
+            "prepared correction preserves joints and closure errors exactly");
     const auto actual = Forward(lengths, candidate.joints).pose;
     Require(((actual.translation() - target.translation()) / scale).norm() <=
                     crx::numerics::kGeometryTolerance &&

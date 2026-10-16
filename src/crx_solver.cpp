@@ -14,6 +14,7 @@
 #include "crx_command_lifts.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
+#include "crx_joint_trig.h"
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"
 #include "crx_types.h"
@@ -49,15 +50,7 @@ struct PreparedFk {
     Scalar sine = 0, cosine = 1, a = 0, d = 0, theta = 0;
     bool is_prismatic = false;
 
-    auto Pose(double motion) const -> PoseIsoRT {
-      Scalar current_theta = theta, current_d = d;
-      if (is_prismatic) {
-        current_d += static_cast<Scalar>(motion);
-      } else {
-        current_theta += static_cast<Scalar>(motion);
-      }
-      const Scalar st = std::sin(current_theta);
-      const Scalar ct = std::cos(current_theta);
+    auto Pose(double current_d, double st, double ct) const -> PoseIsoRT {
       PoseIsoRT transform;
       transform.matrix() << ct, -st, 0.0, a, // Modified DH.
           cosine * st, cosine * ct, -sine, -current_d * sine, sine * st,
@@ -102,6 +95,9 @@ auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
   const double sensed_joint2_rad =
       user_joints_rad[kJoint2Index] * model.joint_senses[kJoint2Index];
 
+  static_assert(JointTrig::kCount == kDofCount);
+  JointTrig::Values angles{};
+  Vec6 distances;
   for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
     const auto eigen_index = static_cast<Eigen::Index>(joint_id);
     const auto storage_index = static_cast<std::size_t>(joint_id);
@@ -113,9 +109,23 @@ auto SolveFKCore(const Vec6 &user_joints_rad, PoseIsoRT &pose_out,
       joint_model_rad = -sensed_joint2_rad + sensed_joint_rad;
     }
 
-    accumulated_pose =
-        accumulated_pose * fk.links[storage_index].Pose(joint_model_rad);
+    const auto &link = fk.links[storage_index];
+    angles.at(storage_index) = link.theta;
+    distances[joint_id] = link.d;
+    if (link.is_prismatic) {
+      distances[joint_id] += joint_model_rad;
+    } else {
+      angles.at(storage_index) += joint_model_rad;
+    }
+  }
 
+  const JointTrig trig(angles);
+  for (int joint_id = 0; joint_id < kDofCount; ++joint_id) {
+    const auto storage_index = static_cast<std::size_t>(joint_id);
+    accumulated_pose =
+        accumulated_pose * fk.links[storage_index].Pose(
+                               distances[joint_id], trig.sine.at(storage_index),
+                               trig.cosine.at(storage_index));
     if (joint_poses_out != nullptr) {
       (*joint_poses_out)[storage_index + 1U] = accumulated_pose;
     }

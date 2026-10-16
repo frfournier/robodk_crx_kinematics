@@ -62,20 +62,35 @@ auto RecoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
                             const WristPhase &phase,
                             const PoseTolerance &tolerance) -> JointRecovery;
 
+// Prepared entry points require a Ready circle for this exact, unchanged
+// target. Discovery shares it across all nominations; phase/tolerance gates
+// still apply.
+auto RecoverPreparedJointCandidates(const WristCircle &circle,
+                                    const PoseIsoRT &target, double wrist_angle,
+                                    const PoseTolerance &tolerance)
+    -> JointRecovery;
+auto RecoverPreparedJointCandidates(const WristCircle &circle,
+                                    const PoseIsoRT &target,
+                                    const WristPhase &phase,
+                                    const PoseTolerance &tolerance)
+    -> JointRecovery;
+
 // Bounded full-pose correction of a geometric nomination. No random/joint-seed
 // search: accepted postures must remain in the nominated wrist-phase window.
+// Circle, target and tolerance must outlive the refiner and remain unchanged.
 class JointRefiner {
 public:
-  JointRefiner(const Lengths &lengths, const PoseIsoRT &target,
+  // Same prepared-circle contract as recovery.
+  JointRefiner(const WristCircle &circle, const PoseIsoRT &target,
                const PoseTolerance &tolerance, int budget)
-      : lengths_(lengths), target_(target), tolerance_(tolerance),
+      : circle_(circle), target_(target), tolerance_(tolerance),
         budget_(budget) {}
 
   auto Refine(double wrist_angle, double radius,
               bool singular_representatives = true) -> JointRecovery;
 
 private:
-  const Lengths &lengths_;
+  const WristCircle &circle_;
   const PoseIsoRT &target_;
   const PoseTolerance &tolerance_;
   int budget_;
@@ -94,5 +109,14 @@ auto PolishJointCandidate(const Lengths &lengths, const PoseIsoRT &target,
                           const Vec6 *lower = nullptr,
                           const Vec6 *upper = nullptr,
                           bool improve_accuracy = false) -> bool;
+
+// Requires a Ready circle for this exact target, as above.
+auto PolishPreparedJointCandidate(const WristCircle &circle,
+                                  const PoseIsoRT &target,
+                                  const PoseTolerance &tolerance, int budget,
+                                  JointCandidate &candidate,
+                                  const Vec6 *lower = nullptr,
+                                  const Vec6 *upper = nullptr,
+                                  bool improve_accuracy = false) -> bool;
 
 } // namespace crx::canonical

@@ -1,6 +1,7 @@
 #include "crx_canonical.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
+#include "crx_joint_trig.h"
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"
 #include "crx_robodk_adapter.h"
@@ -9,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
@@ -42,6 +44,73 @@ auto Target(const crx::CrxModelData &model, const Vec6 &q) -> crx::PoseIsoRT {
   Require(crx::SolveFkIsometry(model, q, pose, nullptr, false) == 1,
           "construct target by FK");
   return pose;
+}
+
+void CheckJointTrig() {
+  const double infinity = std::numeric_limits<double>::infinity();
+  const auto check = [](const crx::JointTrig::Values &angles) {
+    const crx::JointTrig trig(angles);
+    for (std::size_t joint = 0; joint < trig.sine.size(); ++joint) {
+      const double angle = angles.at(joint);
+      Require(std::abs(trig.sine[joint] - std::sin(angle)) <=
+                      8 * std::numeric_limits<double>::epsilon() &&
+                  std::abs(trig.cosine[joint] - std::cos(angle)) <=
+                      8 * std::numeric_limits<double>::epsilon(),
+              "batched joint trig agrees with scalar reference");
+      Require(std::abs(trig.sine[joint] * trig.sine[joint] +
+                       trig.cosine[joint] * trig.cosine[joint] - 1) <=
+                  8 * std::numeric_limits<double>::epsilon(),
+              "batched joint trig stays on the unit circle");
+    }
+  };
+  // Mix lanes and include reduction boundaries, signed zero, and large turns.
+  for (const double center :
+       {0.0, kPi / 2, -kPi, 2 * kPi, 15.0, 1e6, 1e13, 1e14, 1e20, 1e300}) {
+    const crx::JointTrig::Values angles{center,
+                                        -center,
+                                        std::nextafter(center, infinity),
+                                        std::nextafter(center, -infinity),
+                                        .375,
+                                        -1.125};
+    check(angles);
+  }
+  // Exercise every lane over the vector interval, including both sides of
+  // quadrant boundaries where the result switches approximating polynomial.
+  for (int sample = -1000; sample <= 1000; ++sample) {
+    crx::JointTrig::Values angles{};
+    for (std::size_t joint = 0; joint < angles.size(); ++joint) {
+      angles.at(joint) = .014 * sample + .031 * static_cast<double>(joint);
+    }
+    check(angles);
+  }
+  for (int quadrant = -9; quadrant <= 9; ++quadrant) {
+    const double angle = quadrant * kPi / 2;
+    const crx::JointTrig::Values angles{angle,
+                                        -angle,
+                                        std::nextafter(angle, infinity),
+                                        std::nextafter(angle, -infinity),
+                                        angle + 1e-10,
+                                        angle - 1e-10};
+    check(angles);
+  }
+  crx::JointTrig::Values zeros{};
+  zeros[1] = -0.0;
+  const crx::JointTrig trig(zeros);
+  Require(!std::signbit(trig.sine[0]) && std::signbit(trig.sine[1]) &&
+              trig.cosine[0] == 1 && trig.cosine[1] == 1,
+          "batched joint trig preserves signed zero");
+  const crx::JointTrig::Values exceptional{
+      infinity, -infinity, std::numeric_limits<double>::quiet_NaN(),
+      .375,     -1.125,    0.0};
+  const crx::JointTrig nonfinite(exceptional);
+  for (std::size_t joint = 0; joint < 3; ++joint) {
+    Require(std::isnan(nonfinite.sine[joint]) &&
+                std::isnan(nonfinite.cosine[joint]),
+            "exceptional trig inputs preserve scalar classification");
+  }
+  Require(nonfinite.sine[3] == std::sin(exceptional[3]) &&
+              nonfinite.cosine[4] == std::cos(exceptional[4]),
+          "exceptional trig lanes do not corrupt finite lanes");
 }
 
 void CheckGeneralForwardGeometry() {
@@ -242,6 +311,7 @@ void CheckPhaseDomains() {
 } // namespace
 
 auto main() -> int {
+  CheckJointTrig();
   CheckGeneralForwardGeometry();
   CheckMappings();
   CheckSolves();

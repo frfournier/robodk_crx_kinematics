@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from crx_test_support import RobotT, check_solver_pose
+from crx_fixture_support import assert_regenerated_cases_match
 from fixtures.generate_solver_cases import (
     corpus, DEFAULT_RANDOM_PER_MODEL, DEFAULT_STRESS_PER_GROUP_MODEL, DEFAULT_SEED,
 )
@@ -20,9 +21,11 @@ CASES = json.loads((FIXTURES / "crx_solver_cases.json").read_text())
 def generated_models():
     models, references, generated = corpus(
         DEFAULT_RANDOM_PER_MODEL, DEFAULT_STRESS_PER_GROUP_MODEL, DEFAULT_SEED)
-    rendered = json.dumps(generated, indent=2) + "\n"
-    assert rendered == (FIXTURES / "crx_solver_cases.json").read_text()
-    assert hashlib.sha256(rendered.encode()).hexdigest() == "7714db1d8522f79f72889092bdd23982925b0db104773cafeb588a5a79e59c66"
+    frozen = (FIXTURES / "crx_solver_cases.json").read_text()
+    assert hashlib.sha256(frozen.encode()).hexdigest() == "7714db1d8522f79f72889092bdd23982925b0db104773cafeb588a5a79e59c66"
+    # Keep the recorded corpus exact. Regeneration can differ by roundoff
+    # between Windows and Linux math libraries, without changing the cases.
+    assert_regenerated_cases_match(generated, CASES)
     names = {case["name"] for case in generated}
     assert len(names) == len(generated)
     robots = []

@@ -1,14 +1,15 @@
 # FANUC CRX custom kinematics for RoboDK
 
-**Current release:** `0.4.1` ([changelog](CHANGELOG.md))
+**Current release:** `0.4.2` ([changelog](CHANGELOG.md))
 
-C++17 forward and inverse kinematics for FANUC CRX robots with a non-spherical
-wrist. Targets RoboDK **6.0.6.26901+**; Windows x64 and Linux Ubuntu 24.04 are the tested platform.
+RoboDK extension for forward and inverse kinematics for FANUC CRX robots with a non-spherical wrist.
+Targets RoboDK **6.0.6.26901+** on Windows 11 and Ubuntu 24.04 or newer,
+with an x86-64 CPU supporting AVX2 and FMA.
 
 ## Build and use
 
-Requires Git LFS, Visual Studio 2022/2026 with C++ and Clang tools, CMake/Ninja,
-and [uv](https://docs.astral.sh/uv/).
+On Windows, requires Git LFS, Visual Studio 2022/2026 with C++ and Clang tools,
+CMake/Ninja, and [uv](https://docs.astral.sh/uv/).
 
 ```powershell
 git clone https://github.com/frfournier/robodk_crx_kinematics.git
@@ -20,7 +21,32 @@ scripts\build_crx_kinematics_msvc.bat
 The script configures the toolchain and Python dependencies. CMake uses local
 Eigen headers or downloads them on the first build.
 
-1. Close RoboDK and copy `build/Release/crx_kinematics.dll` into
+CMake and qmake builds always use AVX2/FMA for the private FK trigonometry
+kernel; recovery and polishing retain their existing floating-point settings.
+The CPU requirement applies independently of the OS version. There is no
+runtime CPU dispatch or scalar-only build option.
+
+CMake Release builds require link-time optimization (LTO) support, checked
+during configuration. The private AVX2/FMA kernel and Windows math compatibility
+shim remain separate native objects to preserve their compiler settings.
+
+On Ubuntu, install GCC or Clang, CMake, Ninja and uv, then run:
+
+```sh
+uv sync --locked
+cmake --preset linux-release
+cmake --build --preset linux-release
+ctest --preset linux-release
+```
+
+The Linux library is `build/Release/libcrx_kinematics.so`.
+
+Build controls are limited to `BUILD_TESTING`, `CRXKIN_ENABLE_CLANG_TIDY`, and
+`ROBODK_DEPLOY` (off by default, with optional `ROBODK_ROOT`). Eigen selection
+is automatic: local headers take precedence over the pinned download (5.0.1).
+
+1. Close RoboDK and copy `build/Release/crx_kinematics.dll` (Windows) or
+   `build/Release/libcrx_kinematics.so` (Linux) into
    `<RoboDK>/bin/robotextensions/`.
 2. Restart RoboDK and open the matching `*-Custom.robot` from [assets](assets).
    **These provided robot assets are required for the library to work.**
@@ -94,6 +120,7 @@ implementation and private headers are in `src/`.
 
 - [Abbes & Poisson, 2024](https://doi.org/10.3390/robotics13060091): geometric CRX inverse kinematics.
 - [Daniel Cranston's CRX kinematics](https://github.com/danielcranston/crx_kinematics): implementation reference.
+- [Matthew Jarvis's CRX kinematics](https://github.com/mattj23/crx-kinematics/blob/26e27c3dae5b2a3c84e1e35fb9faf4c113439e46/docs/LINEAR_METHOD.md): linear method resolution improvement
 - [IK-Geo](https://github.com/rpiRobotics/ik-geo): geometric subproblem decomposition and one-dimensional search reference.
 - [RoboDK samplekinematics](https://github.com/RoboDK/Plug-In-Interface/tree/master/robotextensions/samplekinematics): plugin interface and integration sample.
 

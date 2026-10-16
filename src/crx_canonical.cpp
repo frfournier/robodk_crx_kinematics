@@ -22,6 +22,28 @@ auto Multiply(const Polynomial<N> &left, const Polynomial<M> &right)
   return result;
 }
 
+constexpr int kQuadraticSize = 3;
+constexpr int kQuarticSize = 5;
+
+auto Square(const Polynomial<kQuadraticSize> &polynomial)
+    -> Polynomial<kQuarticSize> {
+  const double cross01 = polynomial.x() * polynomial.y();
+  const double cross02 = polynomial.x() * polynomial.z();
+  const double cross12 = polynomial.y() * polynomial.z();
+  // Reuse symmetric products while preserving the convolution's accumulation
+  // order, especially the cancellation in the middle coefficient.
+  return {polynomial.x() * polynomial.x(), cross01 + cross01,
+          (cross02 + (polynomial.y() * polynomial.y())) + cross02,
+          cross12 + cross12, polynomial.z() * polynomial.z()};
+}
+
+auto MultiplyByHalfAngleDenominator(
+    const Polynomial<kQuadraticSize> &polynomial) -> Polynomial<kQuarticSize> {
+  // Q(t) = 1 + t^2: only the overlapping middle coefficient needs addition.
+  return {polynomial.x(), polynomial.y(), polynomial.x() + polynomial.z(),
+          polynomial.y(), polynomial.z()};
+}
+
 auto IsRigidTarget(const PoseIsoRT &target) -> bool {
   if (!target.matrix().allFinite() ||
       !(target.matrix().row(3) - Eigen::RowVector4d(0, 0, 0, 1))
@@ -70,10 +92,10 @@ auto ConstructCoefficients(const WristCircle &circle, const Vec3 &v,
   const Polynomial<3> a_hat = s - arm_difference * kQ;
   const Polynomial<3> sphere = s + arm_difference * kQ;
   const Polynomial<5> d_hat =
-      (4.0 * a_squared) * Multiply(s, kQ) - Multiply(sphere, sphere);
+      (4.0 * a_squared) * MultiplyByHalfAngleDenominator(s) - Square(sphere);
   const Polynomial<5> first_factor =
-      Multiply(a_hat, a_hat) - (4.0 * b_squared) * Multiply(z, z);
-  const Polynomial<9> first = Multiply(first_factor, Multiply(g, g));
+      Square(a_hat) - (4.0 * b_squared) * Square(z);
+  const Polynomial<9> first = Multiply(first_factor, Square(g));
   const Polynomial<3> second_factor = (2.0 * pz) * g + (r * r - p_squared) * uz;
   const Polynomial<9> second = Multiply(d_hat, Multiply(uz, second_factor));
   Coefficients result{};

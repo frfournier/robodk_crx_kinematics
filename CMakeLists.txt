@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 # ------------------------------------------------------------------------------
 # Project
 # ------------------------------------------------------------------------------
-project(crx_kinematics VERSION 0.4.1 LANGUAGES CXX)
+project(crx_kinematics VERSION 0.4.2 LANGUAGES CXX)
 
 include(CTest)
 
@@ -12,6 +12,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL
     "Generate compile_commands.json for C++ tooling" FORCE)
+
+# Optimize across translation units in Release, including the native solver
+# tests and timing harnesses. Fail explicitly if the active toolchain cannot
+# provide IPO rather than silently producing an unoptimized comparison build.
+if(CMAKE_BUILD_TYPE STREQUAL "Release" OR
+   "Release" IN_LIST CMAKE_CONFIGURATION_TYPES)
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT _CRXKIN_IPO_SUPPORTED OUTPUT _CRXKIN_IPO_ERROR
+                      LANGUAGES CXX)
+  if(NOT _CRXKIN_IPO_SUPPORTED)
+    message(FATAL_ERROR "Release requires IPO/LTO support: ${_CRXKIN_IPO_ERROR}")
+  endif()
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+endif()
 
 # Reject Eigen modules that are not available under MPL 2.0. This definition
 # must be active before any Eigen header is parsed.
@@ -22,7 +36,6 @@ add_compile_definitions(EIGEN_MPL2_ONLY)
 # ------------------------------------------------------------------------------
 option(ROBODK_DEPLOY "Copy built library to RoboDK robotextensions after build" OFF)
 set(ROBODK_ROOT "" CACHE PATH "RoboDK root path (e.g. C:/RoboDK). If empty, will attempt discovery on Windows.")
-option(CRXKIN_USE_VENDORED_EIGEN "Prefer vendored Eigen in third_party/eigen if present" ON)
 option(CRXKIN_ENABLE_CLANG_TIDY "Run clang-tidy while compiling crx_kinematics" OFF)
 
 # ------------------------------------------------------------------------------
@@ -68,6 +81,8 @@ find_program(CRXKIN_CLANG_FORMAT_EXECUTABLE
   HINTS "${_CRXKIN_VS_LLVM_BIN}"
   DOC "clang-format executable"
 )
+mark_as_advanced(CRXKIN_VSWHERE_EXECUTABLE
+                 CRXKIN_CLANG_TIDY_EXECUTABLE CRXKIN_CLANG_FORMAT_EXECUTABLE)
 
 if(CRXKIN_ENABLE_CLANG_TIDY)
   if(NOT CRXKIN_CLANG_TIDY_EXECUTABLE)
@@ -117,11 +132,11 @@ message(STATUS "Build output root: ${_OUT_ROOT}")
 # ------------------------------------------------------------------------------
 set(_VENDORED_EIGEN_DIR "${CMAKE_SOURCE_DIR}/third_party/eigen")
 
-if(CRXKIN_USE_VENDORED_EIGEN AND EXISTS "${_VENDORED_EIGEN_DIR}/Eigen/Core")
+if(EXISTS "${_VENDORED_EIGEN_DIR}/Eigen/Core")
   message(STATUS "Using vendored Eigen include path: ${_VENDORED_EIGEN_DIR}")
   set(_CRXKIN_EIGEN_SOURCE_DIR "${_VENDORED_EIGEN_DIR}")
 else()
-  message(STATUS "Vendored Eigen not found (or disabled). Fetching Eigen 5.0.1 via FetchContent...")
+  message(STATUS "Vendored Eigen not found. Fetching Eigen 5.0.1 via FetchContent...")
 
   include(FetchContent)
   FetchContent_Declare(
@@ -179,6 +194,7 @@ set(CRXKIN_CPP_SOURCES
   ${CRXKIN_CANONICAL_SOURCES}
   "${CMAKE_SOURCE_DIR}/src/crx_command_lifts.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_joint_trig.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_helpers.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_solver.cpp"
@@ -209,6 +225,23 @@ target_include_directories(crx_kinematics PRIVATE
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
 
+# Compile only the private, plain-double trig kernel for AVX2. Keep the solver's
+# Eigen types and floating-point compilation settings unchanged.
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR
+   NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$")
+  message(FATAL_ERROR "crx_kinematics requires x86-64 with AVX2 and FMA.")
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  # Raw flags also survive clang-tidy's forwarded clang-cl command parser.
+  set(_CRXKIN_TRIG_FLAGS -mavx2 -mfma)
+elseif(MSVC)
+  set(_CRXKIN_TRIG_FLAGS /arch:AVX2)
+else()
+  message(FATAL_ERROR "Use Clang, GCC or MSVC to build the AVX2/FMA kernel.")
+endif()
+set_source_files_properties("${CMAKE_SOURCE_DIR}/src/crx_joint_trig.cpp"
+  PROPERTIES COMPILE_OPTIONS "${_CRXKIN_TRIG_FLAGS}")
+
 # CMake supplies the platform-appropriate Release optimization flags.
 target_compile_definitions(crx_kinematics PRIVATE
   "$<$<CONFIG:Release>:NDEBUG>"
@@ -224,13 +257,18 @@ if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   )
 endif()
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND
-   NOT (MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
-  target_compile_options(crx_kinematics PRIVATE
-    "$<$<CONFIG:Release>:-O3>"
-    "$<$<CONFIG:Release>:-march=native>"
-  )
+# Keep these as native objects even in an LTO link: the packet kernel has a
+# different ISA/Eigen configuration, and the sincos shim must not be optimized
+# back into a call to itself. Source options follow CMake's target IPO flags.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  set(_CRXKIN_NO_LTO_FLAG -fno-lto)
+elseif(MSVC)
+  set(_CRXKIN_NO_LTO_FLAG /GL-)
 endif()
+set_property(SOURCE
+  "${CMAKE_SOURCE_DIR}/src/crx_joint_trig.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
+  APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Release>:${_CRXKIN_NO_LTO_FLAG}>")
 
 # Keep the notice, exact Eigen header source, and licensing files beside every
 # binary. The vendored tree may contain local changes, so an upstream URL alone
@@ -362,6 +400,11 @@ if(BUILD_TESTING)
   target_include_directories(crx_canonical_tests PRIVATE src tests)
   target_link_libraries(crx_canonical_tests PRIVATE Eigen3::Eigen)
   target_compile_definitions(crx_canonical_tests PRIVATE EIGEN_RUNTIME_NO_MALLOC)
+  # Whole-program optimization can elide the deliberate allocations used to
+  # prove that this harness's allocation replacements are active. The DLL and
+  # solver harness still exercise LTO through the native and Python regressions.
+  set_property(TARGET crx_canonical_tests PROPERTY
+               INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE)
   if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     target_compile_options(crx_canonical_tests PRIVATE /UNDEBUG /W4 /permissive-)
   else()
@@ -373,6 +416,7 @@ if(BUILD_TESTING)
     NAMES uv
     DOC "uv executable used to run the Python regression suite"
   )
+  mark_as_advanced(CRXKIN_UV_EXECUTABLE)
 
   if(CRXKIN_UV_EXECUTABLE)
     add_test(

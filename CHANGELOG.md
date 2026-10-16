@@ -3,29 +3,41 @@
 Release details are recorded below, with GitHub release tags and abbreviated
 commit references for traceability.
 
+## 0.4.2
+
+- Added AVX2/FMA batching for FK trigonometry in CMake and qmake builds,
+  requiring an x86-64 CPU with AVX2 and FMA.
+- Reduced IK calculations by reusing wrist geometry, refinement residuals,
+  and pose-check rotations.
+- Optimized polynomial coefficient construction by reusing symmetric products
+  and specializing multiplication by the half-angle denominator.
+- Enabled link-time optimization for CMake Release builds.
+- Added a Linux Release preset and removed host-specific `-march=native` tuning.
+- Made Eigen selection automatic and removed its build option.
+- Fixed Linux C ABI exports and Eigen source copying on repeated qmake builds.
+- Updated fixture regeneration checks to allow platform math-library roundoff
+  and added regression coverage for polynomial coefficients near folded poses.
+
 ## 0.4.1
 
-- Added a strictly validated nearby-seed fast path for `max_solutions == 1`,
-  with full-search fallback. This returns a nearby valid solution without
-  guaranteeing the globally closest solution.
-- Enumerate command turns in ranking order and stop after enough valid outputs
-  are known, preserving ranked results for multi-output and unseeded requests.
-- Prune incompatible algebraic nominations using conservative J3/J6 joint-limit
-  domains, with unfiltered discovery fallback when needed.
+- Added a validated nearby-seed fast path for `max_solutions == 1`, with
+  full-search fallback.
+- Changed command-turn enumeration to follow ranking order and stop after
+  finding enough valid outputs.
+- Added J3/J6 joint-limit pruning of algebraic nominations, with unfiltered
+  discovery fallback.
 - Added independent FK, joint-limit, ranking, fallback and periodic-turn
-  regressions. The public C ABI is unchanged.
+  regressions.
 
 ## 0.4.0
 
 - Integrated polynomial IK discovery and geometric refinement as the production
   solver, preserving the public C ABI (`4e74e9a`).
 - Improved singularity and boundary recovery, command-turn handling, and solver
-  throughput. Difficult singularities retain a measured latency tradeoff; see
-  [validation history](notes/testing-validation-history.md).
+  throughput. Difficult singularities retain a measured latency tradeoff;
 - Added independent geometry, scale, accuracy and allocation regressions, with
   comparisons against an external baseline snapshot.
-- Added frozen stress corpora and captured asset references; corrected the
-  ABBES-TABLE6 solution-4 configuration labels in the recorded fixtures.
+- Added frozen stress corpora and captured asset references; corrected the ABBES-TABLE6 solution-4 configuration labels in the recorded fixtures.
 
 ## 0.3.1
 
