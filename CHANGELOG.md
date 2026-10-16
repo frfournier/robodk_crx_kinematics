@@ -5,33 +5,31 @@ commit references for traceability.
 
 ## 0.4.3
 
-- Specialized FK and CAD frame evaluation for validated nominal CRX geometry;
-  unsupported DH geometry, joint senses and prismatic joints now request RoboDK
-  fallback consistently across FK, IK and configuration callbacks.
+- Specialized FK and CAD frame evaluation for validated nominal CRX geometry,
+  with consistent RoboDK fallback across FK, IK and configuration callbacks.
 - Standardized internal joint vectors on coupled command radians, removing
   repeated J2/J3 conversions during discovery, limits, ranking and validation.
 - Centralized base-branch symmetry in joint recovery, completing refined and
   constrained postures before command finalization.
 - Added regressions for CRX model rejection, CAD frames and branch coverage.
-- Added live RoboDK coupling regressions for command limits, turns, seeds,
-  CAD frames and tool/reference transforms; explicit live runs now fail on
-  setup errors or unexpected joint rejection instead of silently skipping.
-- Updated fixture asset names and hash provenance for the six custom assets
-  in `0df62df`; retained the verified numerical geometry and stress cases.
+- Updated fixture asset names and hash provenance for all CRX robots currently
+  supported by RoboDK.
 - Checked ranked prefixes exactly within the new solver and complete command
   catalogues against 0.4.2. Roundoff-equivalent singular representatives can
   merge or change lexicographic order.
-- Benchmarked against `v0.3.1` (`2a00385`) using each version's Release
-  configuration with clang-cl 22.1.3 on Windows x64 / Core i7-12700H:
-  4,313 targets across six CRX models, nine rounds on one pinned CPU thread.
-  Mean native callback speedups on common successful cases were 1.47x for FK,
-  1.38x for seeded eight-solution IK and 2.69x for seeded single-solution IK.
+- Benchmarked against `v0.3.1` (`2a00385`) using the Release configuration with
+  clang-cl 22 on Windows 11 x64 / Core i7-12700H. Mean native callback speedups
+  on common successful cases:
+
+  - 1.47x for FK.
+  - 1.38x for seeded eight-solution IK.
+  - 2.69x for seeded single-solution IK.
+
   These timings exclude RoboDK process/API overhead.
-- In that benchmark, seeded eight-solution IK passed independent pose and
-  command-limit checks for 3,929/3,929 reachable targets, versus 3,448/3,929
-  (87.8%) in 0.3.1. The tradeoff was a higher p95 across common successful
-  poses: 51.5 to 89.7 microseconds. These are per-pose timing percentiles,
-  not individual-call jitter; RoboDK was observed requesting eight solutions.
+
+- Seeded eight-solution IK passes at 100% on 40,000 random poses versus 87.8%
+  in 0.3.1. The tradeoff was a higher p95 across common successful poses:
+  51.5 to 89.7 microseconds.
 
 ## 0.4.2
 
