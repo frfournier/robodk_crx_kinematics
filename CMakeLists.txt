@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 # ------------------------------------------------------------------------------
 # Project
 # ------------------------------------------------------------------------------
-project(crx_kinematics VERSION 0.4.2 LANGUAGES CXX)
+project(crx_kinematics VERSION 0.4.3 LANGUAGES CXX)
 
 include(CTest)
 

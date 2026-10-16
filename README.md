@@ -1,6 +1,6 @@
 # FANUC CRX custom kinematics for RoboDK
 
-**Current release:** `0.4.2` ([changelog](CHANGELOG.md))
+**Current release:** `0.4.3` ([changelog](CHANGELOG.md))
 
 RoboDK extension for forward and inverse kinematics for FANUC CRX robots with a non-spherical wrist.
 Targets RoboDK **6.0.6.26901+** on Windows 11 and Ubuntu 24.04 or newer,
@@ -55,10 +55,16 @@ is automatic: local headers take precedence over the pinned download (5.0.1).
 
 Builds do not deploy automatically. Validate motion before using it on hardware.
 
+Live DLL callbacks have been verified with all six supplied `*-Custom.robot`
+assets; see [live test coverage](tests/README.md#reliability-and-live-integration).
+
 ## Solver logic
 
-FK composes the robot model's modified-DH transforms, joint senses, and base/tool
-frames. IK reduces the geometry to one angle around a wrist circle, reconstructs
+FK and IK share validation of the nominal CRX DH signature and joint senses.
+Unsupported geometry, including prismatic joints and axis calibration, requests
+RoboDK fallback. FK uses the resulting CRX lengths and base/tool frames,
+including intermediate CAD frames. Internal joints are coupled command radians.
+IK reduces the geometry to one angle around a wrist circle, reconstructs
 joint postures, and checks them against the complete FK pose.
 
 IK finds candidates with polynomial roots and geometric refinement, applies
