@@ -18,6 +18,7 @@
 #include "crx_joint_trig.h"
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"
+#include "crx_polynomial_roots.h"
 #include "crx_types.h"
 
 namespace crx {
@@ -94,6 +95,66 @@ auto PrepareCrxModel(const CrxModelData &model, PreparedCrxModel &output)
   return ModelStatus::Ready;
 }
 
+struct PreparedIkProblem {
+  PreparedCrxModel model;
+  PoseIsoRT target_pose_06 = PoseIsoRT::Identity();
+  Eigen::Quaterniond target_quaternion = Eigen::Quaterniond::Identity();
+  canonical::PoseTolerance tolerance{numerics::kSolutionPositionToleranceMm,
+                                     numerics::kSolutionAngleToleranceRad};
+};
+
+auto ModelStatusToIkStatus(ModelStatus status) -> IkStatus {
+  return status == ModelStatus::UnsupportedModel ? IkStatus::UnsupportedModel
+                                                 : IkStatus::InvalidInput;
+}
+
+auto PrepareIkProblem(const CrxModelData &model, const PoseIsoRT &target_pose,
+                      PreparedIkProblem &output) -> ModelStatus {
+  if (!target_pose.matrix().allFinite()) {
+    return ModelStatus::InvalidInput;
+  }
+  const auto preparation = PrepareCrxModel(model, output.model);
+  if (preparation != ModelStatus::Ready) {
+    return preparation;
+  }
+  output.target_quaternion = Eigen::Quaterniond(target_pose.linear());
+  output.target_pose_06 = output.model.base_transform.inverse() * target_pose *
+                          output.model.tool_transform.inverse();
+  output.target_pose_06.translation().z() -= output.model.base_height;
+  return ModelStatus::Ready;
+}
+
+auto RecoveryStatusToIkStatus(canonical::RecoveryStatus status) -> IkStatus {
+  switch (status) {
+  case canonical::RecoveryStatus::Candidates:
+    return IkStatus::StrictCandidates;
+  case canonical::RecoveryStatus::NoCandidate:
+    return IkStatus::NoCandidate;
+  case canonical::RecoveryStatus::InvalidInput:
+    return IkStatus::InvalidInput;
+  case canonical::RecoveryStatus::NumericalRangeFailure:
+    return IkStatus::NumericalRangeFailure;
+  case canonical::RecoveryStatus::NeedsRefinement:
+    return IkStatus::Unresolved;
+  }
+  return IkStatus::Unresolved;
+}
+
+auto CommandSelectionStatusToIkStatus(CommandSelectionStatus status)
+    -> IkStatus {
+  switch (status) {
+  case CommandSelectionStatus::Complete:
+    return IkStatus::StrictCandidates;
+  case CommandSelectionStatus::InvalidInput:
+    return IkStatus::InvalidInput;
+  case CommandSelectionStatus::RangeFailure:
+    return IkStatus::NumericalRangeFailure;
+  case CommandSelectionStatus::WorkLimit:
+    return IkStatus::WorkLimit;
+  }
+  return IkStatus::InvalidInput;
+}
+
 auto SolveFKCore(const Vec6 &command_rad, PoseIsoRT &pose_out,
                  JointPoseBuffer *joint_poses_out, bool check_limits,
                  const PreparedCrxModel &model) -> int {
@@ -124,7 +185,8 @@ auto SolveFKCore(const Vec6 &command_rad, PoseIsoRT &pose_out,
     const auto storage_index = static_cast<std::size_t>(joint_id);
     const double st = trig.sine.at(storage_index);
     const double ct = trig.cosine.at(storage_index);
-    const double sa = kSine.at(storage_index), ca = kCosine.at(storage_index);
+    const double sa = kSine.at(storage_index);
+    const double ca = kCosine.at(storage_index);
     PoseIsoRT link;
     link.matrix() << ct, -st, 0, a.at(storage_index), ca * st, ca * ct, -sa,
         -d.at(storage_index) * sa, sa * st, sa * ct, ca,
@@ -264,10 +326,10 @@ auto NominateBoundaryPosture(const Vec6 &command, const PreparedCrxModel &model,
     if (upper - lower >= kTwoPi) {
       continue; // Every phase has a lift in an interval spanning a full turn.
     }
-    const double middle = lower / 2 + upper / 2;
+    const double middle = (lower / 2) + (upper / 2);
     const double nearest =
         command[joint] +
-        kTwoPi * std::round((middle - command[joint]) / kTwoPi);
+        (kTwoPi * std::round((middle - command[joint]) / kTwoPi));
     const double clamped = std::clamp(nearest, lower, upper);
     if (!std::isfinite(nearest) ||
         std::abs(clamped - nearest) > numerics::kJointPhaseToleranceRad) {
@@ -281,6 +343,22 @@ auto NominateBoundaryPosture(const Vec6 &command, const PreparedCrxModel &model,
   return changed;
 }
 
+auto PrepareCommandPostures(const std::vector<Vec6> &geometric_solutions,
+                            const PreparedCrxModel &model,
+                            const PoseIsoRT &target_pose,
+                            const Eigen::Quaterniond &target_quaternion)
+    -> std::vector<Vec6> {
+  auto command_postures = geometric_solutions;
+  for (auto &command : command_postures) {
+    Vec6 bounded;
+    if (NominateBoundaryPosture(command, model, bounded) &&
+        IsFkRoundtripValid(bounded, target_pose, target_quaternion, model)) {
+      command = bounded;
+    }
+  }
+  return command_postures;
+}
+
 auto FinalizeIkCandidates(const std::vector<Vec6> &geometric_solutions,
                           const PreparedCrxModel &fk,
                           const PoseIsoRT &target_pose,
@@ -289,18 +367,12 @@ auto FinalizeIkCandidates(const std::vector<Vec6> &geometric_solutions,
     -> IkResult {
   const auto &model = fk;
   IkResult result;
-  auto command_postures = geometric_solutions;
   // Root reconstruction can place a boundary posture just beyond a limit,
   // even when other branches remain feasible. Nominate the actual boundary
   // only within posture identity tolerance, then recheck the complete pose.
   // Command enumeration and its limit roundoff allowance remain unchanged.
-  for (auto &command : command_postures) {
-    Vec6 bounded;
-    if (NominateBoundaryPosture(command, model, bounded) &&
-        IsFkRoundtripValid(bounded, target_pose, target_quaternion, fk)) {
-      command = bounded;
-    }
-  }
+  const auto command_postures = PrepareCommandPostures(
+      geometric_solutions, model, target_pose, target_quaternion);
   const auto selected = SelectCommandLifts(
       command_postures, model.lower_limits_rad, model.upper_limits_rad,
       approx_joints_rad, max_solutions,
@@ -309,19 +381,7 @@ auto FinalizeIkCandidates(const std::vector<Vec6> &geometric_solutions,
       },
       numerics::kCommandLiftBudget, CommandSelectionMode::RankedPrefix);
   if (selected.status != CommandSelectionStatus::Complete) {
-    switch (selected.status) {
-    case CommandSelectionStatus::InvalidInput:
-      result.status = IkStatus::InvalidInput;
-      break;
-    case CommandSelectionStatus::RangeFailure:
-      result.status = IkStatus::NumericalRangeFailure;
-      break;
-    case CommandSelectionStatus::WorkLimit:
-      result.status = IkStatus::WorkLimit;
-      break;
-    case CommandSelectionStatus::Complete:
-      break;
-    }
+    result.status = CommandSelectionStatusToIkStatus(selected.status);
     return result;
   }
   result.solutions.reserve(selected.commands.size());
@@ -487,6 +547,217 @@ auto BuildArmClassificationGeometry(const PreparedCrxModel &model,
   geometry_out.tolerances = BuildClassificationTolerances(model.lengths);
   return geometry_out.o3_point.allFinite() && geometry_out.o4_point.allFinite();
 }
+
+auto OrthoDeterminant(const canonical::Lengths &lengths, const Vec6 &q)
+    -> double {
+  // Expanded determinant of the arm-and-wrist geometric Jacobian. Its sign
+  // labels the two regular posture aspects; its magnitude is compared with a
+  // length-scaled threshold before a candidate is called regular.
+  const double c2 = std::cos(q[2]);
+  const double s2 = std::sin(q[2]);
+  const double c3 = std::cos(q[3]);
+  const double s3 = std::sin(q[3]);
+  const double alpha =
+      c2 * lengths.b * ((lengths.b * c2) - (lengths.r * s2 * s3));
+  const double beta = c2 * c3 * s3 * lengths.r * lengths.a;
+  const double gamma =
+      (lengths.b * lengths.r * c2 * c2 * s3) +
+      (lengths.b * lengths.b * c2 * s2) + (lengths.b * lengths.a * c2) -
+      (lengths.r * lengths.a * s2 * s3) - (lengths.b * lengths.r * s3);
+  return lengths.a * ((alpha * std::cos(q[1]) * std::sin(q[4])) +
+                      (beta * std::sin(q[1]) * std::cos(q[4])) +
+                      (gamma * std::sin(q[1]) * std::sin(q[4])));
+}
+
+auto CanonicalWristAngle(const PreparedCrxModel &model,
+                         const PoseIsoRT &target_pose_06, const Vec6 &q,
+                         double &angle) -> bool {
+  PoseIsoRT unused_pose;
+  JointPoseBuffer frames;
+  if (SolveFKCore(q, unused_pose, &frames, false, model) != 1) {
+    return false;
+  }
+  Vec3 o4 = model.base_transform.inverse() * frames[4].translation();
+  o4.z() -= model.base_height;
+  const Vec3 o5 = target_pose_06.translation() -
+                  model.lengths.c * target_pose_06.linear().col(2);
+  Vec3 axis = (o4 - o5) / model.lengths.r;
+  const double norm = axis.norm();
+  if (!axis.allFinite() || !std::isfinite(norm) ||
+      norm <= numerics::kGeometryTolerance) {
+    return false;
+  }
+  axis /= norm;
+  angle = std::atan2(axis.dot(target_pose_06.linear().col(1)),
+                     axis.dot(target_pose_06.linear().col(0)));
+  return std::isfinite(angle);
+}
+
+auto DeltaAt(const canonical::WristCircle &circle, double angle) -> double {
+  const Vec3 axis = circle.v * std::cos(angle) + circle.w * std::sin(angle);
+  const Vec3 o4 = circle.p + circle.lengths.r * axis;
+  // This scalar is the determinant of the wrist axis, vertical axis, and
+  // wrist-center vectors. Its zeros mark the phases where the base-plane
+  // intersection changes branch, so command limits are split at these points.
+  return o4.dot(axis.cross(Vec3::UnitZ().cross(o4)));
+}
+
+struct WristRootLabel {
+  double angle = 0.0;
+  std::int32_t arc = -1;
+  std::int32_t rank = -1;
+};
+
+auto CircularAngleDistance(double a, double b) -> double {
+  return std::abs(std::remainder(a - b, 2 * angle_conv::kPi));
+}
+
+// Keep the first angle in each sorted tolerance cluster. Tolerance proximity
+// is not transitive, so it cannot be used as std::unique's equivalence
+// predicate. Inputs are canonical angles sorted in [-pi, pi].
+auto CompactSortedAngles(std::vector<double> &angles, double tolerance)
+    -> void {
+  auto output = angles.begin();
+  for (auto current = angles.begin(); current != angles.end(); ++current) {
+    if (output == angles.begin() || (*current - *(output - 1)) > tolerance) {
+      *output++ = *current;
+    }
+  }
+  angles.erase(output, angles.end());
+  if (angles.size() > 1 &&
+      CircularAngleDistance(angles.front(), angles.back()) <= tolerance) {
+    // The sorted endpoints are adjacent on the circle. Keep the first (lower)
+    // canonical angle as the deterministic representative.
+    angles.pop_back();
+  }
+}
+
+auto BuildWristBoundaries(const canonical::WristCircle &circle,
+                          std::vector<double> &boundaries) -> bool {
+  constexpr int kFourierSamples = 5;
+  constexpr int kBoundaryScaleSamples = 32;
+  constexpr double kResidualTolerance = 1e-8;
+  constexpr double kBoundaryMergeTolerance = 1e-7;
+  double c0 = 0;
+  double c1 = 0;
+  double s1 = 0;
+  double c2 = 0;
+  double s2 = 0;
+  // Delta is a trigonometric polynomial of order at most two. Five equally
+  // spaced samples recover its constant, first-, and second-harmonic terms
+  // without aliasing; the tan(theta/2) substitution then gives a quartic.
+  for (int i = 0; i < kFourierSamples; ++i) {
+    const double theta = 2 * angle_conv::kPi * i / kFourierSamples;
+    const double value = DeltaAt(circle, theta);
+    if (!std::isfinite(value)) {
+      return false;
+    }
+    c0 += value / kFourierSamples;
+    c1 += 2 * value * std::cos(theta) / kFourierSamples;
+    s1 += 2 * value * std::sin(theta) / kFourierSamples;
+    c2 += 2 * value * std::cos(2 * theta) / kFourierSamples;
+    s2 += 2 * value * std::sin(2 * theta) / kFourierSamples;
+  }
+  canonical::Coefficients coefficients{};
+  coefficients[0] = c0 + c1 + c2;
+  coefficients[1] = (2 * s1) + (4 * s2);
+  coefficients[2] = (2 * c0) - (6 * c2);
+  coefficients[3] = (2 * s1) - (4 * s2);
+  coefficients[4] = c0 - c1 + c2;
+  if (canonical::RepresentedDegree(coefficients) < 0) {
+    return false;
+  }
+  const auto zeros = canonical::FindRootCandidates(coefficients);
+  if (zeros.status != canonical::RootStatus::Candidates &&
+      zeros.status != canonical::RootStatus::ConstantPolynomial) {
+    return false;
+  }
+  double delta_scale = 1.0;
+  for (int i = 0; i < kBoundaryScaleSamples; ++i) {
+    const double theta = 2 * angle_conv::kPi * i / kBoundaryScaleSamples;
+    delta_scale = std::max(delta_scale, std::abs(DeltaAt(circle, theta)));
+  }
+  const double delta_tolerance = kResidualTolerance * delta_scale;
+  for (std::size_t i = 0; i < zeros.count; ++i) {
+    const auto &root = zeros.candidates[i].value;
+    if (std::abs(root.imag()) >
+        kResidualTolerance * (1 + std::abs(root.real()))) {
+      continue;
+    }
+    const double theta =
+        std::remainder(2 * std::atan(root.real()), 2 * angle_conv::kPi);
+    if (std::abs(DeltaAt(circle, theta)) > delta_tolerance) {
+      return false;
+    }
+    boundaries.push_back(theta);
+  }
+  if (std::abs(DeltaAt(circle, angle_conv::kPi)) <= delta_tolerance) {
+    boundaries.push_back(-angle_conv::kPi);
+  }
+  std::sort(boundaries.begin(), boundaries.end());
+  CompactSortedAngles(boundaries, kBoundaryMergeTolerance);
+  return true;
+}
+
+auto AppendWristRootLabel(double wrapped, const std::vector<double> &boundaries,
+                          std::vector<WristRootLabel> &labels) -> void {
+  constexpr double kBoundaryMatchTolerance = 1e-7;
+  if (boundaries.empty()) {
+    labels.push_back({wrapped, 0, static_cast<std::int32_t>(labels.size())});
+    return;
+  }
+  for (const double boundary : boundaries) {
+    if (std::abs(std::remainder(wrapped - boundary, 2 * angle_conv::kPi)) <=
+        kBoundaryMatchTolerance) {
+      labels.push_back({wrapped, -1, -1});
+      return;
+    }
+  }
+  const auto upper =
+      std::upper_bound(boundaries.begin(), boundaries.end(), wrapped);
+  const std::size_t arc =
+      upper == boundaries.begin()
+          ? boundaries.size() - 1
+          : static_cast<std::size_t>(upper - boundaries.begin() - 1);
+  labels.push_back({wrapped, static_cast<std::int32_t>(arc), 0});
+}
+
+auto AssignWristRootRanks(std::vector<WristRootLabel> &labels,
+                          std::size_t arc_count) -> void {
+  // Labels arrive in ascending angle order; counting per arc preserves the
+  // old rank definition in one pass.
+  std::vector<std::int32_t> next_rank(arc_count, 0);
+  for (auto &label : labels) {
+    if (label.arc < 0) {
+      continue;
+    }
+    label.rank = next_rank[static_cast<std::size_t>(label.arc)]++;
+  }
+}
+
+auto BuildWristRootLabels(const canonical::WristCircle &circle,
+                          std::vector<double> root_angles,
+                          std::vector<WristRootLabel> &labels) -> bool {
+  constexpr double kRootMergeTolerance = 1e-7;
+  std::vector<double> boundaries;
+  if (!BuildWristBoundaries(circle, boundaries)) {
+    return false;
+  }
+  for (double &angle : root_angles) {
+    angle = std::remainder(angle, 2 * angle_conv::kPi);
+  }
+  std::sort(root_angles.begin(), root_angles.end());
+  CompactSortedAngles(root_angles, kRootMergeTolerance);
+  labels.clear();
+  labels.reserve(root_angles.size());
+  for (const double angle : root_angles) {
+    const double wrapped = std::remainder(angle, 2 * angle_conv::kPi);
+    AppendWristRootLabel(wrapped, boundaries, labels);
+  }
+  AssignWristRootRanks(labels,
+                       boundaries.empty() ? std::size_t{1} : boundaries.size());
+  return true;
+}
 } // namespace
 
 auto SolveFkIsometry(const CrxModelData &model, const Vec6 &command_rad,
@@ -552,26 +823,20 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
     result.status = IkStatus::NoOutputRequested;
     return result;
   }
-  if (!target_pose.matrix().allFinite() ||
-      (approx_joints_rad != nullptr && !approx_joints_rad->allFinite())) {
+  if (approx_joints_rad != nullptr && !approx_joints_rad->allFinite()) {
     return result;
   }
-  PreparedCrxModel fk;
-  const auto preparation = PrepareCrxModel(model, fk);
+  PreparedIkProblem problem;
+  const auto preparation = PrepareIkProblem(model, target_pose, problem);
   if (preparation != ModelStatus::Ready) {
-    result.status = preparation == ModelStatus::UnsupportedModel
-                        ? IkStatus::UnsupportedModel
-                        : IkStatus::InvalidInput;
+    result.status = ModelStatusToIkStatus(preparation);
     return result;
   }
-  const Eigen::Quaterniond target_quaternion(target_pose.linear());
-  PoseIsoRT target_pose_06 =
-      fk.base_transform.inverse() * target_pose * fk.tool_transform.inverse();
-  target_pose_06.translation().z() -= fk.base_height;
+  const auto &fk = problem.model;
+  const auto &target_quaternion = problem.target_quaternion;
+  const auto &target_pose_06 = problem.target_pose_06;
   const auto &lengths = fk.lengths;
-  const canonical::PoseTolerance tolerance{
-      numerics::kSolutionPositionToleranceMm,
-      numerics::kSolutionAngleToleranceRad};
+  const auto &tolerance = problem.tolerance;
   if (max_solutions == 1 && approx_joints_rad != nullptr) {
     auto nearby = TryNearbySolution(fk, lengths, target_pose, target_pose_06,
                                     tolerance, *approx_joints_rad);
@@ -586,13 +851,7 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
     if (discovered.status != canonical::RecoveryStatus::Candidates &&
         discovered.status != canonical::RecoveryStatus::NoCandidate) {
       // Unresolved discovery must not be accepted through the seed policy.
-      outcome.status =
-          discovered.status == canonical::RecoveryStatus::InvalidInput
-              ? IkStatus::InvalidInput
-          : discovered.status ==
-                  canonical::RecoveryStatus::NumericalRangeFailure
-              ? IkStatus::NumericalRangeFailure
-              : IkStatus::Unresolved;
+      outcome.status = RecoveryStatusToIkStatus(discovered.status);
       return outcome;
     }
     outcome.used_singular_representatives =
@@ -659,6 +918,157 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   return finish(
       canonical::DiscoverJointCandidates(lengths, target_pose_06, tolerance),
       true);
+}
+
+auto IdentifyIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
+                        int max_solutions) -> FibreResult {
+  FibreResult result;
+  if (max_solutions <= 0) {
+    result.status = IkStatus::NoOutputRequested;
+    return result;
+  }
+  PreparedIkProblem problem;
+  const auto preparation = PrepareIkProblem(model, target_pose, problem);
+  if (preparation != ModelStatus::Ready) {
+    result.status = ModelStatusToIkStatus(preparation);
+    return result;
+  }
+  const auto &fk = problem.model;
+  const auto &target_quaternion = problem.target_quaternion;
+  const auto &target_pose_06 = problem.target_pose_06;
+  const auto &tolerance = problem.tolerance;
+  const auto discovered =
+      canonical::DiscoverJointCandidates(fk.lengths, target_pose_06, tolerance);
+  result.used_singular_representatives =
+      discovered.used_singular_representatives;
+  if (discovered.status != canonical::RecoveryStatus::Candidates) {
+    result.status = RecoveryStatusToIkStatus(discovered.status);
+    return result;
+  }
+
+  canonical::WristCircle circle;
+  if (canonical::PrepareWristCircle(fk.lengths, target_pose_06, circle) !=
+      canonical::PreparationStatus::Ready) {
+    result.status = IkStatus::Unresolved;
+    return result;
+  }
+  canonical::HalfAnglePolynomial residual_polynomial;
+  const bool residual_is_discrete =
+      canonical::BuildHalfAnglePolynomial(circle, 0, residual_polynomial) ==
+          canonical::PreparationStatus::Ready &&
+      canonical::RepresentedDegree(residual_polynomial.coefficients) > 0;
+  std::vector<double> wrist_angles;
+  std::vector<Vec6> geometric_solutions;
+  geometric_solutions.reserve(discovered.count);
+  wrist_angles.reserve(discovered.count);
+  for (std::size_t i = 0; i < discovered.count; ++i) {
+    const Vec6 &candidate = discovered.candidates[i].joints;
+    if (!IsFkRoundtripValid(candidate, target_pose, target_quaternion, fk)) {
+      result.status = IkStatus::Unresolved;
+      return result;
+    }
+    double angle = 0;
+    if (!CanonicalWristAngle(fk, target_pose_06, candidate, angle)) {
+      result.status = IkStatus::Unresolved;
+      return result;
+    }
+    geometric_solutions.push_back(candidate);
+    wrist_angles.push_back(angle);
+  }
+  std::vector<WristRootLabel> root_labels;
+  const bool root_labels_valid =
+      residual_is_discrete &&
+      BuildWristRootLabels(circle, wrist_angles, root_labels);
+
+  const auto command_postures = PrepareCommandPostures(
+      geometric_solutions, fk, target_pose, target_quaternion);
+  const auto selected = SelectCommandLifts(
+      command_postures, fk.lower_limits_rad, fk.upper_limits_rad, nullptr,
+      max_solutions,
+      [&](const Vec6 &command) {
+        return IsFkRoundtripValid(command, target_pose, target_quaternion, fk);
+      },
+      numerics::kCommandLiftBudget, CommandSelectionMode::RankedPrefix);
+  if (selected.status != CommandSelectionStatus::Complete) {
+    result.status = CommandSelectionStatusToIkStatus(selected.status);
+    return result;
+  }
+  result.truncated = selected.truncated;
+  for (const auto &lift : selected.commands) {
+    std::size_t source = geometric_solutions.size();
+    for (std::size_t i = 0; i < geometric_solutions.size(); ++i) {
+      Vec6 difference = lift.command_rad - geometric_solutions[i];
+      difference = difference.unaryExpr(
+          [](double value) { return std::remainder(value, kTwoPi); });
+      if (difference.cwiseAbs().maxCoeff() <=
+          numerics::kCommandDedupToleranceRad) {
+        source = i;
+        break;
+      }
+    }
+    if (source == geometric_solutions.size()) {
+      result.solutions.clear();
+      result.status = IkStatus::Unresolved;
+      return result;
+    }
+    const Vec6 &q = geometric_solutions[source];
+    const double determinant = OrthoDeterminant(fk.lengths, q);
+    if (!std::isfinite(determinant)) {
+      result.solutions.clear();
+      result.status = IkStatus::NumericalRangeFailure;
+      return result;
+    }
+    const double determinant_scale =
+        std::max({1.0, std::abs(fk.lengths.a), std::abs(fk.lengths.b),
+                  std::abs(fk.lengths.r)});
+    const double singular_tolerance =
+        1e-10 * determinant_scale * determinant_scale * determinant_scale;
+    const bool regular = std::isfinite(determinant) &&
+                         std::abs(determinant) > singular_tolerance;
+    const double root_angle = wrist_angles[source];
+    const double denominator = DeltaAt(circle, root_angle);
+    const double residual_derivative =
+        canonical::EvaluateResidualDerivative(circle, root_angle);
+    if (!std::isfinite(denominator) || !std::isfinite(residual_derivative)) {
+      result.solutions.clear();
+      result.status = IkStatus::Unresolved;
+      return result;
+    }
+    if (regular && std::abs(denominator) > 1e-8 &&
+        std::abs(residual_derivative) > 1e-8 &&
+        ((residual_derivative * denominator > 0) != (determinant > 0))) {
+      result.solutions.clear();
+      result.status = IkStatus::Unresolved;
+      return result;
+    }
+    FibreSolution identified;
+    identified.joints = lift.command_rad;
+    identified.regular = regular;
+    if (regular) {
+      identified.aspect_sign = determinant > 0 ? 1 : -1;
+    }
+    if (root_labels_valid) {
+      const double angle = std::remainder(root_angle, 2 * angle_conv::kPi);
+      const auto label = std::find_if(
+          root_labels.begin(), root_labels.end(),
+          [&](const WristRootLabel &item) {
+            return std::abs(std::remainder(item.angle - angle,
+                                           2 * angle_conv::kPi)) <= 1e-7;
+          });
+      const double shoulder_side = std::sin(q[1]);
+      if (label != root_labels.end() && label->arc >= 0 &&
+          std::abs(shoulder_side) > 1e-8) {
+        // Rank is zero based; bit 0 is the positive shoulder side.
+        identified.wrist_address = {label->arc, label->rank,
+                                    shoulder_side < 0 ? 1 : 0};
+        identified.wrist_address_valid = true;
+      }
+    }
+    result.solutions.push_back(identified);
+  }
+  result.status = result.solutions.empty() ? IkStatus::NoCandidate
+                                           : IkStatus::StrictCandidates;
+  return result;
 }
 
 } // namespace crx

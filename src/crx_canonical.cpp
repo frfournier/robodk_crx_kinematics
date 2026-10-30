@@ -1,8 +1,10 @@
 #include "crx_canonical.h"
 #include "crx_numerics.h"
+#include "crx_types.h"
 
-#include <algorithm>
+#include <Eigen/Core>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 
 namespace crx::canonical {
@@ -64,12 +66,20 @@ auto ResidualForAxis(const WristCircle &circle, const Vec3 &axis) -> double {
   const double k = (a_squared + x.squaredNorm() - b_squared) / 2.0;
   const Vec3 axis_cross_n = axis.cross(n);
   const double determinant = x.dot(axis_cross_n);
+  // Cramer's rule gives elbow = numerator/determinant. Clearing that
+  // denominator from |elbow|^2=a^2 leaves this residual; its zeros nominate
+  // wrist phases whose elbow also lies on the upper-arm sphere.
   const Vec3 numerator = k * axis_cross_n + x.dot(axis) * n.cross(x);
-  return numerator.squaredNorm() - a_squared * determinant * determinant;
+  return numerator.squaredNorm() - (a_squared * determinant * determinant);
 }
 
 auto ConstructCoefficients(const WristCircle &circle, const Vec3 &v,
                            const Vec3 &w) -> Coefficients {
+  // Set t = tan((angle - chart_angle)/2), so an axis phase has numerator
+  // v*(1-t^2) + w*(2t) and denominator Q=1+t^2. The quadratic polynomials
+  // below are these numerators (or squared distances) with Q cleared; the
+  // final quartic products clear the remaining denominators in the elbow
+  // sphere residual, yielding a degree-at-most-eight equation in t.
   const Polynomial<3> kQ{1.0, 0.0, 1.0};
   const double a_squared = circle.lengths.a * circle.lengths.a;
   const double b_squared = circle.lengths.b * circle.lengths.b;
@@ -96,7 +106,8 @@ auto ConstructCoefficients(const WristCircle &circle, const Vec3 &v,
   const Polynomial<5> first_factor =
       Square(a_hat) - (4.0 * b_squared) * Square(z);
   const Polynomial<9> first = Multiply(first_factor, Square(g));
-  const Polynomial<3> second_factor = (2.0 * pz) * g + (r * r - p_squared) * uz;
+  const Polynomial<3> second_factor =
+      (2.0 * pz) * g + ((r * r) - p_squared) * uz;
   const Polynomial<9> second = Multiply(d_hat, Multiply(uz, second_factor));
   Coefficients result{};
   Eigen::Map<Polynomial<9>> mapped(result.data());
@@ -146,6 +157,45 @@ auto EvaluateResidual(const WristCircle &circle, double angle) -> double {
   return ResidualForAxis(circle, axis);
 }
 
+auto EvaluateResidualDerivative(const WristCircle &circle, double angle)
+    -> double {
+  if (!std::isfinite(angle)) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  const Vec3 axis = circle.v * std::cos(angle) + circle.w * std::sin(angle);
+  // Differentiate the same denominator-cleared sphere residual with respect
+  // to wrist phase. Keeping the derivative in vector form avoids expanding a
+  // second, larger trigonometric polynomial just for root polishing.
+  const Vec3 axis_derivative =
+      -circle.v * std::sin(angle) + circle.w * std::cos(angle);
+  const Vec3 x = circle.p + circle.lengths.r * axis;
+  const Vec3 x_derivative = circle.lengths.r * axis_derivative;
+  const Vec3 n = Vec3::UnitZ().cross(x);
+  const Vec3 n_derivative = Vec3::UnitZ().cross(x_derivative);
+  const double a_squared = circle.lengths.a * circle.lengths.a;
+  const double k =
+      (a_squared + x.squaredNorm() - (circle.lengths.b * circle.lengths.b)) / 2;
+  const double k_derivative = x.dot(x_derivative);
+  const Vec3 axis_cross_n = axis.cross(n);
+  const Vec3 axis_cross_n_derivative =
+      axis_derivative.cross(n) + axis.cross(n_derivative);
+  const double determinant = x.dot(axis_cross_n);
+  const double determinant_derivative =
+      x_derivative.dot(axis_cross_n) + x.dot(axis_cross_n_derivative);
+  const double x_axis = x.dot(axis);
+  const double x_axis_derivative =
+      x_derivative.dot(axis) + x.dot(axis_derivative);
+  const Vec3 n_cross_x = n.cross(x);
+  const Vec3 n_cross_x_derivative =
+      n_derivative.cross(x) + n.cross(x_derivative);
+  const Vec3 numerator = k * axis_cross_n + x_axis * n_cross_x;
+  const Vec3 numerator_derivative =
+      k_derivative * axis_cross_n + k * axis_cross_n_derivative +
+      x_axis_derivative * n_cross_x + x_axis * n_cross_x_derivative;
+  return (2 * numerator.dot(numerator_derivative)) -
+         (2 * a_squared * determinant * determinant_derivative);
+}
+
 auto BuildHalfAnglePolynomial(const WristCircle &circle, double chart_angle,
                               HalfAnglePolynomial &output)
     -> PreparationStatus {
@@ -154,6 +204,8 @@ auto BuildHalfAnglePolynomial(const WristCircle &circle, double chart_angle,
   }
   const double cosine = std::cos(chart_angle);
   const double sine = std::sin(chart_angle);
+  // Rotate the phase basis so t=0 is the requested chart center. The half-
+  // angle chart omits its antipodal phase (t=infinity), checked separately.
   const Vec3 v = circle.v * cosine + circle.w * sine;
   const Vec3 w = -circle.v * sine + circle.w * cosine;
   HalfAnglePolynomial polynomial;
@@ -183,8 +235,8 @@ auto EvaluatePolynomial(const Coefficients &coefficients, double argument)
     -> PolynomialValue {
   PolynomialValue result;
   for (std::size_t i = coefficients.size(); i > 0; --i) {
-    result.derivative = result.derivative * argument + result.value;
-    result.value = result.value * argument + coefficients[i - 1];
+    result.derivative = (result.derivative * argument) + result.value;
+    result.value = (result.value * argument) + coefficients[i - 1];
   }
   return result;
 }

@@ -11,7 +11,6 @@
 #include <Eigen/Geometry>
 
 #include "crx_kinematics.h"
-#include "crx_math_helpers.h"
 #include "crx_numerics.h"
 #include "crx_solver.h"
 #include "crx_types.h"

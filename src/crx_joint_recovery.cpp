@@ -81,6 +81,9 @@ auto UndoShoulder(const WristPhase &beta, const Vec3 &vector) -> Vec3 {
 auto RecoverAtBase(const WristPhase &base, const Lengths &lengths,
                    const Mat3 &rotation, const Vec3 &x, const Vec3 &u,
                    const Vec3 &y, Vec6 &q, bool nomination = false) -> bool {
+  // Undo the known base turn. The two normalized link vectors must then lie
+  // in the shoulder plane (their y components vanish); the upper-link vector
+  // gives q2, while the lower-link vector gives the relative shoulder phase.
   const Vec3 upper = UndoBase(base, y) / lengths.a;
   const Vec3 lower = UndoBase(base, x - y) / lengths.b;
   WristPhase beta;
@@ -90,6 +93,9 @@ auto RecoverAtBase(const WristPhase &base, const Lengths &lengths,
       !NormalizePhase(-lower.z(), lower.x(), beta)) {
     return false;
   }
+  // Undo that shoulder phase on the wrist direction. Its remaining yz phase
+  // is q4; the transformed target z-axis then supplies q5. These checks also
+  // reject geometric intersections that do not match the assumed arm chart.
   const Vec3 u3 = UndoShoulder(beta, UndoBase(base, u));
   WristPhase wrist;
   if ((!nomination && std::abs(u3.x()) > numerics::kGeometryTolerance) ||
@@ -146,6 +152,9 @@ auto ForwardPose(const Lengths &lengths, const Vec6 &q,
   const auto &[r1, r2, r3, r4, r5] = rotations;
   PoseIsoRT pose = PoseIsoRT::Identity();
   const Mat3 r6 = RotateLocalX(r5, -q[5]);
+  // RoboDK's flange frame permutes/signs the final joint-frame axes. Keeping
+  // this mapping explicit makes the independently rebuilt pose match the
+  // external FK convention used to accept a recovered candidate.
   pose.linear().col(0) = r6.col(2);
   pose.linear().col(1) = -r6.col(1);
   pose.linear().col(2) = r6.col(0);
@@ -167,6 +176,9 @@ auto BuildJacobian(const Lengths &l, const JointRotations &rotations)
   const Vec3 elbow = l.a * r2.col(2);
   const Vec3 wrist = elbow + r4 * Vec3(l.b, -l.r, 0);
   const Vec3 flange = wrist + l.c * r5.col(0);
+  // For a revolute joint, TCP linear velocity is axis x (TCP - joint origin),
+  // and angular velocity is the axis itself. The signs below follow the
+  // alternating local rotations used to form r1..r5 above.
   const std::array<Vec3, 6> axes{Vec3::UnitZ(), r1.col(1),  -r2.col(1),
                                  -r3.col(0),    -r4.col(1), -r5.col(0)};
   const std::array<Vec3, 6> origins{Vec3::Zero(), Vec3::Zero(), elbow,

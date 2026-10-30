@@ -1,8 +1,10 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <vector>
 
+#include "crx_command_lifts.h"
 #include "crx_types.h"
 
 namespace crx {
@@ -39,6 +41,21 @@ struct IkResult {
   std::vector<Vec6> solutions;
 };
 
+struct FibreSolution {
+  Vec6 joints = Vec6::Zero();
+  std::int32_t aspect_sign = 0;
+  bool regular = false;
+  std::array<std::int32_t, 3> wrist_address{-1, -1, -1};
+  bool wrist_address_valid = false;
+};
+
+struct FibreResult {
+  IkStatus status = IkStatus::InvalidInput;
+  bool truncated = false;
+  bool used_singular_representatives = false;
+  std::vector<FibreSolution> solutions;
+};
+
 auto SolveFkIsometry(const CrxModelData &model, const Vec6 &command_rad,
                      PoseIsoRT &pose_out, JointPoseBuffer *joint_poses,
                      bool check_limits) -> int;
@@ -46,6 +63,9 @@ auto SolveFkIsometry(const CrxModelData &model, const Vec6 &command_rad,
 auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
                      const Vec6 *approx_joints_rad, int max_solutions)
     -> IkResult;
+
+auto IdentifyIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
+                        int max_solutions) -> FibreResult;
 
 auto ClassifyArmPosture(const CrxModelData &model, const Vec6 &command_rad,
                         ArmPosture &posture_out) -> bool;

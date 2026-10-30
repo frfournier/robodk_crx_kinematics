@@ -6,10 +6,12 @@
 #include "crx_polynomial_roots.h"
 #include "crx_types.h"
 
+#include <Eigen/Core>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 
 namespace crx::canonical {
 namespace {
@@ -32,8 +34,8 @@ struct PhaseDomain {
   double distance_roundoff = 0;
   double angle_roundoff = 0;
 
-  auto MayContain(const WristCircle &circle, double angle, double radius) const
-      -> bool {
+  [[nodiscard]] auto MayContain(const WristCircle &circle, double angle,
+                                double radius) const -> bool {
     // q6 = phi + pi/2. Accuracy refinement may move q6 by its trust radius;
     // the other margins cover the nomination window and physical FK closure.
     if (wrist_limited &&
@@ -47,7 +49,7 @@ struct PhaseDomain {
     const Vec3 x = circle.p + circle.lengths.r * (circle.v * std::cos(angle) +
                                                   circle.w * std::sin(angle));
     const double distance = x.squaredNorm();
-    const double margin = distance_roundoff + distance_slope * radius;
+    const double margin = distance_roundoff + (distance_slope * radius);
     // D^2 = a^2+b^2+2ab sin(q3); the same sine covers the dual base branch.
     // Ambiguous/overflowed bounds do not exclude a nomination.
     return !std::isfinite(distance) || !std::isfinite(margin) ||
@@ -75,27 +77,27 @@ auto BuildPhaseDomain(const RecoveryProblem &problem,
   const auto &circle = problem.circle;
   const auto &l = circle.lengths;
   const double accuracy = numerics::kPolishRadiusRad;
-  domain.angle_roundoff = encoding + 2 * problem.tolerance.orientation +
+  domain.angle_roundoff = encoding + (2 * problem.tolerance.orientation) +
                           numerics::kGeometryTolerance;
-  domain.wrist_center = lower[5] / 2 + upper[5] / 2;
-  domain.wrist_radius = (upper[5] - lower[5]) / 2 + accuracy;
+  domain.wrist_center = (lower[5] / 2) + (upper[5] / 2);
+  domain.wrist_radius = ((upper[5] - lower[5]) / 2) + accuracy;
   domain.wrist_limited =
       domain.wrist_radius + domain.angle_roundoff < angle_conv::kPi;
-  const double center = lower[2] / 2 + upper[2] / 2;
-  const double radius = (upper[2] - lower[2]) / 2 + accuracy + encoding;
+  const double center = (lower[2] / 2) + (upper[2] / 2);
+  const double radius = ((upper[2] - lower[2]) / 2) + accuracy + encoding;
   if (radius >= angle_conv::kPi || l.a <= 0 || l.b <= 0) {
     return domain;
   }
-  const double first = std::sin(center - radius),
-               last = std::sin(center + radius);
+  const double first = std::sin(center - radius);
+  const double last = std::sin(center + radius);
   const auto contains = [&](double phase) {
     return std::abs(std::remainder(phase - center, kTwoPi)) <= radius;
   };
   const double minimum = contains(-kHalfPi) ? -1 : std::min(first, last);
   const double maximum = contains(kHalfPi) ? 1 : std::max(first, last);
   domain.elbow_limited = minimum > -1 || maximum < 1;
-  domain.distance_lower = l.a * l.a + l.b * l.b + 2 * l.a * l.b * minimum;
-  domain.distance_upper = l.a * l.a + l.b * l.b + 2 * l.a * l.b * maximum;
+  domain.distance_lower = (l.a * l.a) + (l.b * l.b) + (2 * l.a * l.b * minimum);
+  domain.distance_upper = (l.a * l.a) + (l.b * l.b) + (2 * l.a * l.b * maximum);
   domain.distance_slope =
       2 * std::abs(l.r) *
       std::hypot(circle.p.dot(circle.v), circle.p.dot(circle.w));
@@ -103,12 +105,12 @@ auto BuildPhaseDomain(const RecoveryProblem &problem,
   // orientation error perturb both the tool offset and the projected wrist
   // axis; expand the squared-distance bound before excluding anything.
   const double uncertainty =
-      problem.tolerance.position / circle.length_scale +
-      2 * (std::abs(l.c) + std::abs(l.r)) * problem.tolerance.orientation;
+      (problem.tolerance.position / circle.length_scale) +
+      (2 * (std::abs(l.c) + std::abs(l.r)) * problem.tolerance.orientation);
   const double reach = circle.p.norm() + std::abs(l.r);
   domain.distance_roundoff =
-      (2 * reach + uncertainty) * uncertainty +
-      numerics::kGeometryTolerance * std::max(1.0, reach * reach);
+      (((2 * reach) + uncertainty) * uncertainty) +
+      (numerics::kGeometryTolerance * std::max(1.0, reach * reach));
   return domain;
 }
 
@@ -131,6 +133,53 @@ struct ElbowResidual {
   Vec3 center = Vec3::Zero();
   Vec3 side = Vec3::Zero();
 };
+
+// Cramer's rule solves E.u = x.u, E.n = 0, E.x = k for the elbow directly.
+// This removes the elbow sign and the square root used by the two-sphere
+// chart. It is ill-conditioned where Delta vanishes, so only use it away from
+// that stratum; the existing signed evaluators remain the fallback.
+auto EvaluateCramerResidual(const WristCircle &circle, double angle,
+                            ElbowResidual &output) -> bool {
+  if (!std::isfinite(angle)) {
+    return false;
+  }
+  const Vec3 u = circle.v * std::cos(angle) + circle.w * std::sin(angle);
+  const Vec3 du = -circle.v * std::sin(angle) + circle.w * std::cos(angle);
+  const Vec3 x = circle.p + circle.lengths.r * u;
+  const Vec3 dx = circle.lengths.r * du;
+  const Vec3 n = Vec3::UnitZ().cross(x);
+  const Vec3 dn = Vec3::UnitZ().cross(dx);
+  const double x_squared = x.squaredNorm();
+  if (!std::isfinite(x_squared) ||
+      x_squared <=
+          numerics::kDirectionTolerance * numerics::kDirectionTolerance) {
+    return false;
+  }
+  const double a_squared = circle.lengths.a * circle.lengths.a;
+  const double arm_difference = (circle.lengths.a - circle.lengths.b) *
+                                (circle.lengths.a + circle.lengths.b);
+  const double k = (arm_difference + x_squared) / 2;
+  const double dk = x.dot(dx);
+  const double m = x.dot(u);
+  const double dm = dx.dot(u) + x.dot(du);
+  const Vec3 un = u.cross(n);
+  const Vec3 dun = du.cross(n) + u.cross(dn);
+  const Vec3 nx = n.cross(x);
+  const Vec3 dnx = dn.cross(x) + n.cross(dx);
+  const double delta = x.dot(un);
+  const double ddelta = dx.dot(un) + x.dot(dun);
+  if (!std::isfinite(delta) ||
+      !(std::abs(delta) >= numerics::kCramerGuard * x_squared)) {
+    return false;
+  }
+  const Vec3 elbow = (k * un + m * nx) / delta;
+  const Vec3 delbow =
+      (dk * un + k * dun + dm * nx + m * dnx - elbow * ddelta) / delta;
+  output = {elbow.squaredNorm() - a_squared, 2 * elbow.dot(delbow), elbow,
+            Vec3::Zero()};
+  return elbow.allFinite() && delbow.allFinite() &&
+         std::isfinite(output.value) && std::isfinite(output.derivative);
+}
 
 // Alternate elimination order: intersect the two arm spheres with the wrist
 // plane and polish the remaining base-plane constraint. Unlike azimuth from
@@ -162,16 +211,16 @@ auto EvaluateWristPlaneResidual(const WristCircle &circle, double angle,
   const double a = circle.lengths.a;
   const double b = circle.lengths.b;
   const double along =
-      ((a - b) * (a + b) + distance * distance) / (2 * distance);
-  const double dalong = (x.dot(dx) - along * dd) / distance;
-  const double across = (x.dot(u) - along * dot) / sine;
-  const double dacross =
-      (dx.dot(u) + x.dot(du) - dalong * dot - along * ddot - across * dsine) /
-      sine;
+      (((a - b) * (a + b)) + (distance * distance)) / (2 * distance);
+  const double dalong = (x.dot(dx) - (along * dd)) / distance;
+  const double across = (x.dot(u) - (along * dot)) / sine;
+  const double dacross = (dx.dot(u) + x.dot(du) - (dalong * dot) -
+                          (along * ddot) - (across * dsine)) /
+                         sine;
   const Vec3 center = along * radial + across * direction;
   const Vec3 dcenter = dalong * radial + along * dradial + dacross * direction +
                        across * ddirection;
-  const double height2 = a * a - center.squaredNorm();
+  const double height2 = (a * a) - center.squaredNorm();
   if (height2 <= numerics::kFourthRootEpsilon * a * a) {
     return false;
   }
@@ -216,9 +265,10 @@ auto EvaluateElbowResidual(const WristCircle &circle, double angle, double sign,
   const double a2 = circle.lengths.a * circle.lengths.a;
   const double arm_difference = (circle.lengths.a - circle.lengths.b) *
                                 (circle.lengths.a + circle.lengths.b);
-  const double along = (arm_difference + distance * distance) / (2 * distance);
-  const double dalong = (x.dot(dx) - along * dd) / distance;
-  const double height2 = a2 - along * along;
+  const double along =
+      (arm_difference + (distance * distance)) / (2 * distance);
+  const double dalong = (x.dot(dx) - (along * dd)) / distance;
+  const double height2 = a2 - (along * along);
   if (height2 <= numerics::kSqrtEpsilon * std::max(a2, along * along)) {
     // Near tangency differentiate the sphere residual after solving the
     // unsquared wrist plane for the signed elbow height. sqrt(heightÂ²) and
@@ -233,9 +283,9 @@ auto EvaluateElbowResidual(const WristCircle &circle, double angle, double sign,
     const double derivative = dcenter.dot(u) + center.dot(du);
     const double dslope = dperpendicular.dot(u) + perpendicular.dot(du);
     const double height = -value / slope;
-    const double dheight = -(derivative + height * dslope) / slope;
-    output = {height * height - height2,
-              2 * (height * dheight + along * dalong)};
+    const double dheight = -(derivative + (height * dslope)) / slope;
+    output = {(height * height) - height2,
+              2 * ((height * dheight) + (along * dalong))};
     return std::isfinite(output.value) && std::isfinite(output.derivative);
   }
   const double height = std::sqrt(height2);
@@ -256,8 +306,9 @@ auto OutsideArmShell(const WristCircle &circle, double angle, double radius)
   const double distance = (circle.p + circle.lengths.r * u).norm();
   const double a = std::abs(circle.lengths.a);
   const double b = std::abs(circle.lengths.b);
-  const double margin = numerics::kShellRoundoff * std::max({a, b, distance}) +
-                        std::abs(circle.lengths.r) * radius;
+  const double margin =
+      (numerics::kShellRoundoff * std::max({a, b, distance})) +
+      (std::abs(circle.lengths.r) * radius);
   return std::isfinite(distance) &&
          (distance > a + b + margin || distance < std::abs(a - b) - margin);
 }
@@ -391,6 +442,48 @@ auto RefineElbowBranch(const RecoveryProblem &problem,
   return {RecoveryStatus::NeedsRefinement};
 }
 
+auto RefineCramer(const RecoveryProblem &problem, const PolishWindow &window,
+                  double &angle) -> JointRecovery {
+  const auto &circle = problem.circle;
+  const auto [initial_angle, budget, radius] = window;
+  ElbowResidual residual;
+  if (!EvaluateCramerResidual(circle, angle, residual)) {
+    return {RecoveryStatus::NeedsRefinement};
+  }
+  for (int iteration = 0; iteration < budget; ++iteration) {
+    if (residual.value == 0 ||
+        std::abs(residual.derivative) <= numerics::kDirectionTolerance) {
+      break;
+    }
+    double step =
+        std::clamp(residual.value / residual.derivative,
+                   -numerics::kPolishMaxStepRad, numerics::kPolishMaxStepRad);
+    bool improved = false;
+    for (int backtrack = 0; backtrack < numerics::kPolishBacktracks;
+         ++backtrack) {
+      const double trial = std::remainder(angle - step, kTwoPi);
+      ElbowResidual next;
+      if (std::abs(std::remainder(trial - initial_angle, kTwoPi)) <= radius &&
+          EvaluateCramerResidual(circle, trial, next) &&
+          std::abs(next.value) < std::abs(residual.value)) {
+        angle = trial;
+        residual = next;
+        improved = true;
+        break;
+      }
+      step *= 0.5;
+    }
+    if (!improved) {
+      break;
+    }
+  }
+  // Recover once after scalar convergence. Full FK and pose tolerances remain
+  // authoritative, and ill-conditioned nominations still follow both signed
+  // branches below before this result can be considered complete.
+  return RecoverPreparedJointCandidates(circle, problem.target, angle,
+                                        problem.tolerance);
+}
+
 auto PolishAndRecover(const RecoveryProblem &problem, double initial_angle,
                       int budget, double radius, bool ill_conditioned)
     -> PolishedRecovery {
@@ -417,6 +510,24 @@ auto PolishAndRecover(const RecoveryProblem &problem, double initial_angle,
       OutsideArmShell(circle, initial_angle, radius)) {
     accepted.status = RecoveryStatus::NoCandidate;
     return accepted;
+  }
+  double cramer_angle = initial_angle;
+  const auto cramer =
+      RefineCramer(problem, {initial_angle, budget, radius}, cramer_angle);
+  if (cramer.status == RecoveryStatus::NumericalRangeFailure) {
+    return {RecoveryStatus::NumericalRangeFailure};
+  }
+  if (cramer.status == RecoveryStatus::Candidates) {
+    if (!AppendUnique(cramer, accepted)) {
+      return {};
+    }
+    // For regular nominations the accepted phase has its own disjoint window.
+    // Multiple-root nominations continue through both signed charts below to
+    // retain branches that converge from the same polynomial nomination.
+    if (!ill_conditioned) {
+      accepted.status = RecoveryStatus::Candidates;
+      return accepted;
+    }
   }
   // Keep both the geometric chart and the elbow sign fixed throughout every
   // Newton solve and line search. A split double root can nominate the same
@@ -494,15 +605,16 @@ auto RealProjection(const Coefficients &coefficients, double t)
   for (std::size_t i = 0; i < coefficients.size(); ++i) {
     const double coefficient =
         coefficients[reverse ? i : coefficients.size() - 1 - i] / scale;
-    evaluation.derivative = evaluation.derivative * argument + evaluation.value;
-    evaluation.value = evaluation.value * argument + coefficient;
-    bound = bound * std::abs(argument) + std::abs(coefficient);
+    evaluation.derivative =
+        (evaluation.derivative * argument) + evaluation.value;
+    evaluation.value = (evaluation.value * argument) + coefficient;
+    bound = (bound * std::abs(argument)) + std::abs(coefficient);
   }
   // Include coefficient-scale uncertainty even at t=0 where the pointwise
   // bound could vanish. A simple exactly-zero root still has a usable slope.
   bound = std::max(1.0, bound);
   return {evaluation.value / bound,
-          evaluation.derivative * (1 + argument * argument) / (2 * bound)};
+          evaluation.derivative * (1 + (argument * argument)) / (2 * bound)};
 }
 
 struct GeometricPhases {
@@ -523,31 +635,34 @@ auto BoundaryPhases(const WristCircle &circle) -> GeometricPhases {
     if (numerics::IsRepresentedZero(scale)) {
       return;
     }
-    const double a = cosine / scale, b = sine / scale;
+    const double a = cosine / scale;
+    const double b = sine / scale;
     const double norm = std::hypot(a, b);
-    if (std::abs(rhs) > scale * norm + numerics::kElementaryRoundoff) {
+    if (std::abs(rhs) > (scale * norm) + numerics::kElementaryRoundoff) {
       return;
     }
     const double along = std::clamp((rhs / scale) / norm, -1.0, 1.0);
     const double across =
         std::sqrt((1.0 - std::abs(along)) * (1.0 + std::abs(along)));
-    const double ax = a / norm, ay = b / norm;
-    result.values[result.count++] = {along * ax - across * ay,
-                                     along * ay + across * ax};
+    const double ax = a / norm;
+    const double ay = b / norm;
+    result.values[result.count++] = {(along * ax) - (across * ay),
+                                     (along * ay) + (across * ax)};
     if (across > 0) {
-      result.values[result.count++] = {along * ax + across * ay,
-                                       along * ay - across * ax};
+      result.values[result.count++] = {(along * ax) + (across * ay),
+                                       (along * ay) - (across * ax)};
     }
   };
   append(circle.v.z(), circle.w.z(), 0);
-  const double pv = circle.p.dot(circle.v), pw = circle.p.dot(circle.w);
+  const double pv = circle.p.dot(circle.v);
+  const double pw = circle.p.dot(circle.w);
   append(pv, pw, -circle.lengths.r);
   for (const double reach :
        {std::abs(circle.lengths.a) + std::abs(circle.lengths.b),
         std::abs(std::abs(circle.lengths.a) - std::abs(circle.lengths.b))}) {
     append(2 * circle.lengths.r * pv, 2 * circle.lengths.r * pw,
-           reach * reach - circle.p.squaredNorm() -
-               circle.lengths.r * circle.lengths.r);
+           (reach * reach) - circle.p.squaredNorm() -
+               (circle.lengths.r * circle.lengths.r));
   }
   return result;
 }
@@ -558,7 +673,7 @@ struct RootNomination {
   bool ill_conditioned = true;
 };
 
-enum class NominationStatus { Ready, Skip, Unresolved };
+enum class NominationStatus : std::uint8_t { Ready, Skip, Unresolved };
 
 auto NominateRoot(const HalfAnglePolynomial &polynomial,
                   const RootResult &roots, std::size_t i,
@@ -598,7 +713,7 @@ auto NominateRoot(const HalfAnglePolynomial &polynomial,
   if (root.relative_residual > numerics::kRootResidualTolerance) {
     return NominationStatus::Unresolved;
   }
-  angle = polynomial.chart_angle + 2 * std::atan(root.value.real());
+  angle = polynomial.chart_angle + (2 * std::atan(root.value.real()));
   ill_conditioned =
       relative_imaginary > numerics::kElementaryRoundoff ||
       std::abs(projected.derivative) <= numerics::kRootSlopeTolerance;
@@ -608,7 +723,7 @@ auto NominateRoot(const HalfAnglePolynomial &polynomial,
         continue;
       }
       const double other = polynomial.chart_angle +
-                           2 * std::atan(roots.candidates[j].value.real());
+                           (2 * std::atan(roots.candidates[j].value.real()));
       radius = std::min(radius, numerics::kNeighborRadiusFraction *
                                     std::abs(std::remainder(
                                         angle - other, 2 * angle_conv::kPi)));
@@ -668,11 +783,13 @@ auto DiscoverInChart(const RecoveryProblem &problem,
   const auto roots = FindRootCandidates(polynomial.coefficients, options.roots);
   if (roots.status != RootStatus::Candidates &&
       roots.status != RootStatus::ConstantPolynomial) {
-    result.status = roots.status == RootStatus::InvalidInput
-                        ? RecoveryStatus::InvalidInput
-                    : roots.status == RootStatus::NumericalRangeFailure
-                        ? RecoveryStatus::NumericalRangeFailure
-                        : RecoveryStatus::NeedsRefinement;
+    if (roots.status == RootStatus::InvalidInput) {
+      result.status = RecoveryStatus::InvalidInput;
+    } else if (roots.status == RootStatus::NumericalRangeFailure) {
+      result.status = RecoveryStatus::NumericalRangeFailure;
+    } else {
+      result.status = RecoveryStatus::NeedsRefinement;
+    }
     return result;
   }
   JointDiscovery accepted;
@@ -757,7 +874,9 @@ auto ImproveDiscoveryAccuracy(const RecoveryProblem &problem,
   if (result.status == RecoveryStatus::Candidates &&
       options.max_polish_iterations > 0 &&
       std::any_of(result.candidates.begin(),
-                  result.candidates.begin() + result.count, needs_accuracy)) {
+                  result.candidates.begin() +
+                      static_cast<std::ptrdiff_t>(result.count),
+                  needs_accuracy)) {
     JointDiscovery precise;
     precise.status = result.status;
     precise.used_singular_representatives =

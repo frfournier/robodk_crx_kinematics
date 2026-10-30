@@ -349,7 +349,7 @@ void CommandDeduplication() {
   Vec6 near = zero, separate = zero;
   near[3] = .4 * tolerance;
   near[5] = -.4 * tolerance;
-  separate[3] = 2 * tolerance;
+  separate[3] = 8 * tolerance;
   Vec6 lower = Vec6::Constant(-.1), upper = -lower;
   lower[5] = -kTau - .1;
   upper[5] = kTau + .1;
@@ -403,8 +403,8 @@ void CommandDeduplication() {
       const auto boundary = crx::SelectCommandLifts(
           postures, turn_lower, turn_upper, nullptr, 8, Accept,
           crx::numerics::kCommandLiftBudget, mode);
-      Require(boundary.commands.size() == 3 && boundary.valid_lifts == 3,
-              "wider lift range replaces near duplicates regardless of order");
+      Require(boundary.commands.size() == 3 && boundary.valid_lifts == 6,
+              "rounded duplicates merge while both boundary turns survive");
       Require(boundary.commands.front().command_rad[5] == -kTau &&
                   boundary.commands.back().command_rad[5] == kTau,
               "both exact boundary turns survive deduplication");
@@ -414,6 +414,44 @@ void CommandDeduplication() {
     Require(!crx::ClampCommandToLimits(outside, zero, zero),
             "output identity tolerance is not joint-limit slack");
   }
+}
+
+void ControllerPrecisionIdentity() {
+  Vec6 first = Vec6::Zero(), second = Vec6::Zero();
+  first[0] = angle_conv::DegToRad(0.0004);
+  second[0] = angle_conv::DegToRad(0.00049);
+  Vec6 lower = Vec6::Zero(), upper = Vec6::Zero();
+  lower[0] = angle_conv::DegToRad(0.0);
+  upper[0] = angle_conv::DegToRad(0.001);
+  auto selected =
+      crx::SelectCommandLifts({first, second}, lower, upper, nullptr, 8, Accept,
+                              crx::numerics::kCommandLiftBudget,
+                              crx::CommandSelectionMode::RankedPrefix);
+  Require(
+      selected.commands.size() == 1 && !selected.truncated,
+      "three-decimal-place identity merges near-zero values that format alike");
+
+  first.setZero();
+  second.setZero();
+  first[0] = angle_conv::DegToRad(123.4004);
+  second[0] = angle_conv::DegToRad(123.40049);
+  lower.setZero();
+  upper.setZero();
+  lower[0] = angle_conv::DegToRad(123.4);
+  upper[0] = angle_conv::DegToRad(123.401);
+  selected = crx::SelectCommandLifts({first, second}, lower, upper, nullptr, 8,
+                                     Accept, crx::numerics::kCommandLiftBudget,
+                                     crx::CommandSelectionMode::RankedPrefix);
+  Require(selected.commands.size() == 1 && !selected.truncated,
+          "three-decimal-place identity merges values that format alike");
+
+  second[0] = angle_conv::DegToRad(124.0);
+  upper[0] = angle_conv::DegToRad(124.5);
+  selected = crx::SelectCommandLifts({first, second}, lower, upper, nullptr, 1,
+                                     Accept, crx::numerics::kCommandLiftBudget,
+                                     crx::CommandSelectionMode::RankedPrefix);
+  Require(selected.commands.size() == 1 && selected.truncated,
+          "truncation counts distinct controller-formatted commands");
 }
 } // namespace
 
@@ -426,6 +464,7 @@ auto main() -> int {
   RoundoffBoundariesAndOrdering();
   RankedPrefixReference();
   CommandDeduplication();
+  ControllerPrecisionIdentity();
   std::puts(
       "Command lift reference, capacity, boundary and failure checks passed");
 }

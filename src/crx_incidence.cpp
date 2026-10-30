@@ -68,6 +68,9 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
     return result;
   }
   const Vec3 radial = x / distance;
+  // The elbow is the intersection of spheres |y|=|a| and |y-x|=|b|.
+  // Subtracting their squared equations fixes its radial coordinate; the
+  // remaining component lies in the circle perpendicular to x.
   const double along =
       ((a - b) * (a + b) + squared_distance) / (2.0 * distance);
   const double height_squared = a_squared - along * along;
@@ -92,6 +95,9 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
     // with the wrist plane first; test the vertical base plane afterward.
     // This remains regular when the wrist point approaches the base axis.
     const Vec3 direction = wrist_perpendicular / wrist_sine;
+    // Write y = along*radial + transverse*direction + h*(radial x direction).
+    // The wrist equation (y-x).u=0 determines transverse; |y|=|a| then gives
+    // h^2. The final base-plane test removes intersections on the wrong side.
     const double transverse = (x.dot(u) - along * radial.dot(u)) / wrist_sine;
     const Vec3 center = along * radial + transverse * direction;
     const double remaining = a_squared - center.squaredNorm();
@@ -199,6 +205,9 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
       return result;
     }
   }
+  // Away from tangency, the sphere intersection circle is parameterized by
+  // center +/- sqrt(height_squared)*perpendicular. The wrist dot product
+  // selects which of these two elbow branches satisfies the plane constraint.
   const Vec3 offset = std::sqrt(height_squared) * perpendicular;
   const std::array<Vec3, 2> elbows{center + offset, center - offset};
   std::array<Vec3, 2> accepted{Vec3::Zero(), Vec3::Zero()};

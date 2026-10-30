@@ -58,6 +58,8 @@ auto PrepareWristCircle(const Lengths &lengths, const PoseIsoRT &target,
 // position/orientation tolerances. A zero does not certify exceptional
 // incidence.
 auto EvaluateResidual(const WristCircle &circle, double angle) -> double;
+auto EvaluateResidualDerivative(const WristCircle &circle, double angle)
+    -> double;
 
 // Direct degree-at-most-eight scalar convolution, with no interpolation or
 // truncation. Supports shifted charts. Failure leaves output unchanged.

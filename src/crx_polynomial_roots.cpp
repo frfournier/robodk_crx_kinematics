@@ -60,6 +60,9 @@ auto Balance(Eigen::Matrix<double, Degree, Degree> &matrix, int sweep_limit,
           numerics::IsRepresentedZero(column_norm)) {
         continue;
       }
+      // A diagonal similarity D^-1*A*D preserves eigenvalues while rescaling
+      // this row by 2^-e and the matching column by 2^e. Balancing reduces
+      // their off-diagonal norm mismatch before the eigensolve.
       // Minimize r/2^e + c*2^e without forming r/c, which may overflow.
       const int exponent = (std::ilogb(row_norm) - std::ilogb(column_norm)) / 2;
       const double improved =
@@ -96,6 +99,9 @@ void SolveCompanion(const Coefficients &coefficients,
   using Matrix = Eigen::Matrix<double, Degree, Degree>;
   Matrix companion = Matrix::Zero();
   companion.diagonal(-1).setOnes();
+  // For the monic polynomial x^d + sum(c_i*x^i), this companion matrix has
+  // ones on its subdiagonal and -c_i in its last column; its eigenvalues are
+  // the polynomial roots. Coefficients arrive in ascending-power order.
   for (int row = 0; row < Degree; ++row) {
     const double coefficient = coefficients[static_cast<std::size_t>(row)];
     const double monic = -coefficient / coefficients[Degree];

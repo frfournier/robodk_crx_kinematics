@@ -1,12 +1,20 @@
 #include "crx_command_lifts.h"
 
+#include <Eigen/Core>
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <limits>
 #include <optional>
+#include <queue>
+#include <vector>
 
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"
+#include "crx_types.h"
 
 namespace crx {
 namespace {
@@ -54,7 +62,26 @@ auto CommandPhase(double angle) -> double {
 auto SamePhase(const Vec6 &a, const Vec6 &b) -> bool {
   return (a - b)
       .unaryExpr([](double x) { return WrapRadPi(x); })
-      .isZero(numerics::kCommandDedupToleranceRad);
+      .isZero(numerics::kJointPhaseToleranceRad);
+}
+
+auto ThreeDecimalPlaces(double value) -> double {
+  if (value == 0.0 || !std::isfinite(value)) {
+    return value == 0.0 ? 0.0 : value;
+  }
+  const double rounded = std::nearbyint(value * 1000.0) / 1000.0;
+  return rounded == 0.0 ? 0.0 : rounded;
+}
+
+auto SameOutputCommand(const Vec6 &a, const Vec6 &b) -> bool {
+  for (int axis = 0; axis < kDofCount; ++axis) {
+    const double a_degrees = angle_conv::RadToDeg(a[axis]);
+    const double b_degrees = angle_conv::RadToDeg(b[axis]);
+    if (ThreeDecimalPlaces(a_degrees) != ThreeDecimalPlaces(b_degrees)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 auto Better(const CommandLift &a, const CommandLift &b) -> bool {
@@ -213,13 +240,13 @@ auto RankedPrefix(const std::vector<LiftBox> &boxes,
   // Unusual validators can reject arbitrarily many lifts. Keep the new work
   // storage bounded, and use the exhaustive implementation if it fills up.
   constexpr std::size_t kFrontierBudget = 4096;
-  std::vector<RankedBox> frontier;
   const auto later = [](const RankedBox &a, const RankedBox &b) {
     return Better(b.first, a.first);
   };
+  std::priority_queue<RankedBox, std::vector<RankedBox>, decltype(later)>
+      frontier(later);
   auto enqueue = [&](const LiftBox &box, std::size_t posture) {
-    frontier.push_back(FirstInBox(box, posture, problem));
-    std::push_heap(frontier.begin(), frontier.end(), later);
+    frontier.push(FirstInBox(box, posture, problem));
   };
   for (std::size_t i = 0; i < boxes.size(); ++i) {
     const auto &box = boxes[i];
@@ -249,6 +276,17 @@ auto RankedPrefix(const std::vector<LiftBox> &boxes,
       command.travel_squared =
           (command.command_rad - *problem.seed).squaredNorm();
     }
+    const auto duplicate = std::find_if(
+        result.commands.begin(), result.commands.end(), [&](const auto &entry) {
+          return SameOutputCommand(command.command_rad, entry.command_rad);
+        });
+    if (duplicate != result.commands.end()) {
+      if (Better(command, *duplicate)) {
+        *duplicate = command;
+        std::make_heap(result.commands.begin(), result.commands.end(), Better);
+      }
+      return;
+    }
     if (result.commands.size() < capacity + 1) {
       result.commands.push_back(command);
       std::push_heap(result.commands.begin(), result.commands.end(), Better);
@@ -268,16 +306,15 @@ auto RankedPrefix(const std::vector<LiftBox> &boxes,
     }
     if (result.commands.size() > capacity &&
         (problem.seed == nullptr ||
-         frontier.front().first.travel_squared >
+         frontier.top().first.travel_squared >
              result.commands.front().travel_squared)) {
       // Process the entire equal-cost frontier: rounded sums can tie even
       // when an individual axis cost increases, changing lexicographic ties.
       result.counts_complete = false;
       break;
     }
-    std::pop_heap(frontier.begin(), frontier.end(), later);
-    const RankedBox node = frontier.back();
-    frontier.pop_back();
+    const RankedBox node = frontier.top();
+    frontier.pop();
     if (node.admitted && problem.validate(node.first.command_rad)) {
       ++result.valid_lifts;
       if (!feasible[node.posture]) {
@@ -285,8 +322,7 @@ auto RankedPrefix(const std::vector<LiftBox> &boxes,
         ++result.feasible_postures;
       }
       if (result.seed_added &&
-          (node.first.command_rad - preserved.command_rad)
-              .isZero(numerics::kCommandDedupToleranceRad)) {
+          SameOutputCommand(node.first.command_rad, preserved.command_rad)) {
         result.seed_matches_discovery = true;
       } else {
         retain(node.first);
@@ -420,7 +456,11 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     if (ranked.has_value()) {
       return *ranked;
     }
+    result.status = CommandSelectionStatus::WorkLimit;
+    result.commands.clear();
+    return result;
   }
+  bool unique_overflow = false;
   auto retain = [&](CommandLift command) {
     if (seed != nullptr) {
       command.travel_squared = (command.command_rad - *seed).squaredNorm();
@@ -428,13 +468,27 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
         return false;
       }
     }
+    const auto duplicate = std::find_if(
+        result.commands.begin(), result.commands.end(), [&](const auto &entry) {
+          return SameOutputCommand(command.command_rad, entry.command_rad);
+        });
+    if (duplicate != result.commands.end()) {
+      if (Better(command, *duplicate)) {
+        *duplicate = command;
+        std::make_heap(result.commands.begin(), result.commands.end(), Better);
+      }
+      return true;
+    }
     if (result.commands.size() < output_capacity) {
       result.commands.push_back(command);
       std::push_heap(result.commands.begin(), result.commands.end(), Better);
-    } else if (Better(command, result.commands.front())) {
-      std::pop_heap(result.commands.begin(), result.commands.end(), Better);
-      result.commands.back() = command;
-      std::push_heap(result.commands.begin(), result.commands.end(), Better);
+    } else {
+      unique_overflow = true;
+      if (Better(command, result.commands.front())) {
+        std::pop_heap(result.commands.begin(), result.commands.end(), Better);
+        result.commands.back() = command;
+        std::push_heap(result.commands.begin(), result.commands.end(), Better);
+      }
     }
     return true;
   };
@@ -459,8 +513,7 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
         ++result.valid_lifts;
         const bool matches_seed =
             result.seed_added &&
-            (command.command_rad - preserved.command_rad)
-                .isZero(numerics::kCommandDedupToleranceRad);
+            SameOutputCommand(command.command_rad, preserved.command_rad);
         if (matches_seed) {
           // Count seed preservation separately, never as another discovered
           // lift.
@@ -485,10 +538,7 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     }
   }
   std::sort_heap(result.commands.begin(), result.commands.end(), Better);
-  result.truncated = result.valid_lifts + static_cast<std::uint64_t>(
-                                              result.seed_added &&
-                                              !result.seed_matches_discovery) >
-                     result.commands.size();
+  result.truncated = unique_overflow;
   return result;
 }
 } // namespace crx

@@ -7,10 +7,13 @@
 #include "crx_solver.h"
 #include "crx_types.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+
+#include <Eigen/LU>
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
@@ -44,6 +47,144 @@ auto Target(const crx::CrxModelData &model, const Vec6 &q) -> crx::PoseIsoRT {
   Require(crx::SolveFkIsometry(model, q, pose, nullptr, false) == 1,
           "construct target by FK");
   return pose;
+}
+
+auto SixteenSolutionModel() -> crx::CrxModelData {
+  crx::CrxModelData model;
+  model.base_transform.translation().z() = -0.5;
+  model.joint_senses = {1, 1, -1, -1, -1, -1};
+  model.dh_rows = {{{0, 0, 0, 0.5, false},
+                    {-kPi / 2, 0, -kPi / 2, 0, false},
+                    {0, 1, 0, 0, false},
+                    {-kPi / 2, 0, 0, 0.6, false},
+                    {kPi / 2, 0, 0, -0.5, false},
+                    {-kPi / 2, 0, 0, 0.2, false}}};
+  model.lower_limits_rad.setConstant(-kPi);
+  model.upper_limits_rad.setConstant(kPi);
+  return model;
+}
+
+auto SixteenSolutionTarget() -> crx::PoseIsoRT {
+  crx::PoseIsoRT target = crx::PoseIsoRT::Identity();
+  target.linear() << 3239.0 / 4059, 2182.0 / 4059, 1106.0 / 4059,
+      -2378.0 / 4059, 3239.0 / 4059, 574.0 / 4059, -574.0 / 4059,
+      -1106.0 / 4059, 3863.0 / 4059;
+  target.translation() << 27.0 / 64, 15.0 / 32, 55.0 / 128;
+  return target;
+}
+
+auto NumericalJacobianDeterminant(const crx::CrxModelData &model, const Vec6 &q)
+    -> double {
+  crx::PoseIsoRT pose;
+  crx::JointPoseBuffer frames;
+  Require(crx::SolveFkIsometry(model, q, pose, &frames, false) == 1,
+          "Jacobian FK succeeds");
+  Eigen::Matrix<double, 6, 6> jacobian;
+  for (int joint = 0; joint < crx::kDofCount; ++joint) {
+    const auto index = static_cast<std::size_t>(joint);
+    const crx::Vec3 axis =
+        model.joint_senses[index] * frames[index + 1].linear().col(2);
+    jacobian.template block<3, 1>(0, joint) =
+        axis.cross(pose.translation() - frames[index + 1].translation());
+    jacobian.template block<3, 1>(3, joint) = axis;
+  }
+  return jacobian.determinant();
+}
+
+void CheckFibreIdentification() {
+  const auto model = SixteenSolutionModel();
+  const auto target = SixteenSolutionTarget();
+  crx::canonical::WristCircle circle;
+  Require(
+      crx::canonical::PrepareWristCircle({1, 0.6, 0.2, 0.5}, target, circle) ==
+          crx::canonical::PreparationStatus::Ready,
+      "sixteen-target residual circle prepares");
+  for (const double angle : {-2.2, -0.7, 0.3, 1.4, 2.8}) {
+    constexpr double step = 1e-5;
+    const double numerical =
+        (crx::canonical::EvaluateResidual(circle, angle + step) -
+         crx::canonical::EvaluateResidual(circle, angle - step)) /
+        (2 * step);
+    const double analytic =
+        crx::canonical::EvaluateResidualDerivative(circle, angle);
+    Require(std::abs(numerical - analytic) <=
+                2e-7 * std::max(1.0, std::abs(numerical)),
+            "wrist residual derivative agrees with central difference");
+  }
+  const auto result = crx::IdentifyIkIsometry(model, target, 64);
+  Require(result.status == IkStatus::StrictCandidates,
+          "sixteen-target fibre identification succeeds");
+  Require(result.solutions.size() == 16,
+          "sixteen-target yields all sixteen modulo-turn solutions");
+  Require(!result.truncated, "sixteen-target result is not truncated");
+  std::array<int, 64> root_multiplicity{};
+  std::array<bool, 64> root_flip_zero{};
+  std::array<bool, 64> root_flip_one{};
+  for (std::size_t i = 0; i < result.solutions.size(); ++i) {
+    const auto &solution = result.solutions[i];
+    const auto fk = Target(model, solution.joints);
+    Require((fk.matrix() - target.matrix()).norm() < 1e-8,
+            "identified solution reconstructs target pose");
+    Require(solution.regular && solution.aspect_sign != 0,
+            "sixteen-target solutions are regular");
+    Require(solution.wrist_address_valid,
+            "sixteen-target has unambiguous wrist addresses");
+    const double determinant =
+        NumericalJacobianDeterminant(model, solution.joints);
+    Require((determinant > 0 ? 1 : -1) == solution.aspect_sign,
+            "closed-form aspect sign agrees with numerical Jacobian");
+    const auto root = static_cast<std::size_t>(solution.wrist_address[0] * 8 +
+                                               solution.wrist_address[1]);
+    Require(root < root_multiplicity.size(), "wrist address is in range");
+    ++root_multiplicity[root];
+    if (solution.wrist_address[2] == 0) {
+      root_flip_zero[root] = true;
+    } else {
+      root_flip_one[root] = true;
+    }
+    for (std::size_t j = 0; j < i; ++j) {
+      Vec6 difference = solution.joints - result.solutions[j].joints;
+      difference = difference.unaryExpr(
+          [](double value) { return std::remainder(value, 2 * kPi); });
+      Require(difference.norm() > 1e-5,
+              "identified joint vectors are distinct modulo turns");
+    }
+  }
+  int labelled_roots = 0;
+  for (std::size_t i = 0; i < root_multiplicity.size(); ++i) {
+    if (root_multiplicity[i] == 0) {
+      continue;
+    }
+    ++labelled_roots;
+    Require(root_multiplicity[i] == 2 && root_flip_zero[i] && root_flip_one[i],
+            "each wrist root has both base-flip representatives");
+  }
+  Require(labelled_roots == 8, "sixteen-target has eight wrist roots");
+
+  auto turn_model = model;
+  turn_model.lower_limits_rad[0] = -3 * kPi;
+  turn_model.upper_limits_rad[0] = 3 * kPi;
+  const auto turn_result = crx::IdentifyIkIsometry(turn_model, target, 64);
+  Require(turn_result.status == IkStatus::StrictCandidates,
+          "turn-expanded fibre identification succeeds");
+  bool found_turn_duplicate = false;
+  for (std::size_t i = 0; i < turn_result.solutions.size(); ++i) {
+    for (std::size_t j = 0; j < i; ++j) {
+      const auto &a = turn_result.solutions[i];
+      const auto &b = turn_result.solutions[j];
+      if (a.wrist_address_valid && b.wrist_address_valid &&
+          a.wrist_address == b.wrist_address &&
+          std::abs(std::abs(a.joints[0] - b.joints[0]) - 2 * kPi) < 1e-8) {
+        found_turn_duplicate = true;
+        break;
+      }
+    }
+    if (found_turn_duplicate) {
+      break;
+    }
+  }
+  Require(found_turn_duplicate,
+          "full-turn command variants retain their canonical wrist address");
 }
 
 void CheckJointTrig() {
@@ -387,6 +528,7 @@ void CheckPhaseDomains() {
 } // namespace
 
 auto main() -> int {
+  CheckFibreIdentification();
   CheckJointTrig();
   CheckCrxForwardGeometry();
   CheckUnsupportedModels();
