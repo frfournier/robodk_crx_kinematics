@@ -53,7 +53,7 @@ struct ModelSpec {
   std::array<double, crx::kDofCount> upper;
 };
 
-// Nominal geometry and total joint travel follow FANUC's CRX specifications. 
+// Nominal geometry and total joint travel follow FANUC's CRX specifications.
 // Joint limits are set to the default in ROBOGUIDE from the base 9.40 image
 constexpr std::array<ModelSpec, kModelCount> kModels{{
     {"CRX-3iA",
