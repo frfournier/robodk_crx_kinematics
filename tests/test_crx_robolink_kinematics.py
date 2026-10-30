@@ -6,6 +6,7 @@ import sys
 
 import numpy as np
 import pytest
+from crx_kinematics import CrxSolver
 from crx_assets import APPROVED_ROBOT_ASSETS
 from crx_asset_reference import derive_model, forward_model, forward_models
 from robodk.robolink import (
@@ -285,6 +286,10 @@ def _assert_live_pose(actual, expected):
                                atol=2e-7, rtol=0)
 
 
+def _controller_joint_key(command_degrees):
+    return tuple(format(float(joint), ".3f") for joint in command_degrees)
+
+
 @pytest.mark.parametrize("asset", _ASSET_CAPTURE, ids=lambda asset: asset["asset"])
 def test_robolink_command_fk_and_cad(robolink_crx_10ia, asset):
     path = _ROBOT_ASSET.parent / asset["asset"]
@@ -351,9 +356,9 @@ def test_robolink_home_deduplication(robolink_crx_10ia, asset):
         robot.setJoints([0]*6)
         target = robot.SolveFK([0]*6)
         commands = np.asarray(robot.SolveIK_All(target).rows)[:6, :].T
-        assert np.count_nonzero(np.max(np.abs(commands), axis=1) < 1e-3) == 1
-        difference = np.max(np.abs(commands[:, None, :] - commands[None, :, :]), axis=2)
-        assert np.all(difference[np.triu_indices(len(commands), 1)] > 1e-4)
+        command_keys = [_controller_joint_key(command) for command in commands]
+        assert len(command_keys) == len(set(command_keys))
+        assert command_keys.count(_controller_joint_key(np.zeros(6))) == 1
         np.testing.assert_array_equal(robot.SolveIK(target, [0]*6).list()[:6], np.zeros(6))
         model = derive_model(asset)
         _assert_live_pose(forward_models(model, commands),
@@ -390,5 +395,77 @@ def test_robolink_coupling_with_tool_reference_and_limits(robolink_crx_10ia, ass
         assert np.all(joints <= upper + 1e-6)
         _assert_live_pose(forward_models(model, joints),
                           np.broadcast_to(flange, (len(joints), 4, 4)))
+    finally:
+        robot.Delete()
+
+
+@pytest.mark.parametrize("asset", _ASSET_CAPTURE, ids=lambda asset: asset["asset"])
+def test_python_wrapper_matches_live_asset(robolink_crx_10ia, asset):
+    """Compare the production wrapper directly with the loaded RoboDK asset."""
+    path = _ROBOT_ASSET.parent / asset["asset"]
+    assert _sha256_file(path) == APPROVED_ROBOT_ASSETS[asset["asset"]]
+    robot = robolink_crx_10ia.RDK().AddFile(str(path))
+    assert robot.Valid()
+    model = asset["asset"].removeprefix("Fanuc-").removesuffix("-Custom.robot")
+    dll = Path(os.environ.get(
+        "CRXKIN_LIBRARY_PATH",
+        Path(__file__).resolve().parents[1] / "build/Release/crx_kinematics.dll",
+    ))
+    try:
+        robot.setAccuracyActive(0)
+        lower, upper, _ = robot.JointLimits()
+        with CrxSolver(model, dll_path=dll) as solver:
+            np.testing.assert_allclose(solver.joint_limits,
+                                       [lower.list(), upper.list()], atol=1e-12, rtol=0)
+            for commands in _coupling_commands(asset):
+                target = robot.SolveFK(commands)
+                _assert_live_pose(solver.fk(commands), target.rows)
+                result = solver.ik(np.asarray(target.rows), seed=commands)
+                assert result.success and not result.is_approximate
+                live = robot.SolveIK(target, commands).list()[:6]
+                np.testing.assert_allclose(result.solutions[0], live, atol=1e-5, rtol=0)
+                _assert_live_pose(robot.SolveFK(result.solutions[0].tolist()).rows, target.rows)
+                if result.configuration_valid[0]:
+                    config = robot.JointsConfig(result.solutions[0].tolist()).list()[:3]
+                    np.testing.assert_array_equal(result.configurations[0], config)
+
+        commands = np.array([23., 60., -70., -37., 51., 83.])
+        tool = transl(35, -24, 92) * rotx(0.3)
+        reference = transl(-120, 80, 45) * roty(-0.4)
+        with CrxSolver(model, dll_path=dll, tool=tool.rows, reference=reference.rows) as solver:
+            target = robot.SolveFK(commands.tolist(), tool, reference)
+            _assert_live_pose(solver.fk(commands), target.rows)
+            result = solver.ik(np.asarray(target.rows), seed=commands, max_solutions=64)
+            assert result.success and not result.is_approximate
+            for joints, config, valid in zip(result.solutions, result.configurations,
+                                             result.configuration_valid):
+                _assert_live_pose(robot.SolveFK(joints.tolist(), tool, reference).rows,
+                                  target.rows)
+                if valid:
+                    np.testing.assert_array_equal(config, robot.JointsConfig(joints.tolist()).list()[:3])
+
+            # Differentiate the live API, including TCP offset and reference
+            # rotation. No wrapper FK or captured FK oracle enters this check.
+            rotation = np.asarray(target.rows)[:3, :3]
+            numerical = np.empty((6, 6))
+            step = 1e-3  # command degrees; tolerate live API serialization
+            for joint in range(6):
+                delta = np.eye(6)[joint] * step
+                plus = np.asarray(robot.SolveFK((commands + delta).tolist(), tool, reference).rows)
+                minus = np.asarray(robot.SolveFK((commands - delta).tolist(), tool, reference).rows)
+                numerical[:3, joint] = (plus[:3, 3] - minus[:3, 3]) / (2*step)
+                omega = ((plus[:3, :3] - minus[:3, :3]) / (2*step)) @ rotation.T
+                numerical[3:, joint] = [omega[2, 1], omega[0, 2], omega[1, 0]]
+            np.testing.assert_allclose(solver.jacobian(commands), numerical, atol=2e-6, rtol=2e-6)
+        # Explicit wrapper overrides must agree with live command-limit edits.
+        low, high = commands - .25, commands + .25
+        robot.setJointLimits(low.tolist(), high.tolist())
+        with CrxSolver(model, dll_path=dll, joint_limits=[low, high]) as solver:
+            target = robot.SolveFK(commands.tolist())
+            result = solver.ik(np.asarray(target.rows), seed=commands)
+            assert result.success
+            np.testing.assert_allclose(result.solutions[0],
+                                       robot.SolveIK(target, commands.tolist()).list()[:6],
+                                       atol=1e-5, rtol=0)
     finally:
         robot.Delete()

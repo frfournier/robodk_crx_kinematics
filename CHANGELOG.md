@@ -3,6 +3,27 @@
 Release details are recorded below, with GitHub release tags and abbreviated
 commit references for traceability.
 
+## Unreleased
+
+- Add guarded Cramer-residual wrist polishing before the existing signed branch
+  refiners; ill-conditioned nominations still traverse both signed branches.
+- Merge near-identical IK output postures to three-decimal-place degree
+  representation used by the controller
+- Add a typed NumPy Python package with nominal CRX models, DLL discovery,
+  FK/IK, configuration flags, and analytic reference/body TCP Jacobians.
+- Package the Python layer with uv's native build backend and editable project
+  installation; retain separate runtime, optional RoboDK, and dev dependencies.
+- Add a versioned C API preserving detailed IK outcomes and the existing
+  RoboDK callback ABI. Undefined singular configurations are explicit.
+
+## 0.5.0
+
+- Add pose-fibre identification with aspect, regularity, and wrist-circle
+  address metadata through the Python API and additive ABI 1 native endpoint.
+- Keep identification metadata aligned with discovered, limits-valid command
+  solutions; unresolved address assignments use an explicit invalid sentinel.
+- Advance package, DLL, public-header, and qmake project versions to 0.5.0.
+
 ## 0.4.4
 
 - Merge near-identical IK output postures within 0.0001 degree per joint,

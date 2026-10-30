@@ -1,6 +1,6 @@
 # FANUC CRX custom kinematics for RoboDK
 
-**Current release:** `0.4.4` ([changelog](CHANGELOG.md))
+**Current release:** `0.5.0` ([changelog](CHANGELOG.md))
 
 RoboDK extension for forward and inverse kinematics for FANUC CRX robots with a non-spherical wrist.
 Targets RoboDK **6.0.6.26901+** on Windows 11 and Ubuntu 24.04 or newer,
@@ -111,6 +111,20 @@ angles followed by six zeros, with the chosen `joints` first.
 The sample defines FK returns as `1` for success, `0` for no solution, and `-1`
 for generic fallback. This implementation currently uses `-2` for FK limit
 violations.
+
+## NumPy Python wrapper
+
+The uv package `crx_kinematics` exposes FK, IK, pose-fibre identification,
+configurations, and analytic reference-frame Jacobians as NumPy arrays. It uses
+nominal built-in models, RoboDK command degrees, and millimetres. Supply a DLL path or install
+the `robodk` extra for installation-path discovery without starting RoboDK.
+Use `uv sync --locked` for an editable installation and `uv build` to build
+wheel/sdist artifacts with the native `uv_build` backend.
+
+See [Python API and examples](docs/python-wrapper.md) for installation,
+tool/reference transforms, numerical outcomes, units, and memory guarantees.
+The wrapper requires the additive ABI in [crx_python_api.h](include/crx_python_api.h);
+existing RoboDK exports remain compatible.
 
 ## Verify
 

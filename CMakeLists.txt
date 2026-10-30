@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 # ------------------------------------------------------------------------------
 # Project
 # ------------------------------------------------------------------------------
-project(crx_kinematics VERSION 0.4.4 LANGUAGES CXX)
+project(crx_kinematics VERSION 0.5.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -99,31 +99,10 @@ endif()
 # Works for both single-config (Ninja/Make) and multi-config (VS/MSBuild)
 # ------------------------------------------------------------------------------
 set(_OUT_ROOT "${CMAKE_SOURCE_DIR}/build")
-foreach(_CFG DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
-  string(TOUPPER "${_CFG}" _CFG_U)
-  if(_CFG_U STREQUAL "DEBUG")
-    set(_CFG_DIR "Debug")
-  else()
-    # Treat all non-Debug configs as "Release" to match the batch expectation,
-    # or change this mapping if you want RelWithDebInfo to have its own dir.
-    set(_CFG_DIR "Release")
-  endif()
-
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${_CFG_U} "${_OUT_ROOT}/${_CFG_DIR}")
-  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${_CFG_U} "${_OUT_ROOT}/${_CFG_DIR}")
-  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${_CFG_U} "${_OUT_ROOT}/${_CFG_DIR}")
-endforeach()
-
-# Also set generic fallbacks (single-config generators use these)
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_OUT_ROOT}/Debug")
-  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${_OUT_ROOT}/Debug")
-  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${_OUT_ROOT}/Debug")
-else()
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_OUT_ROOT}/Release")
-  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${_OUT_ROOT}/Release")
-  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${_OUT_ROOT}/Release")
-endif()
+set(_OUT_DIR "${_OUT_ROOT}/$<IF:$<CONFIG:Debug>,Debug,Release>")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_OUT_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${_OUT_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${_OUT_DIR}")
 
 message(STATUS "Build output root: ${_OUT_ROOT}")
 
@@ -194,6 +173,7 @@ set(CRXKIN_CPP_SOURCES
   ${CRXKIN_CANONICAL_SOURCES}
   "${CMAKE_SOURCE_DIR}/src/crx_command_lifts.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_kinematics.cpp"
+  "${CMAKE_SOURCE_DIR}/src/crx_python_api.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_joint_trig.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_compat.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_math_helpers.cpp"
@@ -224,6 +204,14 @@ target_include_directories(crx_kinematics PRIVATE
 )
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
+
+# The Python C boundary catches allocation/solver exceptions. Explicit Clang
+# flags also reach clang-tidy, whose clang-cl driver can lose /EHsc while
+# translating the compilation database to its analysis invocation.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32)
+  set_source_files_properties("${CMAKE_SOURCE_DIR}/src/crx_python_api.cpp"
+    PROPERTIES COMPILE_OPTIONS "-Xclang;-fexceptions;-Xclang;-fcxx-exceptions")
+endif()
 
 # Compile only the private, plain-double trig kernel for AVX2. Keep the solver's
 # Eigen types and floating-point compilation settings unchanged.

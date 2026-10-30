@@ -42,7 +42,8 @@ variables to select another build:
 | `test_crx_solver_fixtures.py`, `test_crx_solver_family.py`, `test_crx_accuracy_stress.py` | Frozen corpus, independent holdouts and singularity/scale regressions |
 | `test_polynomial_roots.py`, `test_crx_polynomial_discovery.py` | Native probe compared with independent root/geometry references |
 | `test_crx_asset_bridge.py` | Captured asset frames and model mapping |
-| `test_crx_robolink_kinematics.py` | Opt-in live FK, CAD, configuration, seeded/current-state/all-solutions IK, command limits, turns and tool/reference transforms; offline deployment-guard checks |
+| `test_crx_robolink_kinematics.py` | Opt-in live FK, CAD, configuration, seeded/current-state/all-solutions IK, command limits, turns and tool/reference transforms; direct NumPy-wrapper parity across all six assets, including reference-frame Jacobians differentiated through live FK; offline deployment-guard checks |
+| `test_python_wrapper.py` | Typed wrapper outcomes, fibre identification metadata, determinant signs, tool/reference transforms, optional native symbols and buffer ownership |
 | `test_version_metadata.py` | Release metadata consistency |
 | `test_*.cpp` | Internal invariants, metadata, option budgets and allocation guards; run through CTest |
 

@@ -15,7 +15,7 @@ CONFIG  += shared
 
 # Deterministic output base name (matches MSVC expectation)
 TARGET = crx_kinematics
-VERSION = 0.4.4
+VERSION = 0.5.0
 
 # On Windows, prevent "lib" prefix and ensure proper dll naming
 win32 {
@@ -36,6 +36,7 @@ SOURCES += \
     $$PWD/src/crx_math_helpers.cpp \
     $$PWD/src/crx_polynomial_roots.cpp \
     $$PWD/src/crx_kinematics.cpp \
+    $$PWD/src/crx_python_api.cpp \
     $$PWD/src/crx_solver.cpp \
     $$PWD/src/crx_robodk_adapter.cpp
 
@@ -49,6 +50,7 @@ HEADERS += \
     $$PWD/src/crx_joint_trig.h \
     $$PWD/src/crx_polynomial_roots.h \
     $$PWD/include/crx_kinematics.h \
+    $$PWD/include/crx_python_api.h \
     $$PWD/src/crx_types.h \
     $$PWD/src/crx_math_helpers.h \
     $$PWD/src/crx_solver.h \
