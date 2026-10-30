@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Command limits/turns through the unchanged RoboDK sample ABI (#17).
 
 Shifted bounds are synthetic tests of the CRX callback model; the asset

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Approved model inputs for #19 A; hashes are Git LFS SHA-256 object IDs.
 
 Inventory verified at 0df62df (updated custom-kinematics assets). Nominal joint

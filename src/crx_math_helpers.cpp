@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_math_helpers.cpp
+ * @brief Implementation of numerical math helpers.
+ */
+
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"
 

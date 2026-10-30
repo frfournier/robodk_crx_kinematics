@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file test_crx_solver_outcomes.cpp
+ * @brief Tests for crx solver outcomes.
+ */
+
 #include "crx_canonical.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"

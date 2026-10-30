@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Independent transform-product reference for the CRX callback model.
 
 This is derived test geometry, not an asset extraction or a family-support claim.

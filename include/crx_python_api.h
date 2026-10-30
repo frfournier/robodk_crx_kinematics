@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+
 #ifndef CRX_PYTHON_API_H
 #define CRX_PYTHON_API_H
 

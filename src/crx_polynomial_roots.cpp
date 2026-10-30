@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_polynomial_roots.cpp
+ * @brief Implementation of polynomial root utilities.
+ */
+
 #include "crx_polynomial_roots.h"
 #include "crx_canonical.h"
 #include "crx_numerics.h"

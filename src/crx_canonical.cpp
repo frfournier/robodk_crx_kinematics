@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_canonical.cpp
+ * @brief Implementation of canonical kinematic solution utilities.
+ */
+
 #include "crx_canonical.h"
 #include "crx_numerics.h"
 #include "crx_types.h"

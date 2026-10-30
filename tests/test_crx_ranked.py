@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Ranked prefixes, restricted domains and external command-catalogue coverage."""
 import numpy as np
 import pytest

@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+"""Tests for crx kinematics."""
+
 import ctypes
 import hashlib
 import logging

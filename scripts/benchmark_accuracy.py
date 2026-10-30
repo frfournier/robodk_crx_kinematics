@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Paired complete-DLL experiment on immutable existing or independent inputs."""
 import argparse
 from datetime import datetime, timezone

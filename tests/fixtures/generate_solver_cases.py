@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Generate versioned stress fixtures used by regressions and performance runs.
 
 The v1 default corpus reproduces the complete 2026-10-09 snapshot, modulo newlines.

@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_incidence_reference.cpp
+ * @brief Implementation of crx incidence reference.
+ */
+
 #include "crx_incidence_reference.h"
 
 #include <algorithm>

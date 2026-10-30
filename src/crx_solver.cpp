@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_solver.cpp
+ * @brief Implementation of CRX inverse kinematics solver.
+ */
+
 #include "crx_solver.h"
 
 #include <algorithm>

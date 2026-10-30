@@ -1,9 +1,21 @@
 # Third-Party Notices
 
+## RoboDK API header
+
+[`include/crx_kinematics.h`](include/crx_kinematics.h) contains the RoboDK
+custom-kinematics API declarations and retains the upstream copyright and
+Apache-2.0 license notice. Its SPDX metadata records `RoboDK Global` for
+2015-2026 alongside this project’s copyright.
+
 ## Eigen (vendored tree based on 5.0.1)
 
 This software uses the Eigen library, licensed under the Mozilla Public
-License v2.0.
+License v2.0 (`MPL-2.0`). `EIGEN_MPL2_ONLY` restricts project compilation to
+Eigen modules available under that license.
+
+The vendored Eigen tree also contains files under other licenses. No single
+license identifier is asserted for the entire tree; the upstream per-file
+notices and `COPYING.*` files identify those terms.
 
 The exact corresponding Eigen header source used to build this binary,
 including any local modifications, is distributed with the binary in:

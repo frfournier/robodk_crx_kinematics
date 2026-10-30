@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file benchmark_discovery.cpp
+ * @brief Implementation of solution discovery performance.
+ */
+
 // Windows-only snapshot harness. Time the production DLL and the current
 // discovery component in native loops, without Python/process startup cost.
 #include "crx_discovery.h"

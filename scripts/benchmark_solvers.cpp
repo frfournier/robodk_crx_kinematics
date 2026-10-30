@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file benchmark_solvers.cpp
+ * @brief Implementation of solver performance.
+ */
+
 // Windows x64: compare complete DLL calls on identical inputs in native loops.
 #include <algorithm>
 #include <array>

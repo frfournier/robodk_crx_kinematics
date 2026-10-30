@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Private ABI declarations. No RoboDK import, discovery, or DLL load at import."""
 
 import ctypes as ct

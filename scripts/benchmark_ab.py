@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """A/B benchmark for crx_kinematics DLLs with differential correctness checks."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Offline asset-derived evidence for the nominal coordinate bridge."""
 
 import hashlib

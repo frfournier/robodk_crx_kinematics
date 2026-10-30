@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Seed-free discovery gates using derived CRX-model targets (#2/#19 A).
 
 Each generating posture is a known witness, not a complete IK catalogue. These

@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_discovery.cpp
+ * @brief Implementation of kinematic solution discovery.
+ */
+
 #include "crx_discovery.h"
 #include "crx_numerics.h"
 

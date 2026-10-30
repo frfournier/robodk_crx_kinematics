@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Snapshot baseline/candidate DLL speed, accuracy and reliability.
 
 Native timing excludes Python and validation. The independent checker uses

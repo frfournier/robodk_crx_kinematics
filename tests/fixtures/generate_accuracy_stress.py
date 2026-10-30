@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Independent, frozen command-space stress corpus; no IK-based filtering.
 
 Version 1 uses seed 2026101301, six captured models, and three length scales.

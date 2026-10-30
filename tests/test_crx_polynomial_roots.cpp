@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file test_crx_polynomial_roots.cpp
+ * @brief Tests for crx polynomial roots.
+ */
+
 #include "crx_allocation_probe.h"
 #include "crx_canonical.h"
 #include "crx_numerics.h"

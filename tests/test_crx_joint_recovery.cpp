@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file test_crx_joint_recovery.cpp
+ * @brief Tests for crx joint recovery.
+ */
+
 #include "crx_allocation_probe.h"
 #include "crx_joint_recovery_tests.h"
 

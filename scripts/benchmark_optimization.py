@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Paired before/after DLL measurements using the native FK/IK runner.
 
 Build crx_solver_benchmark with a Release preset. Save the baseline DLL before

@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file test_crx_command_lifts.cpp
+ * @brief Tests for crx command lifts.
+ */
+
 #include "crx_command_lifts.h"
 #include "crx_math_helpers.h"
 #include "crx_numerics.h"

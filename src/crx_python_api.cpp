@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_python_api.cpp
+ * @brief Implementation of Python C ABI entry points.
+ */
+
 #include "crx_python_api.h"
 
 #include <array>

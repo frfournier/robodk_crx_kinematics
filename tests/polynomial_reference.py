@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Offline exact real-root reference for degree-at-most-eight polynomials.
 
 Ascending rational coefficients, square-free factorization, and Sturm counts.

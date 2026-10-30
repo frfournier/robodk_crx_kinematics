@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Outcome policy through the C ABI, including unchanged output buffers."""
 
 import numpy as np

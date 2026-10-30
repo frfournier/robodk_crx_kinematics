@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_incidence.cpp
+ * @brief Implementation of kinematic incidence analysis.
+ */
+
 #include "crx_incidence.h"
 #include "crx_numerics.h"
 #include "crx_types.h"

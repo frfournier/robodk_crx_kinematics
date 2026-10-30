@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Typed NumPy wrapper for the CRX solver DLL; importing has no native side effects."""
 
 from ._native import (

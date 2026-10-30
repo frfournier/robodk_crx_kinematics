@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Complete-DLL regression coverage for the versioned performance corpus."""
 import ctypes
 import hashlib

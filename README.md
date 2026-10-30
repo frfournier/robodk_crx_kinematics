@@ -6,6 +6,23 @@ RoboDK extension for forward and inverse kinematics for FANUC CRX robots with a 
 Targets RoboDK **6.0.6.26901+** on Windows 11 and Ubuntu 24.04 or newer,
 with an x86-64 CPU supporting AVX2 and FMA.
 
+## Versioning and public API
+
+This project follows [Semantic Versioning 2.0.0](https://semver.org/). Its
+public API consists of the RoboDK callbacks in
+[`crx_kinematics.h`](include/crx_kinematics.h), the additive C interface in
+[`crx_python_api.h`](include/crx_python_api.h), and the documented Python
+package API in [the Python wrapper guide](docs/python-wrapper.md).
+
+The project is currently at `0.5.0`, so it is in initial development and its
+public API is not yet considered stable. Before `1.0.0`, a minor version bump
+may include API changes; patch versions are reserved for compatible bug fixes.
+The unreleased API additions in this changelog are planned for `0.6.0`. After
+`1.0.0`, incompatible public API changes require a major bump, compatible API
+additions or deprecations require a minor bump, and compatible bug fixes use a
+patch bump. Prerelease and build metadata, when used, follow the SemVer 2.0.0
+format.
+
 ## Build and use
 
 On Windows, requires Git LFS, Visual Studio 2022/2026 with C++ and Clang tools,

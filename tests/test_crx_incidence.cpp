@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file test_crx_incidence.cpp
+ * @brief Tests for crx incidence.
+ */
+
 #include "crx_incidence_tests.h"
 
 #include "crx_canonical.h"

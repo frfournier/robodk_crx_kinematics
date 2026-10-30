@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_kinematics.cpp
+ * @brief Implementation of RoboDK CRX kinematics callbacks.
+ */
+
 #include <algorithm>
 #include <cstddef>
 #include <type_traits>

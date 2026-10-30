@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_joint_trig.cpp
+ * @brief Implementation of joint trigonometric utilities.
+ */
+
 #include "crx_joint_trig.h"
 
 #include <array>

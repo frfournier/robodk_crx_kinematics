@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+"""Shared pytest fixtures and configuration."""
+
 import ctypes
 import json
 import math

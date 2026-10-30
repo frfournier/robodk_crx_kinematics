@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Shared robot-table and C ABI plumbing; geometry references stay independent."""
 
 import ctypes

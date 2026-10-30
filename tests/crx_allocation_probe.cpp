@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_allocation_probe.cpp
+ * @brief Implementation of crx allocation probe.
+ */
+
 #include "crx_allocation_probe.h"
 
 #include <cstdlib>

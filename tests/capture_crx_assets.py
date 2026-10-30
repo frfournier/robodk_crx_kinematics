@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Capture nominal CRX joint frames in a separate hidden RoboDK instance.
 
 Run with uv run python tests/capture_crx_assets.py --robodk-path PATH.

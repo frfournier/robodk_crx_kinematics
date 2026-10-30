@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Deterministic fixture/asset discovery corpus shared by tests and benchmarks."""
 import json
 from pathlib import Path

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2015-2026 RoboDK Global
+
 /****************************************************************************
 **
 ** Copyright (c) 2015-2026 RoboDK Global.

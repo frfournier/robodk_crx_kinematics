@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Derive a nominal modified-DH representation from captured link transforms.
 
 This is an offline reference, not a runtime model recognizer. The derivation

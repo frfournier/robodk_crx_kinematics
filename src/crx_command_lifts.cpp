@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_command_lifts.cpp
+ * @brief Implementation of joint command lift utilities.
+ */
+
 #include "crx_command_lifts.h"
 
 #include <Eigen/Core>

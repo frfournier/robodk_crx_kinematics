@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Reproducible production-DLL versus discovery-component timing snapshot.
 
 Build crx_discovery_benchmark with a Release CMake preset first. This script

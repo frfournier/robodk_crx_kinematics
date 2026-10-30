@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
+/**
+ * @file crx_joint_recovery.cpp
+ * @brief Implementation of joint recovery routines.
+ */
+
 #include "crx_joint_recovery.h"
 #include "crx_canonical.h"
 #include "crx_incidence.h"
