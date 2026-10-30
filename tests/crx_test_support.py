@@ -3,12 +3,9 @@
 """Shared robot-table and C ABI plumbing; geometry references stay independent."""
 
 import ctypes
-from typing import List, Tuple
 
 import numpy as np
-
 from crx_asset_reference import forward_models
-
 
 ROBOT_STRIDE = 20
 # Adapter warnings read the ASCII name at row 90, across up to 59 doubles.
@@ -67,19 +64,19 @@ def _from_c_array(c_array, length):
     return [float(c_array[i]) for i in range(length)]
 
 
-def _to_fk_api_joints_deg(joints_deg: List[float]) -> List[float]:
+def _to_fk_api_joints_deg(joints_deg: list[float]) -> list[float]:
     joints = [float(v) for v in joints_deg]
     joints[2] = joints[1] + joints[2]
     return joints
 
 
-def _from_fk_api_joints_deg(joints_deg: List[float]) -> List[float]:
+def _from_fk_api_joints_deg(joints_deg: list[float]) -> list[float]:
     joints = [float(v) for v in joints_deg]
     joints[2] = joints[2] - joints[1]
     return joints
 
 
-def _call_fk(lib, robot, joints_deg: List[float]) -> Tuple[int, List[float]]:
+def _call_fk(lib, robot, joints_deg: list[float]) -> tuple[int, list[float]]:
     joints = _to_c_array(_to_fk_api_joints_deg(joints_deg))
     pose = (ctypes.c_double * 16)()
     status = lib.SolveFK(joints, pose, ctypes.byref(robot))
@@ -89,11 +86,11 @@ def _call_fk(lib, robot, joints_deg: List[float]) -> Tuple[int, List[float]]:
 def _call_ik(
     lib,
     robot,
-    pose16_col_major: List[float],
+    pose16_col_major: list[float],
     *,
-    approx: List[float] | None = None,
+    approx: list[float] | None = None,
     max_solutions: int = 32,
-) -> Tuple[int, List[float], List[List[float]]]:
+) -> tuple[int, list[float], list[list[float]]]:
     seed = _to_fk_api_joints_deg(approx) if approx is not None else None
     count, best, commands = _call_command_ik(
         lib, robot, pose16_col_major, seed, max_solutions, initial=0.0,
@@ -105,9 +102,9 @@ def _call_ik(
 def _call_joints_config(
     lib,
     robot,
-    joints_deg: List[float],
-    initial: Tuple[float, float, float] = (-9.0, -9.0, -9.0),
-) -> Tuple[int, List[float]]:
+    joints_deg: list[float],
+    initial: tuple[float, float, float] = (-9.0, -9.0, -9.0),
+) -> tuple[int, list[float]]:
     joints = _to_c_array(_to_fk_api_joints_deg(joints_deg))
     config = (ctypes.c_double * 3)(*initial)
     status = lib.Joints2Config(joints, config, ctypes.byref(robot))
@@ -128,7 +125,7 @@ def check_solver_pose(library, generated_models, case, seeded, capacity=64):
     assert count <= capacity
     if not case["reachable"]:
         assert count <= 0, "accepted a target outside the arm's total reach"
-        return
+        return None
     assert count > 0, f"{case['name']}: reachable pose returned {count}"
     # Validate the best command and every returned candidate independently.
     commands = np.vstack([np.asarray(best), np.asarray(output).reshape(capacity, stride)[:count, :6]])
@@ -142,5 +139,6 @@ def check_solver_pose(library, generated_models, case, seeded, capacity=64):
     assert np.all(angle <= 1e-3), angle
     low, high = models[model_id]["robot"][[30, 31], :6]
     allowance = 128*np.finfo(float).eps*np.maximum(1, np.maximum(abs(low), abs(high)))
-    assert np.all(commands >= low - allowance) and np.all(commands <= high + allowance)
+    assert np.all(commands >= low - allowance)
+    assert np.all(commands <= high + allowance)
     return commands

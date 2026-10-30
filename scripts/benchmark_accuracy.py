@@ -2,21 +2,20 @@
 # SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Paired complete-DLL experiment on immutable existing or independent inputs."""
 import argparse
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import platform
 import shutil
 import subprocess
 import zipfile
-
-import numpy as np
+from datetime import UTC, datetime
+from pathlib import Path
 
 import benchmark_solvers as bench
+import numpy as np
 from fixtures.generate_accuracy_stress import corpus as stress_corpus
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--before", type=Path, required=True)
     parser.add_argument("--after", type=Path, default=bench.ROOT / "build/Release/crx_kinematics.dll")
@@ -56,13 +55,13 @@ def main():
         with zipfile.ZipFile(output / "sources.zip", "w", zipfile.ZIP_DEFLATED) as archive:
             for source in sorted((bench.ROOT / "src").glob("*.[ch]*")):
                 archive.write(source, source.relative_to(bench.ROOT))
-    metadata = dict(labels={"baseline": "baseline", "candidate": "candidate"},
-                    measured_at_utc=datetime.now(timezone.utc).isoformat(),
-                    platform=platform.platform(), cpu=platform.processor(),
-                    corpus=args.corpus, rounds=args.rounds, repeats=args.repeats, capacity=args.capacity,
-                    position_tolerance_mm=bench.POSITION_MM, angle_tolerance_deg=bench.ANGLE_DEG,
-                    warmup_calls=3, pinned_thread=True,
-                    hashes={p.name: bench.sha256(p) for p in output.iterdir() if p.is_file()})
+    metadata = {"labels": {"baseline": "baseline", "candidate": "candidate"},
+                    "measured_at_utc": datetime.now(UTC).isoformat(),
+                    "platform": platform.platform(), "cpu": platform.processor(),
+                    "corpus": args.corpus, "rounds": args.rounds, "repeats": args.repeats, "capacity": args.capacity,
+                    "position_tolerance_mm": bench.POSITION_MM, "angle_tolerance_deg": bench.ANGLE_DEG,
+                    "warmup_calls": 3, "pinned_thread": True,
+                    "hashes": {p.name: bench.sha256(p) for p in output.iterdir() if p.is_file()}}
     print(f"Timing {len(cases)} frozen {args.corpus} poses", flush=True)
     with (output / "native.log").open("w") as log:
         subprocess.run([str(output / "runner.exe"), str(output / "before.dll"),
@@ -71,7 +70,7 @@ def main():
                         str(args.repeats), str(args.rounds), str(args.capacity)], check=True, stderr=log)
     times, errors, frame = bench.validate(output, models, refs, cases, args.rounds)
     stats = bench.statistics(times, errors, frame, args.capacity)
-    (output / "summary.json").write_text(json.dumps(dict(metadata=metadata, groups=stats), indent=2))
+    (output / "summary.json").write_text(json.dumps({"metadata": metadata, "groups": stats}, indent=2))
     for group in ("all_reachable", "challenging", "base_axis", "mixed_singular"):
         print(group, json.dumps({path: {key: stats["no_seed"][group][path][key]
                                       for key in ("strict_solves", "timing_us", "position_mm", "angle_deg", "witness_hits")}

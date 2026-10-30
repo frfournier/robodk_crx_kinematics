@@ -9,6 +9,7 @@ This reference certifies only that supplied rational polynomial. It is not a
 runtime IK backend and makes no bound on rational intermediate bit lengths.
 """
 
+import itertools
 from dataclasses import dataclass
 from fractions import Fraction
 from math import ceil
@@ -113,7 +114,7 @@ def _variations(sequence, x):
         value = _evaluate(p, x)
         if value:
             signs.append(value > 0)
-    return sum(a != b for a, b in zip(signs, signs[1:]))
+    return sum(a != b for a, b in itertools.pairwise(signs))
 
 
 def isolate_real_roots(coefficients, *, width=Fraction(1, 2**48),

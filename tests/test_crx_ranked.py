@@ -3,11 +3,9 @@
 """Ranked prefixes, restricted domains and external command-catalogue coverage."""
 import numpy as np
 import pytest
-
 from crx_asset_reference import forward_models
 from crx_test_support import RobotT, _call_command_ik
 from fixtures.generate_solver_cases import corpus
-
 
 MODELS, REFERENCES, CASES = corpus(16, 14, 20261016)
 REACHABLE = [dict(case, domain_index=index) for index, case in enumerate(CASES)
@@ -36,7 +34,7 @@ def restricted_problem(case, seeded):
 
 
 @pytest.mark.parametrize("case", REACHABLE, ids=lambda case: case["name"])
-@pytest.mark.parametrize("capacity,seeded", [(1, False), (4, True), (64, False)])
+@pytest.mark.parametrize(("capacity", "seeded"), [(1, False), (4, True), (64, False)])
 def test_ranked_restricted_prefix(kinematics_lib, case, capacity, seeded):
     table, robot, target, seed = restricted_problem(case, seeded)
     args = (robot, target.ravel(order="F"), seed)

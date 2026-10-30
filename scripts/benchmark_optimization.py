@@ -8,18 +8,17 @@ outputs, then checks IK accuracy with independent modified-DH FK.
 """
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import shutil
 import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
 from benchmark_solvers import ROOT, corpus, validate
 
 
@@ -40,15 +39,15 @@ def summarize(timings, solutions, cases):
     old_values = before.loc[common].to_numpy()
     new_values = after.loc[common].to_numpy()
     differences = np.abs(old_values - new_values)
-    result = dict(
-        changed_counts=int((counts.baseline != counts.candidate).sum()),
-        unmatched_output_rows=len(before.index.symmetric_difference(after.index)),
-        max_ordered_output_difference=float(differences.max(initial=0)),
-        signed_zero_differences=int(((old_values == 0) & (new_values == 0) &
+    result = {
+        "changed_counts": int((counts.baseline != counts.candidate).sum()),
+        "unmatched_output_rows": len(before.index.symmetric_difference(after.index)),
+        "max_ordered_output_difference": float(differences.max(initial=0)),
+        "signed_zero_differences": int(((old_values == 0) & (new_values == 0) &
                                     (np.signbit(old_values) != np.signbit(new_values))).sum()),
-        nonfinite_outputs=int((~np.isfinite(solutions[columns].to_numpy())).sum()),
-        groups={},
-    )
+        "nonfinite_outputs": int((~np.isfinite(solutions[columns].to_numpy())).sum()),
+        "groups": {},
+    }
     timings = timings.copy()
     timings["group"] = [cases[index]["group"] for index in timings["case"]]
     for mode, data in timings.groupby("mode"):
@@ -60,22 +59,22 @@ def summarize(timings, solutions, cases):
             stats = {}
             for side, label in (("baseline", "before"), ("candidate", "after")):
                 values = medians[side]
-                stats[label] = dict(
-                    mean_us=float(values.mean()),
-                    p50_us=float(values.median()),
-                    p95_us=float(values.quantile(.95)),
-                    p99_us=float(values.quantile(.99)),
-                    throughput_per_second=float(1e6 / values.mean()),
-                    raw_p95_us=float(subset[subset.path == side].us.quantile(.95)),
-                    raw_p99_us=float(subset[subset.path == side].us.quantile(.99)),
-                )
+                stats[label] = {
+                    "mean_us": float(values.mean()),
+                    "p50_us": float(values.median()),
+                    "p95_us": float(values.quantile(.95)),
+                    "p99_us": float(values.quantile(.99)),
+                    "throughput_per_second": float(1e6 / values.mean()),
+                    "raw_p95_us": float(subset[subset.path == side].us.quantile(.95)),
+                    "raw_p99_us": float(subset[subset.path == side].us.quantile(.99)),
+                }
             stats["speedup"] = float(medians.baseline.mean() / medians.candidate.mean())
             stats["round_speedup_range"] = [float(ratios.min()), float(ratios.max())]
             result["groups"][f"{mode}/{group}"] = stats
     return result
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-dll", required=True, type=Path)
     parser.add_argument("--candidate-dll", type=Path, default=ROOT / "build/Release/crx_kinematics.dll")
@@ -109,14 +108,14 @@ def main():
     (output / "input.txt").write_text(" ".join(format(value, ".17g") for value in values))
     runner = output / args.runner.name
     shutil.copy2(args.runner, runner)
-    metadata = dict(measured_at_utc=datetime.now(timezone.utc).isoformat(),
-                    platform=platform.platform(), processor=platform.processor(),
-                    logical_cpus=os.cpu_count(), cases=len(cases),
-                    arguments={key: str(value) if isinstance(value, Path) else value
+    metadata = {"measured_at_utc": datetime.now(UTC).isoformat(),
+                    "platform": platform.platform(), "processor": platform.processor(),
+                    "logical_cpus": os.cpu_count(), "cases": len(cases),
+                    "arguments": {key: str(value) if isinstance(value, Path) else value
                                for key, value in vars(args).items()},
-                    runner_sha256=digest(runner), corpus_sha256=digest(output / "corpus.json"),
-                    git_status=subprocess.check_output(["git", "status", "--short"], cwd=ROOT, text=True),
-                    binaries={})
+                    "runner_sha256": digest(runner), "corpus_sha256": digest(output / "corpus.json"),
+                    "git_status": subprocess.check_output(["git", "status", "--short"], cwd=ROOT, text=True),
+                    "binaries": {}}
     results = {}
     libraries = []
     for label, source in (("baseline", args.baseline_dll), ("candidate", args.candidate_dll)):
@@ -142,18 +141,18 @@ def main():
             result["accuracy"] = {}
             for side, label in (("baseline", "before"), ("candidate", "after")):
                 rows = errors[errors.path == side]
-                result["accuracy"][label] = dict(
-                    invalid_outputs=int((~rows.valid).sum()),
-                    max_position_mm=float(rows.position_mm.max()),
-                    max_angle_deg=float(rows.angle_deg.max()),
-                )
+                result["accuracy"][label] = {
+                    "invalid_outputs": int((~rows.valid).sum()),
+                    "max_position_mm": float(rows.position_mm.max()),
+                    "max_angle_deg": float(rows.angle_deg.max()),
+                }
         results[mode] = result
         print(mode, json.dumps({key: value for key, value in result.items()
                                         if key != "groups"}), flush=True)
         for key, value in result["groups"].items():
             if key.endswith("/all"):
                 print(key, json.dumps(value), flush=True)
-    (output / "summary.json").write_text(json.dumps(dict(metadata=metadata, results=results), indent=2) + "\n")
+    (output / "summary.json").write_text(json.dumps({"metadata": metadata, "results": results}, indent=2) + "\n")
     if any(result["nonfinite_outputs"] or
            result.get("accuracy", {}).get("after", {}).get("invalid_outputs", 0)
            for result in results.values()):

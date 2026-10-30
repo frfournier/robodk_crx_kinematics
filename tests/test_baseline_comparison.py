@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """External artifact comparisons allow improved coverage and expose regressions."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,9 +16,9 @@ def test_comparison_reports_coverage_and_validates_each_artifact(tmp_path, monke
     robot = np.zeros((93, 20))
     robot[30, :6], robot[31, :6] = -180, 180
     models = [{"name": "model", "robot": robot}]
-    cases = [dict(name=f"case-{index}", model=0, target=np.eye(4).tolist(),
-                  group="random", reachable=True, offset_rad=0,
-                  witnesses=[[0.] * 6]) for index in range(3)]
+    cases = [{"name": f"case-{index}", "model": 0, "target": np.eye(4).tolist(),
+                  "group": "random", "reachable": True, "offset_rad": 0,
+                  "witnesses": [[0.] * 6]} for index in range(3)]
 
     def independent_fk(reference, commands):
         poses = np.tile(np.eye(4), (len(commands), 1, 1))
@@ -29,10 +29,10 @@ def test_comparison_reports_coverage_and_validates_each_artifact(tmp_path, monke
     timings, solutions = [], []
     # Extra valid candidates, a gained solve, and an inaccurate candidate return.
     for index, counts in enumerate(((1, 2), (0, 1), (1, 1))):
-        for label, count in zip(benchmark.PATHS, counts):
+        for label, count in zip(benchmark.PATHS, counts, strict=False):
             for mode in benchmark.MODES:
-                timings.append(dict(case=index, mode=mode, path=label, round=0,
-                                    us=10., count=count))
+                timings.append({"case": index, "mode": mode, "path": label, "round": 0,
+                                    "us": 10., "count": count})
                 for solution in range(-1, count) if count else ():
                     command = [0.] * 6
                     if index == 2 and label == "candidate":

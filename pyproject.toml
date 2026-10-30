@@ -67,27 +67,78 @@ preview = true
 
 [tool.ruff.lint]
 select = [
-    "E",     # pycodestyle errors
-    "W",     # pycodestyle warnings
-    "F",     # Pyflakes
-    "I",     # isort
-    "B",     # flake8-bugbear
-    "C4",    # flake8-comprehensions
-    "RUF",   # Ruff-specific rules
-    "SIM",   # flake8-simplify
-    "UP",    # pyupgrade
-    "ASYNC", # flake8-async
-    "LOG",   # flake8-logging
-    "PERF",  # performance
+    "E",
+    "W",
+    "F",
+    "B",
+    "UP",
+    "RUF",
+    "FURB",
     "PIE",
+    "I",
+    "C4",
+    "SIM",
     "RET",
-    "NPY",   # NumPy-specific rules (numpy 2.x migration, legacy random API)
-    "FURB",  # modernize idioms
+    "PERF",
+    "ASYNC",
+    "LOG",
+    "BLE",
+    "TRY",
+    "DTZ",
+    "A",
+    "ARG",
+    "RSE",
+    "NPY",
+    "ANN",
+    "TC",
+    "PTH",
+    "PT",
+    "S",
+    "PLE",
+    "PLW",
+    "PLR",
 ]
+
 ignore = [
-    "E501",   # line too long
-    "E741",   # ambiguous variable name
-    "RUF002", # Docstring contains ambiguous
+    "E501",
+    "RUF002",
+    "ANN401",
+    "TRY003",
+    "TRY300",
+    "TRY301",
+    "PLR0913",
+    "PLR2004",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**/*.py" = [
+    "ANN",   # Benchmark and fixture scripts are maintained as standalone tools.
+    "B904",  # CLI error reporting intentionally hides nested exception details.
+    "E402",  # Some scripts configure repository paths before importing helpers.
+    "PERF401", # Explicit loops are easier to step through in benchmark workflows.
+    "PLR",   # Keep command-line workflows readable without function extraction.
+    "RUF001", # Benchmark output uses typographic symbols intentionally.
+    "S",     # Subprocesses use fixed local tools and assert internal prerequisites.
+]
+"python/crx_kinematics/_native.py" = [
+    "ANN", # ctypes signatures are assembled dynamically at runtime.
+]
+"tests/**/*.py" = [
+    "S101",    # Assert is expected in tests
+    "ANN",     # Test annotations aren't always necessary
+    "ARG",     # Fixtures may require unused parameters
+    "PLR2004", # Literal values are common in assertions
+    "E402",    # Some scripts add the repository root before importing helpers.
+    "PERF401", # Explicit loops make test setup easier to read.
+    "PLR0915", # Long regression scenarios keep related assertions together.
+    "PLR0917", # Test helpers often mirror the function under test.
+    "PLR0912", # Fixture generators keep related validation branches together.
+    "PT011",   # Broad exception tests validate public input rejection.
+    "PT018",   # Combined assertions keep related invariants together.
+    "BLE001",  # RoboDK may report multiple exception types during launch.
+    "PLW2901", # Fixture parser reuses short loop variables in unpacking.
+    "S603",    # Tests and fixtures invoke known local tools.
+    "S607",    # Tests and fixtures invoke tools available on PATH.
 ]
 
 [tool.ty.src]

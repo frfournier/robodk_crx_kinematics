@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Shared pytest fixtures and configuration."""
 
+import contextlib
 import ctypes
 import json
 import math
@@ -11,9 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-
-
-from crx_test_support import RobotT, _set_row, DOFS
+from crx_test_support import DOFS, RobotT, _set_row
 
 
 def pytest_addoption(parser):
@@ -41,6 +40,7 @@ def _library_path(repo_root: Path | None = None) -> Path:
     if sys.platform == "win32":
         library_path = repo_root / "build" / "Release" / "crx_kinematics.dll"
         return library_path.resolve()
+    return None
 
 
 def _load_kinematics_library(lib):
@@ -56,10 +56,8 @@ def _load_kinematics_library(lib):
         )
 
     # Ensure Windows can locate any dependent DLLs placed next to the target
-    try:
+    with contextlib.suppress(Exception):
         os.add_dll_directory(str(lib.parent))
-    except Exception:
-        pass
 
     lib = ctypes.CDLL(str(lib))
 

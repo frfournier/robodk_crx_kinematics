@@ -6,7 +6,6 @@ import ctypes
 
 import numpy as np
 import pytest
-
 from crx_reference import reference_fk
 from crx_test_support import _call_joints_config, _to_c_array, _to_fk_api_joints_deg
 

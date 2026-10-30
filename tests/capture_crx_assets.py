@@ -10,13 +10,12 @@ Only public JointPoses/SolveFK observations are used; no binary asset parser.
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 
 import numpy as np
-from robodk.robolink import Robolink
-
 from crx_assets import APPROVED_ROBOT_ASSETS
+from robodk.robolink import Robolink
 
 
 def capture(robot, commands):

@@ -8,11 +8,13 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from crx_test_support import RobotT, check_solver_pose
 from crx_fixture_support import assert_regenerated_cases_match
+from crx_test_support import RobotT, check_solver_pose
 from fixtures.generate_solver_cases import (
-    corpus, DEFAULT_RANDOM_PER_MODEL, DEFAULT_STRESS_PER_GROUP_MODEL, DEFAULT_SEED,
+    DEFAULT_RANDOM_PER_MODEL,
+    DEFAULT_SEED,
+    DEFAULT_STRESS_PER_GROUP_MODEL,
+    corpus,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"

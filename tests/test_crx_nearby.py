@@ -3,13 +3,15 @@
 """Single-output seed tracking, checked against independent asset FK."""
 import numpy as np
 import pytest
-
 from crx_reference import reference_fk
 from crx_test_support import (
-    RobotT, _call_command_ik, _set_row, _to_fk_api_joints_deg, check_solver_pose,
+    RobotT,
+    _call_command_ik,
+    _set_row,
+    _to_fk_api_joints_deg,
+    check_solver_pose,
 )
 from fixtures.generate_solver_cases import corpus
-
 
 MODELS, REFERENCES, CASES = corpus(32, 14, 20261014)
 
@@ -53,7 +55,8 @@ def test_full_search_fallback_keeps_ranked_prefix(kinematics_lib, crx_10ia, seed
     pose = target.ravel(order="F")
     full = _call_command_ik(kinematics_lib, crx_10ia, pose, seed, capacity=64)
     single = _call_command_ik(kinematics_lib, crx_10ia, pose, seed, capacity=1)
-    assert full[0] > 0 and single[0] == 1
+    assert full[0] > 0
+    assert single[0] == 1
     np.testing.assert_array_equal(single[1], full[1])
 
 

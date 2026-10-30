@@ -8,14 +8,15 @@ Do not reorder RNG draws or change the default parameters without a version bump
 import argparse
 import itertools
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests"))
-from fixtures.generate_discovery_cases import make_corpus
 from crx_asset_reference import derive_model, forward_model
+from fixtures.generate_discovery_cases import make_corpus
 
 ROBOT_ROWS, ROBOT_STRIDE = 93, 20
 CHALLENGES = ("wrist", "extended_elbow", "folded_elbow", "base_axis",
@@ -33,7 +34,7 @@ def legal_lift(q, model):
     """Choose a witness admitted by both command and old decoupled J3 limits."""
     low, high = np.radians(model["robot"][[30, 31], :6])
     choices = []
-    for angle, lo, hi in zip(q, low, high):
+    for angle, lo, hi in zip(q, low, high, strict=False):
         turns = range(int(np.ceil((lo - angle) / (2*np.pi))),
                       int(np.floor((hi - angle) / (2*np.pi))) + 1)
         values = [angle + 2*np.pi*k for k in turns]
@@ -62,11 +63,11 @@ def corpus(random_count, stress_count, seed):
         center = legal[0] if legal else np.radians(model["robot"][[30, 31], :6].mean(axis=0))
         nearby = np.clip(np.degrees(center) + rng.uniform(-1, 1, 6),
                          model["robot"][30, :6], model["robot"][31, :6])
-        cases.append(dict(model=model_id, name=name, group=group,
-                          target=np.asarray(target).tolist(),
-                          witnesses=[q.tolist() for q in legal],
-                          seed_deg=nearby.tolist(), offset_rad=offset,
-                          reachable=reachable))
+        cases.append({"model": model_id, "name": name, "group": group,
+                          "target": np.asarray(target).tolist(),
+                          "witnesses": [q.tolist() for q in legal],
+                          "seed_deg": nearby.tolist(), "offset_rad": offset,
+                          "reachable": reachable})
 
     for item in original:
         add(item["model"], item["name"], item["group"], item["target"],
@@ -78,7 +79,7 @@ def corpus(random_count, stress_count, seed):
             for index in range(count):
                 offset = OFFSETS_RAD[index % len(OFFSETS_RAD)]
                 delta = offset * (-1 if index % 2 else 1)
-                for attempt in range(10000):
+                for _attempt in range(10000):
                     q = rng.uniform(low + np.radians(2), high - np.radians(2))
                     if group == "wrist":
                         q[4] = delta

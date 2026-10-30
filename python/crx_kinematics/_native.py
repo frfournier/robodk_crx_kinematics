@@ -4,9 +4,9 @@
 
 import ctypes as ct
 import os
-from pathlib import Path
 import struct
 import sys
+from pathlib import Path
 
 import numpy as np
 from numpy.ctypeslib import ndpointer
@@ -96,7 +96,7 @@ def check(code: int) -> None:
 
 
 class NativeLibrary:
-    def __init__(self, dll_path: str | os.PathLike[str] | None):
+    def __init__(self, dll_path: str | os.PathLike[str] | None) -> None:
         if sys.platform != "win32" or struct.calcsize("P") != 8:
             raise LibraryError("The native wrapper requires Windows and 64-bit Python")
         self.path = resolve_library(dll_path)
@@ -114,13 +114,13 @@ class NativeLibrary:
                 "Use an updated Windows x64 DLL and ensure its dependencies are installed."
             ) from exc
 
-    def _function(self, name, args, result=ct.c_int32):
+    def _function(self, name, args, result=ct.c_int32) -> None:
         function = getattr(self.lib, "crx_v1_" + name)
         function.argtypes = args
         function.restype = result
         setattr(self, name, function)
 
-    def _bind(self):
+    def _bind(self) -> None:
         self._function("abi_version", [], ct.c_uint32)
         if self.abi_version() != 1:
             raise LibraryError(f"Unsupported CRX ABI in {self.path}; expected ABI 1")
@@ -140,7 +140,7 @@ class NativeLibrary:
         self._function("ik", [ct.c_void_p, pose, _optional(vector), ct.c_int32,
                               solutions, ct.POINTER(IKMetadata)])
         try:
-            identify = getattr(self.lib, "crx_v1_identify")
+            identify = self.lib.crx_v1_identify
         except AttributeError:
             self.identify = None
         else:
@@ -161,7 +161,7 @@ class NativeLibrary:
             identify.restype = ct.c_int32
             self.identify = identify
 
-    def close_directory(self):
+    def close_directory(self) -> None:
         if self.directory is not None:
             self.directory.close()
             self.directory = None

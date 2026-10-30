@@ -8,11 +8,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from crx_asset_reference import canonical_forward, forward_models, rigid_inverse
+from crx_fixture_support import MERGED_ELBOW_PAIRS, assert_regenerated_cases_match
 from crx_test_support import RobotT
 from fixtures.generate_accuracy_stress import corpus
-from crx_fixture_support import MERGED_ELBOW_PAIRS, assert_regenerated_cases_match
 
 FIXTURE = Path(__file__).parent / "fixtures/crx_accuracy_stress.json"
 

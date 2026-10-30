@@ -2,11 +2,11 @@
 # SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Independent exact root counts and differential numerical-candidate tests."""
 
-from fractions import Fraction
+import itertools
 import sys
+from fractions import Fraction
 
 import pytest
-
 from polynomial_reference import (
     IsolationWorkLimit,
     ZeroPolynomialError,
@@ -40,11 +40,11 @@ def test_exact_factor_catalogue(roots):
     intervals = isolate_real_roots(from_roots(roots))
     distinct = sorted(set(roots))
     assert len(intervals) == len(distinct)
-    for interval, root in zip(intervals, distinct):
+    for interval, root in zip(intervals, distinct, strict=False):
         assert interval.left <= root <= interval.right
         assert interval.multiplicity == roots.count(root)
         assert interval.right - interval.left <= Fraction(1, 2**48)
-    assert all(a.right < b.left for a, b in zip(intervals, intervals[1:]))
+    assert all(a.right < b.left for a, b in itertools.pairwise(intervals))
 
 
 def test_irrational_roots_and_complex_factors():
@@ -128,7 +128,8 @@ def test_differential_check_detects_missing_and_duplicated_candidates(native_pro
 def test_native_repeated_root_candidates_are_not_multiplicity_certificates(native_probe, degree):
     p = from_roots([1] * degree)
     reference = isolate_real_roots(p)
-    assert len(reference) == 1 and reference[0].multiplicity == degree
+    assert len(reference) == 1
+    assert reference[0].multiplicity == degree
     result = native_probe(p)
     assert result["status"] == "Candidates"
     assert len(result["roots"]) == degree
@@ -172,7 +173,8 @@ def test_native_nonuniform_and_irrational_roots(native_probe, p):
 def test_native_mixed_real_and_complex_roots(native_probe):
     p = multiply(from_roots([-1, 0, 2]), [1, 0, 1])
     result = native_probe(p)
-    assert result["status"] == "Candidates" and len(result["roots"]) == 5
+    assert result["status"] == "Candidates"
+    assert len(result["roots"]) == 5
     real_candidates = [root for root in result["roots"] if abs(root[1]) < 1e-10]
     match_simple_roots(isolate_real_roots(p), real_candidates)
     nonreal = [complex(real, imaginary) for real, imaginary, _ in result["roots"]
@@ -180,7 +182,7 @@ def test_native_mixed_real_and_complex_roots(native_probe):
     assert sorted(root.imag for root in nonreal) == pytest.approx([-1, 1])
 
 
-@pytest.mark.parametrize("p,status,degree", [
+@pytest.mark.parametrize(("p", "status", "degree"), [
     ([0, 0, 0], "ZeroPolynomial", -1),
     ([1, 0, 0], "ConstantPolynomial", 0),
     ([1, 0, 1e-20], "UnresolvedLeadingCoefficient", 2),

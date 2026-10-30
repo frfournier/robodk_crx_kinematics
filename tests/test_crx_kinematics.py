@@ -7,23 +7,38 @@ import hashlib
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pytest
-
 from crx_assets import APPROVED_ROBOT_ASSETS
-from crx_test_support import (
-    _to_c_array, _from_c_array, _to_fk_api_joints_deg, _from_fk_api_joints_deg,
-    _call_fk, _call_ik, _call_joints_config,
-)
 from crx_fixture_support import (
-    CASE_PARAMS, SOLUTION_PARAMS, CONFIG_FIXTURE_CASES,
-    POSE_POS_TOL_MM, POSE_ANG_TOL_DEG, JOINT_TOL_DEG,
-    _is_legal_fixture_config, _expected_robodk_config,
-    _fmt_f, _fmt_joints, _fmt_pose16, _pose_err_pos_mm_ang_deg,
-    _joints_close, _max_abs_wrapped_diff_deg, _max_abs_direct_diff_deg,
-    _nearest_joint_match_wrapped, _fixture_case_pose_and_approx, _fixture_case_solutions,
+    CASE_PARAMS,
+    CONFIG_FIXTURE_CASES,
+    JOINT_TOL_DEG,
+    POSE_ANG_TOL_DEG,
+    POSE_POS_TOL_MM,
+    SOLUTION_PARAMS,
+    _expected_robodk_config,
+    _fixture_case_pose_and_approx,
+    _fixture_case_solutions,
+    _fmt_f,
+    _fmt_joints,
+    _fmt_pose16,
+    _is_legal_fixture_config,
+    _joints_close,
+    _max_abs_direct_diff_deg,
+    _max_abs_wrapped_diff_deg,
+    _nearest_joint_match_wrapped,
+    _pose_err_pos_mm_ang_deg,
+)
+from crx_test_support import (
+    _call_fk,
+    _call_ik,
+    _call_joints_config,
+    _from_c_array,
+    _to_c_array,
+    _to_fk_api_joints_deg,
 )
 
 log = logging.getLogger(__name__)
@@ -51,7 +66,7 @@ def test_config_conversion_contract():
         assert _expected_robodk_config(fixture_config) == robodk_config
 
 
-@pytest.mark.parametrize("asset_name,expected_hash", APPROVED_ROBOT_ASSETS.items())
+@pytest.mark.parametrize(("asset_name", "expected_hash"), APPROVED_ROBOT_ASSETS.items())
 def test_crx_family_assets_available_for_configuration_smoke(asset_name, expected_hash):
     repo_root = Path(__file__).resolve().parents[1]
     asset = repo_root / "assets" / asset_name
@@ -62,8 +77,8 @@ def test_crx_family_assets_available_for_configuration_smoke(asset_name, expecte
 
 
 def _pose16_with_offset(
-    pose16: List[float], dx_mm: float, dy_mm: float, dz_mm: float
-) -> List[float]:
+    pose16: list[float], dx_mm: float, dy_mm: float, dz_mm: float
+) -> list[float]:
     out = list(pose16)
     out[12] += float(dx_mm)
     out[13] += float(dy_mm)
@@ -73,7 +88,7 @@ def _pose16_with_offset(
 
 # FK/configuration check every recorded solution; IK solves each target once.
 @pytest.mark.parametrize("p", SOLUTION_PARAMS)
-def test_forward_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
+def test_forward_kinematics(kinematics_lib, crx_10ia, p: dict[str, Any]):
     status, fk_pose = _call_fk(kinematics_lib, crx_10ia, p["joints_deg"])
     hdr = f"TC{p['case_id']} '{p['case_name']}' SOL{p['sol_id']} config={p['config']}"
 
@@ -115,7 +130,7 @@ def test_forward_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
 
 
 @pytest.mark.parametrize("p", CASE_PARAMS)
-def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
+def test_inverse_kinematics(kinematics_lib, crx_10ia, p: dict[str, Any]):
     hdr = f"TC{p['case_id']} '{p['case_name']}'"
 
     approx = p["solutions"][0]["joints_deg"]
@@ -185,7 +200,7 @@ def test_inverse_kinematics(kinematics_lib, crx_10ia, p: Dict[str, Any]):
         if param.values[0]["case_name"] in CONFIG_FIXTURE_CASES
     ],
 )
-def test_joints_to_configuration(kinematics_lib, crx_10ia, p: Dict[str, Any]):
+def test_joints_to_configuration(kinematics_lib, crx_10ia, p: dict[str, Any]):
     status, actual = _call_joints_config(kinematics_lib, crx_10ia, p["joints_deg"])
     expected = _expected_robodk_config(p["config"])
     assert status == 1
@@ -309,7 +324,7 @@ def test_joints_to_configuration_rejects_invalid_inputs(kinematics_lib, crx_10ia
 
 
 def test_invalid_model_diagnostic_has_complete_name_buffer(kinematics_lib, crx_10ia, capfd):
-    from crx_test_support import ROBOT_NAME_ROW, ROBOT_NAME_CAPACITY, ROBOT_STRIDE
+    from crx_test_support import ROBOT_NAME_CAPACITY, ROBOT_NAME_ROW, ROBOT_STRIDE
     # Cross the row boundary and fill every readable name element, exercising
     # the no-terminator bound as well as the previously undersized allocation.
     name = "X" * ROBOT_NAME_CAPACITY
@@ -372,7 +387,7 @@ def test_ik_wrist_singularity_continuity(kinematics_lib, crx_10ia):
     wrist_path_j5_deg = [-3.0, -2.0, -1.0, -0.2, 0.0, 0.2, 1.0, 2.0, 3.0]
     seed_joints = [25.0, -35.0, 70.0, 15.0, 0.0, 40.0]
 
-    fk_poses: List[List[float]] = []
+    fk_poses: list[list[float]] = []
     for j5 in wrist_path_j5_deg:
         joints = list(seed_joints)
         joints[4] = j5
@@ -380,7 +395,7 @@ def test_ik_wrist_singularity_continuity(kinematics_lib, crx_10ia):
         assert fk_status == 1, f"FK seed invalid near wrist singularity: {joints}"
         fk_poses.append(fk_pose)
 
-    previous_best: List[float] | None = None
+    previous_best: list[float] | None = None
     rolling_approx = list(seed_joints)
     for idx, fk_pose in enumerate(fk_poses):
         n, best, _ = _call_ik(
@@ -401,7 +416,7 @@ def test_ik_elbow_ill_conditioned_continuity(kinematics_lib, crx_10ia):
     elbow_path_j3_deg = [85.0, 88.0, 89.5, 90.0, 90.5, 92.0, 95.0]
     seed_joints = [15.0, -20.0, 90.0, 30.0, 25.0, -10.0]
 
-    fk_poses: List[List[float]] = []
+    fk_poses: list[list[float]] = []
     for j3 in elbow_path_j3_deg:
         joints = list(seed_joints)
         joints[2] = j3
@@ -411,7 +426,7 @@ def test_ik_elbow_ill_conditioned_continuity(kinematics_lib, crx_10ia):
         )
         fk_poses.append(fk_pose)
 
-    previous_best: List[float] | None = None
+    previous_best: list[float] | None = None
     rolling_approx = list(seed_joints)
     for idx, fk_pose in enumerate(fk_poses):
         n, best, _ = _call_ik(

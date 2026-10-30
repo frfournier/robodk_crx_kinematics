@@ -5,11 +5,9 @@ import ctypes
 
 import numpy as np
 import pytest
-
 from crx_asset_reference import forward_models
 from crx_test_support import RobotT, _call_command_ik, _to_c_array
 from fixtures.generate_solver_cases import corpus
-
 
 MODELS, REFERENCES, _ = corpus(0, 0, 20261016)
 

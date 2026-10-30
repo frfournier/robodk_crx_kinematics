@@ -12,7 +12,13 @@ from ._native import (
 from ._solver import CrxSolver, FibreIdentificationResult, IKResult, IKStatus
 
 __all__ = [
-    "CrxSolver", "FibreIdentificationResult", "IKResult", "IKStatus",
     "ClosedSolverError",
-    "ConfigurationError", "JointLimitError", "LibraryError", "NativeError",
+    "ConfigurationError",
+    "CrxSolver",
+    "FibreIdentificationResult",
+    "IKResult",
+    "IKStatus",
+    "JointLimitError",
+    "LibraryError",
+    "NativeError",
 ]

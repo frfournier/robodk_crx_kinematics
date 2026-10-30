@@ -7,14 +7,14 @@ generates inputs and checks results; all timing takes place inside native loops.
 """
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import subprocess
 import sys
+from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,7 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def summarize(output, models, cases, metadata):
+def summarize(output, models, cases, metadata) -> None:
     timings = pd.read_csv(output / "timings.csv")
     solutions = pd.read_csv(output / "solutions.csv")
     medians = timings.groupby(["case", "path"])["us"].median().unstack()
@@ -125,7 +125,7 @@ def summarize(output, models, cases, metadata):
     print(json.dumps(groups, indent=2))
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "build/performance-snapshot")
     parser.add_argument("--random-per-model", type=int, default=128)
@@ -166,7 +166,7 @@ def main():
     except OSError:
         pass
     metadata = {
-        "measured_at_utc": datetime.now(timezone.utc).isoformat(), "cpu": cpu,
+        "measured_at_utc": datetime.now(UTC).isoformat(), "cpu": cpu,
         "compile_commands": [entry for entry in compile_commands
                              if "crx_discovery.cpp" in entry["file"] or "benchmark_discovery.cpp" in entry["file"]],
         "platform": platform.platform(), "processor": platform.processor(),

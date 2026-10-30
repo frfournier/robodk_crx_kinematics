@@ -2,16 +2,18 @@
 # SPDX-FileCopyrightText: 2026 Centre Technologique en Aérospatiale
 """Offline asset-derived evidence for the nominal coordinate bridge."""
 
-import hashlib
 import ctypes
+import hashlib
 import json
 from pathlib import Path
 
 import numpy as np
 import pytest
-
 from crx_asset_reference import (
-    canonical_forward, derive_model, dh_transform, forward_model,
+    canonical_forward,
+    derive_model,
+    dh_transform,
+    forward_model,
 )
 from crx_assets import APPROVED_ROBOT_ASSETS
 from crx_reference import rotation, translation

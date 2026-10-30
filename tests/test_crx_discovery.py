@@ -10,7 +10,6 @@ import ctypes
 
 import numpy as np
 import pytest
-
 from crx_reference import discovery_joints, missing_postures, reference_fk
 from crx_test_support import _call_fk, _call_ik, _to_c_array, _to_fk_api_joints_deg
 

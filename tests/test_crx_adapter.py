@@ -8,11 +8,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from crx_test_support import RobotT, _set_row
 from crx_asset_reference import derive_model, forward_model
 from crx_reference import discovery_joints, missing_postures, reference_fk, xyzwpr
-from crx_test_support import _call_ik, _to_c_array, _to_fk_api_joints_deg
+from crx_test_support import (
+    RobotT,
+    _call_ik,
+    _set_row,
+    _to_c_array,
+    _to_fk_api_joints_deg,
+)
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 ASSETS = json.loads((FIXTURE_DIR / "crx_asset_frames.json").read_text())["assets"]
@@ -42,7 +46,8 @@ def test_fixture_candidates_against_baseline(
     # Compare complete finite catalogues, not prefixes after turn expansion.
     baseline = _call_ik(baseline_kinematics_lib, crx_10ia, pose, approx=None, max_solutions=4096)
     actual = _call_ik(kinematics_lib, crx_10ia, pose, approx=None, max_solutions=4096)
-    assert baseline[0] < 4096 and actual[0] < 4096
+    assert baseline[0] < 4096
+    assert actual[0] < 4096
     check_results(crx_10ia, target, actual)
     assert not missing_postures(baseline[2], actual[2])
 

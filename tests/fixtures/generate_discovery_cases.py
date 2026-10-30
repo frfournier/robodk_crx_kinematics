@@ -3,6 +3,7 @@
 """Deterministic fixture/asset discovery corpus shared by tests and benchmarks."""
 import json
 from pathlib import Path
+
 import numpy as np
 from crx_asset_reference import canonical_forward, derive_model, rigid_inverse
 from crx_reference import translation, xyzwpr

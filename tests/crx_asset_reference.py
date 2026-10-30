@@ -6,10 +6,10 @@ This is an offline reference, not a runtime model recognizer. The derivation
 must reproduce every captured link and flange, not merely the zero pose.
 """
 
+import itertools
 import math
 
 import numpy as np
-
 from crx_reference import rotation, translation
 
 
@@ -31,7 +31,7 @@ def derive_model(asset):
     if frames.shape != (7, 4, 4):
         raise ValueError("Expected base and six revolute joint frames")
     rows = []
-    for before, after in zip(frames[:-1], frames[1:]):
+    for before, after in itertools.pairwise(frames):
         local = rigid_inverse(before) @ after
         alpha = math.atan2(-local[1, 2], local[2, 2])
         theta = math.atan2(-local[0, 1], local[0, 0])
@@ -59,7 +59,7 @@ def derive_model(asset):
 def forward_model(model, commands_deg):
     motion = model["motion_map"] @ np.radians(commands_deg)
     frames = [model["base"]]
-    for row, angle in zip(model["dh"], motion):
+    for row, angle in zip(model["dh"], motion, strict=False):
         frames.append(frames[-1] @ dh_transform(row, angle))
     return np.asarray(frames), frames[-1] @ model["tool"]
 

@@ -7,9 +7,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from crx_fixture_support import MERGED_ELBOW_PAIRS
 from crx_asset_reference import canonical_forward, derive_model, rigid_inverse
+from crx_fixture_support import MERGED_ELBOW_PAIRS
 from crx_reference import discovery_joints, reference_fk, translation, xyzwpr
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -127,7 +126,7 @@ def test_min_z_generating_posture_is_recovered(discover):
     check_discovery(discover(lengths, target), lengths, target, [q], joint_tolerance=1e-5)
 
 
-@pytest.mark.parametrize("asset_index,q", [
+@pytest.mark.parametrize(("asset_index", "q"), [
     (0, [-1.4727355738033883, 1.1126962093825525, 3.709078502262402,
          0.9883300375877239, 0.004221004556941241, -1.5688012073304018]),
     (5, [-2.6442824151374285, -1.8272487262313033, 1.5707963093416042,
@@ -201,7 +200,7 @@ def test_exact_omitted_point_is_not_lost(discover):
     assert len(result["solutions"]) == 8
 
 
-@pytest.mark.parametrize("q,alternate", MERGED_ELBOW_PAIRS)
+@pytest.mark.parametrize(("q", "alternate"), MERGED_ELBOW_PAIRS)
 @pytest.mark.parametrize("scale", [.001, 1, 1000])
 def test_near_double_root_retains_both_elbow_postures(discover, q, alternate, scale):
     lengths = np.array([540, 540, 160, 150]) * scale

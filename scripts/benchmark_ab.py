@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import ctypes
 import json
 import math
@@ -110,16 +111,14 @@ class IkCase:
 
 
 class KinematicsLib:
-    def __init__(self, library_path: Path):
+    def __init__(self, library_path: Path) -> None:
         self.path = library_path.resolve()
         if not self.path.exists():
             raise FileNotFoundError(f"DLL not found: {self.path}")
 
         if os.name == "nt":
-            try:
+            with contextlib.suppress(Exception):
                 os.add_dll_directory(str(self.path.parent))
-            except Exception:
-                pass
 
         self.lib = ctypes.CDLL(str(self.path))
         real_ptr = ctypes.POINTER(ctypes.c_double)
@@ -216,7 +215,7 @@ def _wrap_deg_to_pm180(x_deg: float) -> float:
 
 
 def _max_abs_wrapped_diff_deg(a: list[float], b: list[float]) -> float:
-    return max(abs(_wrap_deg_to_pm180(x - y)) for x, y in zip(a, b))
+    return max(abs(_wrap_deg_to_pm180(x - y)) for x, y in zip(a, b, strict=False))
 
 
 def _load_fixture_cases(fixture_path: Path) -> tuple[list[FkCase], list[IkCase]]:
@@ -395,7 +394,7 @@ def _assert_fk_parity(
                 f"FK status mismatch on {case.name}: baseline={b_status}, candidate={c_status}"
             )
         if b_status == 1:
-            max_pose_diff = max(abs(x - y) for x, y in zip(b_pose, c_pose))
+            max_pose_diff = max(abs(x - y) for x, y in zip(b_pose, c_pose, strict=False))
             if max_pose_diff > POSE_DIFF_TOL:
                 raise RuntimeError(
                     f"FK pose mismatch on {case.name}: max_abs_diff={max_pose_diff:.3e} > {POSE_DIFF_TOL:.3e}"
@@ -465,8 +464,8 @@ def _percentile(values: list[float], percentile: float) -> float:
     if len(sorted_values) == 1:
         return float(sorted_values[0])
     pos = (len(sorted_values) - 1) * (percentile / 100.0)
-    lo = int(math.floor(pos))
-    hi = int(math.ceil(pos))
+    lo = math.floor(pos)
+    hi = math.ceil(pos)
     if lo == hi:
         return float(sorted_values[lo])
     weight = pos - lo

@@ -5,35 +5,34 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
-from crx_kinematics import CrxSolver
-from crx_assets import APPROVED_ROBOT_ASSETS
 from crx_asset_reference import derive_model, forward_model, forward_models
-from robodk.robolink import (
-    ITEM_TYPE_ROBOT,
-    Robolink,
-    TargetReachError,
-    WINDOWSTATE_HIDDEN,
-)
-from robodk.robomath import Mat, invH, transl, rotx, roty
-
-from crx_test_support import _to_fk_api_joints_deg
+from crx_assets import APPROVED_ROBOT_ASSETS
 from crx_fixture_support import (
     CONFIG_FIXTURE_CASES,
     POSE_ANG_TOL_DEG,
     POSE_POS_TOL_MM,
     SOLUTION_PARAMS,
+    _expected_robodk_config,
     _fmt_f,
     _fmt_joints,
     _fmt_pose16,
-    _expected_robodk_config,
     _mat_to_pose16_col_major,
     _pose_err_pos_mm_ang_deg,
 )
+from crx_kinematics import CrxSolver
+from crx_test_support import _to_fk_api_joints_deg
+from robodk.robolink import (
+    ITEM_TYPE_ROBOT,
+    WINDOWSTATE_HIDDEN,
+    Robolink,
+    TargetReachError,
+)
+from robodk.robomath import Mat, invH, rotx, roty, transl
 
 _ROBOT_ASSET = (
     Path(__file__).resolve().parents[1] / "assets" / "Fanuc-CRX-10iA-Custom.robot"
@@ -202,7 +201,7 @@ def test_robolink_forward_kinematics(robolink_crx_10ia, p):
 
     lower, upper, _ = robolink_crx_10ia.JointLimits()
     if any(q < lo or q > hi for q, lo, hi in
-           zip(fk_joints_deg, lower.list(), upper.list())):
+           zip(fk_joints_deg, lower.list(), upper.list(), strict=False)):
         # Four Table 5 fixture commands exceed this asset's J3 upper limit.
         # Rejection is expected behavior, not a reason to skip a live failure.
         with pytest.raises(TargetReachError):
@@ -334,7 +333,7 @@ def test_robolink_command_coupling(robolink_crx_10ia, asset):
             target = Mat(flange.tolist())
             exact = robot.SolveIK(target, commands).list()[:6]
             np.testing.assert_allclose(exact, commands, atol=1e-5, rtol=0)
-            nearby = np.clip(np.array(commands) + [1, -2, 3, -1, 2, -3], lower, upper)
+            nearby = np.clip([*np.array(commands), 1, -2, 3, -1, 2, -3], lower, upper)
             robot.setJoints(nearby.tolist())
             solutions = [robot.SolveIK(target, nearby.tolist()).list()[:6],
                          robot.SolveIK(target).list()[:6]]
@@ -342,7 +341,8 @@ def test_robolink_command_coupling(robolink_crx_10ia, asset):
             assert all_solutions.size(1) > 0, f"No IK branches for {commands}"
             solutions.extend(np.asarray(all_solutions.rows)[:6, :].T.tolist())
             joints = np.asarray(solutions)
-            assert joints.shape[1] == 6 and np.isfinite(joints).all()
+            assert joints.shape[1] == 6
+            assert np.isfinite(joints).all()
             assert np.all(joints >= lower - 1e-6)
             assert np.all(joints <= upper + 1e-6)
             _assert_live_pose(forward_models(model, joints),
@@ -425,7 +425,8 @@ def test_python_wrapper_matches_live_asset(robolink_crx_10ia, asset):
                 target = robot.SolveFK(commands)
                 _assert_live_pose(solver.fk(commands), target.rows)
                 result = solver.ik(np.asarray(target.rows), seed=commands)
-                assert result.success and not result.is_approximate
+                assert result.success
+                assert not result.is_approximate
                 live = robot.SolveIK(target, commands).list()[:6]
                 np.testing.assert_allclose(result.solutions[0], live, atol=1e-5, rtol=0)
                 _assert_live_pose(robot.SolveFK(result.solutions[0].tolist()).rows, target.rows)
@@ -440,9 +441,10 @@ def test_python_wrapper_matches_live_asset(robolink_crx_10ia, asset):
             target = robot.SolveFK(commands.tolist(), tool, reference)
             _assert_live_pose(solver.fk(commands), target.rows)
             result = solver.ik(np.asarray(target.rows), seed=commands, max_solutions=64)
-            assert result.success and not result.is_approximate
+            assert result.success
+            assert not result.is_approximate
             for joints, config, valid in zip(result.solutions, result.configurations,
-                                             result.configuration_valid):
+                                             result.configuration_valid, strict=False):
                 _assert_live_pose(robot.SolveFK(joints.tolist(), tool, reference).rows,
                                   target.rows)
                 if valid:

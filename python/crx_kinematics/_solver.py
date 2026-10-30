@@ -5,23 +5,30 @@
 from __future__ import annotations
 
 import ctypes as ct
+import operator
+import threading
+import weakref
 from dataclasses import dataclass
 from enum import IntEnum
-import operator
-import os
-from pathlib import Path
-import threading
-from types import TracebackType
-import weakref
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from ._native import (
-    ClosedSolverError, FibreMetadata, IKMetadata,
-    NativeError, NativeLibrary, check, release,
+    ClosedSolverError,
+    FibreMetadata,
+    IKMetadata,
+    NativeError,
+    NativeLibrary,
+    check,
+    release,
 )
 
+if TYPE_CHECKING:
+    import os
+    from pathlib import Path
+    from types import TracebackType
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int32]

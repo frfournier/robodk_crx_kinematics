@@ -11,10 +11,8 @@ import itertools
 
 import numpy as np
 import pytest
-
-from crx_test_support import _set_row
 from crx_reference import reference_fk
-from crx_test_support import _call_command_ik, _to_c_array
+from crx_test_support import _call_command_ik, _set_row, _to_c_array
 
 
 def target_for_command(robot, command):
@@ -93,7 +91,7 @@ def test_exhaustive_turn_catalogue_and_capacity(kinematics_lib, crx_10ia, seeded
     for axis in (1, 2, 5):
         crx_10ia.data[30][axis] = witness[axis] - 720.05
         crx_10ia.data[31][axis] = witness[axis] + 720.05
-    seed = witness + [0., 650., -640., 0., 0., 690.] if seeded else None
+    seed = [*witness, 0.0, 650.0, -640.0, 0.0, 0.0, 690.0] if seeded else None
     count, _, full = solve(kinematics_lib, crx_10ia, target, seed, capacity=1024)
     # Narrow J1/J4/J5 bounds isolate the witness posture. The expected commands
     # come from the witness, independently of the solver's returned catalogue.
@@ -107,7 +105,7 @@ def test_exhaustive_turn_catalogue_and_capacity(kinematics_lib, crx_10ia, seeded
                 expected.append(q)
     assert any(np.max(np.abs(q - witness)) < 1e-5 for q in full)
     assert count == len(expected) == 125
-    key = (lambda q: (float(np.sum((q - seed)**2)), *q)) if seeded else (lambda q: tuple(q))
+    key = (lambda q: (float(np.sum((q - seed)**2)), *q)) if seeded else (tuple)
     expected.sort(key=key)
     if seeded:
         # Degree/radian conversion can reorder floating-point score ties.

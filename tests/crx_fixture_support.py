@@ -5,7 +5,6 @@
 import json
 import math
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import numpy as np
 import pytest
@@ -57,7 +56,7 @@ def assert_regenerated_cases_match(generated, recorded):
                 assert actual[field] == value, f"{expected['name']}: {field}"
 
 
-def _is_legal_fixture_config(config: Dict[str, str]) -> bool:
+def _is_legal_fixture_config(config: dict[str, str]) -> bool:
     return (
         config.get("TB") in {"T", "B"}
         and config.get("UD") in {"U", "D"}
@@ -65,7 +64,7 @@ def _is_legal_fixture_config(config: Dict[str, str]) -> bool:
     )
 
 
-def _expected_robodk_config(config: Dict[str, str]) -> List[int]:
+def _expected_robodk_config(config: dict[str, str]) -> list[int]:
     return [
         {"T": 0, "B": 1}[config["TB"]],
         {"U": 0, "D": 1}[config["UD"]],
@@ -82,11 +81,11 @@ def _fmt_f(x: float, nd: int = 6) -> str:
     return f"{float(x):.{nd}f}"
 
 
-def _fmt_joints(j: List[float]) -> str:
+def _fmt_joints(j: list[float]) -> str:
     return "[" + ", ".join(f"{float(x):.3f}" for x in j) + "]"
 
 
-def _fmt_pose16(p16: List[float]) -> str:
+def _fmt_pose16(p16: list[float]) -> str:
     M = _pose16_to_mat(p16)
     rows = [[float(M[r, c]) for c in range(4)] for r in range(4)]
     return (
@@ -99,7 +98,7 @@ def _fmt_pose16(p16: List[float]) -> str:
 # -----------------------------
 # Pose utilities
 # -----------------------------
-def _pose16_to_mat(p16: List[float]) -> rm.Mat:
+def _pose16_to_mat(p16: list[float]) -> rm.Mat:
     # column-major packed:
     # [nx,ny,nz,0, ox,oy,oz,0, ax,ay,az,0, x,y,z,1]
     return rm.Mat(
@@ -112,7 +111,7 @@ def _pose16_to_mat(p16: List[float]) -> rm.Mat:
     )
 
 
-def _mat_to_pose16_col_major(M: rm.Mat) -> List[float]:
+def _mat_to_pose16_col_major(M: rm.Mat) -> list[float]:
     return [
         float(M[0, 0]),
         float(M[1, 0]),
@@ -133,7 +132,7 @@ def _mat_to_pose16_col_major(M: rm.Mat) -> List[float]:
     ]
 
 
-def _target_xyz_wpr_to_pose16(xyz_mm: List[float], wpr_deg: List[float]) -> List[float]:
+def _target_xyz_wpr_to_pose16(xyz_mm: list[float], wpr_deg: list[float]) -> list[float]:
     # Fixture: xyz_mm [X,Y,Z] mm, wpr_deg [W,P,R] deg (Fanuc)
     # RoboDK xyzrpw uses [x,y,z, r,p,w] == rotations about X,Y,Z.
     x, y, z = (float(v) for v in xyz_mm)
@@ -149,7 +148,7 @@ def _rot_angle_rad_from_mat3x3(M: rm.Mat) -> float:
     return math.acos(c)
 
 
-def _pose_err_pos_mm_ang_deg(a16: List[float], b16: List[float]) -> Tuple[float, float]:
+def _pose_err_pos_mm_ang_deg(a16: list[float], b16: list[float]) -> tuple[float, float]:
     A = _pose16_to_mat(a16)
     B = _pose16_to_mat(b16)
 
@@ -164,7 +163,7 @@ def _pose_err_pos_mm_ang_deg(a16: List[float], b16: List[float]) -> Tuple[float,
 
 
 def _joints_close(
-    a: List[float], b: List[float], tol_deg: float = JOINT_TOL_DEG
+    a: list[float], b: list[float], tol_deg: float = JOINT_TOL_DEG
 ) -> bool:
     return _max_abs_wrapped_diff_deg(a, b) <= tol_deg
 
@@ -180,17 +179,17 @@ def _wrapped_diff_deg(a_deg: float, b_deg: float) -> float:
     return abs(_wrap_deg_to_pm180(float(a_deg) - float(b_deg)))
 
 
-def _max_abs_wrapped_diff_deg(a: List[float], b: List[float]) -> float:
-    return max(_wrapped_diff_deg(x, y) for x, y in zip(a, b))
+def _max_abs_wrapped_diff_deg(a: list[float], b: list[float]) -> float:
+    return max(_wrapped_diff_deg(x, y) for x, y in zip(a, b, strict=False))
 
 
-def _max_abs_direct_diff_deg(a: List[float], b: List[float]) -> float:
-    return max(abs(float(x) - float(y)) for x, y in zip(a, b))
+def _max_abs_direct_diff_deg(a: list[float], b: list[float]) -> float:
+    return max(abs(float(x) - float(y)) for x, y in zip(a, b, strict=False))
 
 
 def _nearest_joint_match_wrapped(
-    target: List[float], candidates: List[List[float]]
-) -> Tuple[List[float] | None, float]:
+    target: list[float], candidates: list[list[float]]
+) -> tuple[list[float] | None, float]:
     if not candidates:
         return None, float("inf")
     nearest = min(candidates, key=lambda c: _max_abs_wrapped_diff_deg(c, target))
@@ -227,7 +226,7 @@ SOLUTION_PARAMS = [
 ]
 
 
-def _fixture_case_solutions(case_name: str) -> Tuple[List[float], List[List[float]]]:
+def _fixture_case_solutions(case_name: str) -> tuple[list[float], list[list[float]]]:
     for case in CASES:
         if case["case_name"] == case_name:
             return (list(case["target_pose16"]),
@@ -235,7 +234,7 @@ def _fixture_case_solutions(case_name: str) -> Tuple[List[float], List[List[floa
     raise KeyError(f"fixture case not found: {case_name}")
 
 
-def _fixture_case_pose_and_approx(case_name: str) -> Tuple[List[float], List[float]]:
+def _fixture_case_pose_and_approx(case_name: str) -> tuple[list[float], list[float]]:
     pose, solutions = _fixture_case_solutions(case_name)
     if not solutions:
         raise ValueError(f"fixture case {case_name} has no solutions")

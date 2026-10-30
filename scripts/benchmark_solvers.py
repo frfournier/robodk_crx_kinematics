@@ -6,27 +6,32 @@ Native timing excludes Python and validation. The independent checker uses
 captured model transforms, not either DLL's FK or internal acceptance result.
 """
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import shutil
 import subprocess
 import sys
 import zipfile
+from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from fixtures.generate_solver_cases import (
-    corpus, CHALLENGES, OFFSETS_RAD, DEFAULT_RANDOM_PER_MODEL,
-    DEFAULT_STRESS_PER_GROUP_MODEL, DEFAULT_SEED,
-)
 from crx_asset_reference import forward_models as reference_poses
+from fixtures.generate_solver_cases import (
+    CHALLENGES,
+    DEFAULT_RANDOM_PER_MODEL,
+    DEFAULT_SEED,
+    DEFAULT_STRESS_PER_GROUP_MODEL,
+    OFFSETS_RAD,
+    corpus,
+)
+
 POSITION_MM, ANGLE_DEG = 1e-4, 1e-3  # Public strict-pose contract.
 EPS = np.finfo(float).eps
 WITNESS_DEG = .009  # Existing regression posture-matching convention.
@@ -42,7 +47,8 @@ def validate(output, models, references, cases, rounds):
     solutions = pd.read_csv(output / "solutions.csv")
     assert len(timings) == len(cases) * len(MODES) * len(PATHS) * rounds
     assert timings.groupby(["case", "mode", "path"]).size().eq(rounds).all()
-    assert timings.us.gt(0).all() and np.isfinite(timings.us).all()
+    assert timings.us.gt(0).all()
+    assert np.isfinite(timings.us).all()
     assert timings.groupby(["case", "mode", "path"])["count"].nunique().max() == 1
     targets = np.array([item["target"] for item in cases])
     model_ids = np.array([item["model"] for item in cases])
@@ -50,7 +56,7 @@ def validate(output, models, references, cases, rounds):
     solutions["angle_deg"] = np.nan
     solutions["limits_ok"] = False
     columns = [f"q{i}" for i in range(1, 7)]
-    for model_id, (model, reference) in enumerate(zip(models, references)):
+    for model_id, (model, reference) in enumerate(zip(models, references, strict=False)):
         selected = model_ids[solutions["case"].to_numpy()] == model_id
         commands = solutions.loc[selected, columns].to_numpy()
         actual = reference_poses(reference, commands)
@@ -69,7 +75,7 @@ def validate(output, models, references, cases, rounds):
                           & (solutions.angle_deg <= ANGLE_DEG)
                           & solutions.limits_ok)
     solutions.to_csv(output / "errors.csv", index=False)
-    grouped = {key: rows for key, rows in solutions.groupby(["case", "mode", "path"])}
+    grouped = dict(solutions.groupby(["case", "mode", "path"]))
     rows = []
     for (index, mode, path), times in timings.groupby(["case", "mode", "path"]):
         item = cases[index]
@@ -85,13 +91,13 @@ def validate(output, models, references, cases, rounds):
             distance = abs((q - np.degrees(witness) + 180) % 360 - 180)
             hits += int(len(q) > 0 and np.any(np.max(distance, axis=1) <= WITNESS_DEG))
         solved = count > 0 and bool(returned.valid.all()) and len(best) == 1
-        rows.append(dict(case=index, mode=mode, path=path, name=item["name"],
-                         asset=models[item["model"]]["name"], group=item["group"],
-                         reachable=item["reachable"], offset_rad=item["offset_rad"],
-                         count=count, solved=solved, median_us=float(times.us.median()),
-                         invalid_solutions=int((~all_rows.valid).sum()),
-                         best_valid=bool(len(best) and best.valid.iloc[0]),
-                         witness_hits=hits, witnesses=len(item["witnesses"])))
+        rows.append({"case": index, "mode": mode, "path": path, "name": item["name"],
+                         "asset": models[item["model"]]["name"], "group": item["group"],
+                         "reachable": item["reachable"], "offset_rad": item["offset_rad"],
+                         "count": count, "solved": solved, "median_us": float(times.us.median()),
+                         "invalid_solutions": int((~all_rows.valid).sum()),
+                         "best_valid": bool(len(best) and best.valid.iloc[0]),
+                         "witness_hits": hits, "witnesses": len(item["witnesses"])})
     frame = pd.DataFrame(rows)
     frame.to_csv(output / "per-pose.csv", index=False)
     stress = frame[frame.group.isin(CHALLENGES)]
@@ -135,19 +141,19 @@ def statistics(timings, errors, frame, capacity):
                              & errors["case"].isin(data["case"]) & (errors.solution >= 0)]
                 best = errors[(errors["mode"] == mode) & (errors.path == path)
                               & errors["case"].isin(data["case"]) & (errors.solution < 0)]
-                stats[path] = dict(
-                    timing_us=percentiles(data.median_us), mean_us=float(data.median_us.mean()),
-                    strict_solves=int(data.solved.sum()), strict_solve_pct=float(100*data.solved.mean()),
-                    positive_returns=int((data["count"] > 0).sum()),
-                    empty_returns=int((data["count"] == 0).sum()),
-                    fallback_returns=int((data["count"] < 0).sum()),
-                    capacity_returns=int((data["count"] >= capacity).sum()),
-                    returned_solutions=int(len(err)), invalid_solutions=int((~err.valid).sum()),
-                    position_mm=percentiles(err.position_mm), angle_deg=percentiles(err.angle_deg),
-                    best_position_mm=percentiles(best.position_mm), best_angle_deg=percentiles(best.angle_deg),
-                    common_position_mm=percentiles(err[err["case"].isin(common_ids)].position_mm),
-                    common_angle_deg=percentiles(err[err["case"].isin(common_ids)].angle_deg),
-                    witness_hits=int(data.witness_hits.sum()), witness_total=int(data.witnesses.sum()))
+                stats[path] = {
+                    "timing_us": percentiles(data.median_us), "mean_us": float(data.median_us.mean()),
+                    "strict_solves": int(data.solved.sum()), "strict_solve_pct": float(100*data.solved.mean()),
+                    "positive_returns": int((data["count"] > 0).sum()),
+                    "empty_returns": int((data["count"] == 0).sum()),
+                    "fallback_returns": int((data["count"] < 0).sum()),
+                    "capacity_returns": int((data["count"] >= capacity).sum()),
+                    "returned_solutions": len(err), "invalid_solutions": int((~err.valid).sum()),
+                    "position_mm": percentiles(err.position_mm), "angle_deg": percentiles(err.angle_deg),
+                    "best_position_mm": percentiles(best.position_mm), "best_angle_deg": percentiles(best.angle_deg),
+                    "common_position_mm": percentiles(err[err["case"].isin(common_ids)].position_mm),
+                    "common_angle_deg": percentiles(err[err["case"].isin(common_ids)].angle_deg),
+                    "witness_hits": int(data.witness_hits.sum()), "witness_total": int(data.witnesses.sum())}
             if len(common_ids):
                 common_times = subset[subset["case"].isin(common_ids)].groupby("path").median_us.mean()
                 rounds = timings[(timings["mode"] == mode) & timings["case"].isin(common_ids)]
@@ -160,7 +166,7 @@ def statistics(timings, errors, frame, capacity):
     return results
 
 
-def report(output, metadata, stats, frame):
+def report(output, metadata, stats, frame) -> None:
     lines = ["# Complete IK solver benchmark snapshot", "",
              f"Measured {metadata['measured_at_utc']} on {metadata['cpu']}; Windows x64 clang-cl Release.",
              "Baseline and candidate are independently supplied complete DLL artifacts.",
@@ -253,7 +259,7 @@ def report(output, metadata, stats, frame):
     (output / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--baseline-dll", type=Path, required=True)
@@ -288,7 +294,7 @@ def main():
     executable = binary_dir / args.runner.name
     shutil.copy2(args.runner, executable)
     dlls = []
-    for label, source in zip(PATHS, (args.baseline_dll, args.candidate_dll)):
+    for label, source in zip(PATHS, (args.baseline_dll, args.candidate_dll), strict=False):
         destination = binary_dir / f"{label}.dll"
         shutil.copy2(source, destination)
         dlls.append(destination)
@@ -307,29 +313,29 @@ def main():
                ROOT / "tests/fixtures/crx_asset_frames.json", ROOT / "tests/fixtures/CRX10iA-solutions.json"]
     eigen_headers = {path.relative_to(ROOT / "third_party/eigen").as_posix(): sha256(path)
                      for path in sorted((ROOT / "third_party/eigen/Eigen").rglob("*")) if path.is_file()}
-    metadata = dict(baseline_revision=args.baseline_revision,
-                    baseline_dll=str(args.baseline_dll.resolve()),
-                    candidate_dll=str(args.candidate_dll.resolve()),
-                    runner=str(args.runner.resolve()),
-                    compile_commands_path=str(args.compile_commands.resolve()),
-                    measured_at_utc=datetime.now(timezone.utc).isoformat(), cpu=cpu,
-                    logical_cpus=os.cpu_count(), platform=platform.platform(),
-                    git_head=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-                    git_status=subprocess.check_output(["git", "status", "--short"], cwd=ROOT, text=True),
-                    eigen_headers_sha256=hashlib.sha256(json.dumps(eigen_headers, sort_keys=True).encode()).hexdigest(),
-                    pose_count=len(cases), seed=args.seed, repeats=args.repeats, rounds=args.rounds,
-                    capacity=args.capacity, random_per_model=args.random_per_model,
-                    stress_per_group_model=args.stress_per_group_model,
-                    position_tolerance_mm=POSITION_MM, angle_tolerance_deg=ANGLE_DEG,
-                    warmup_calls=3, nearby_seed_jitter_deg=1, stress_offsets_rad=OFFSETS_RAD,
-                    corpus_sha256=sha256(output / "corpus.json"),
-                    input_sha256=sha256(output / "input.txt"),
-                    dll_sha256={path: sha256(dll) for path, dll in zip(PATHS, dlls)},
-                    executable_sha256=sha256(executable),
-                    source_sha256={str(path.relative_to(ROOT)): sha256(path) for path in sources},
-                    assets={model["name"]: model["asset_sha256"] for model in models},
-                    compile_commands=[entry for entry in compile_commands
-                                      if "benchmark_solvers.cpp" in entry["file"] or "crx_solver.cpp" in entry["file"]])
+    metadata = {"baseline_revision": args.baseline_revision,
+                    "baseline_dll": str(args.baseline_dll.resolve()),
+                    "candidate_dll": str(args.candidate_dll.resolve()),
+                    "runner": str(args.runner.resolve()),
+                    "compile_commands_path": str(args.compile_commands.resolve()),
+                    "measured_at_utc": datetime.now(UTC).isoformat(), "cpu": cpu,
+                    "logical_cpus": os.cpu_count(), "platform": platform.platform(),
+                    "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                    "git_status": subprocess.check_output(["git", "status", "--short"], cwd=ROOT, text=True),
+                    "eigen_headers_sha256": hashlib.sha256(json.dumps(eigen_headers, sort_keys=True).encode()).hexdigest(),
+                    "pose_count": len(cases), "seed": args.seed, "repeats": args.repeats, "rounds": args.rounds,
+                    "capacity": args.capacity, "random_per_model": args.random_per_model,
+                    "stress_per_group_model": args.stress_per_group_model,
+                    "position_tolerance_mm": POSITION_MM, "angle_tolerance_deg": ANGLE_DEG,
+                    "warmup_calls": 3, "nearby_seed_jitter_deg": 1, "stress_offsets_rad": OFFSETS_RAD,
+                    "corpus_sha256": sha256(output / "corpus.json"),
+                    "input_sha256": sha256(output / "input.txt"),
+                    "dll_sha256": {path: sha256(dll) for path, dll in zip(PATHS, dlls, strict=False)},
+                    "executable_sha256": sha256(executable),
+                    "source_sha256": {str(path.relative_to(ROOT)): sha256(path) for path in sources},
+                    "assets": {model["name"]: model["asset_sha256"] for model in models},
+                    "compile_commands": [entry for entry in compile_commands
+                                      if "benchmark_solvers.cpp" in entry["file"] or "crx_solver.cpp" in entry["file"]]}
     with zipfile.ZipFile(output / "sources.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         for path in sources:
             archive.write(path, path.relative_to(ROOT))
@@ -341,7 +347,7 @@ def main():
     print("Validating every returned command with independent FK", flush=True)
     timings, errors, frame = validate(output, models, references, cases, args.rounds)
     stats = statistics(timings, errors, frame, args.capacity)
-    (output / "summary.json").write_text(json.dumps(dict(metadata=metadata, groups=stats), indent=2) + "\n")
+    (output / "summary.json").write_text(json.dumps({"metadata": metadata, "groups": stats}, indent=2) + "\n")
     report(output, metadata, stats, frame)
     print(json.dumps({mode: stats[mode]["challenging"] for mode in MODES}, indent=2))
     print(output / "report.md")

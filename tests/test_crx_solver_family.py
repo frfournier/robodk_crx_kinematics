@@ -10,7 +10,6 @@ import ctypes
 
 import numpy as np
 import pytest
-
 from crx_test_support import RobotT, check_solver_pose
 from fixtures.generate_solver_cases import corpus
 
@@ -23,7 +22,7 @@ CASES = [{**case, "name": "holdout:20261010:" + case["name"]}
 def scaled_models(request):
     scale = request.param
     models, references, robots = [], [], []
-    for source, reference in zip(MODELS, REFERENCES):
+    for source, reference in zip(MODELS, REFERENCES, strict=False):
         model = {**source, "robot": source["robot"].copy()}
         table = model["robot"]
         # Model recognition snaps these nominal structural zeros before IK.

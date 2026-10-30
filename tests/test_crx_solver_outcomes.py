@@ -4,7 +4,6 @@
 
 import numpy as np
 import pytest
-
 from crx_reference import reference_fk
 from crx_test_support import _call_command_ik, _to_fk_api_joints_deg
 

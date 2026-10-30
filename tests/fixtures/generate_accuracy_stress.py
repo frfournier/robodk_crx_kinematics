@@ -7,8 +7,8 @@ Every case has a command-limit-valid FK witness. Failures remain in the corpus.
 """
 import copy
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -25,7 +25,7 @@ def corpus():
     rng = np.random.default_rng(2026101301)
     models, references, cases = [], [], []
     for scale in (.001, 1., 1000.):
-        for original, asset in zip(originals, assets):
+        for original, asset in zip(originals, assets, strict=False):
             model = copy.deepcopy(original)
             reference = derive_model(asset)
             reference["dh"][:, [1, 3]] *= scale
@@ -68,9 +68,9 @@ def corpus():
                     _, target = forward_model(reference, np.degrees(q))
                     seed = np.clip(np.degrees(q) + rng.uniform(-1, 1, 6),
                                    np.degrees(low), np.degrees(high))
-                    cases.append(dict(model=model_id, name=f"{model['name']}:{group}:{index}",
-                                      group=group, target=target.tolist(), witnesses=[q.tolist()],
-                                      seed_deg=seed.tolist(), offset_rad=offset, reachable=True))
+                    cases.append({"model": model_id, "name": f"{model['name']}:{group}:{index}",
+                                      "group": group, "target": target.tolist(), "witnesses": [q.tolist()],
+                                      "seed_deg": seed.tolist(), "offset_rad": offset, "reachable": True})
     return models, references, cases
 
 
