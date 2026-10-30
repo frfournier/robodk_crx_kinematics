@@ -136,11 +136,12 @@ at an arm singularity without invalidating a solution. Standalone
 ## NumPy memory and errors
 
 Inputs must have exactly the documented shapes. Real integer/floating arrays
-are copied into native-endian, aligned, C-contiguous float64 buffers. Complex,
-boolean, string, object, and nonfinite inputs are rejected. Noncontiguous,
-read-only, unaligned, and byte-swapped arrays are supported through conversion.
-Inputs are never modified. Callers must not mutate an input during its initial
-snapshot.
+are normalized to native-endian, aligned, C-contiguous float64 buffers. Arrays
+that already meet those requirements are passed through without copying;
+other layouts and dtypes are converted. Complex, boolean, string, object, and
+nonfinite inputs are rejected. Read-only arrays are accepted, and inputs are
+never modified. Do not mutate an input while a solver call is running because
+ctypes releases the GIL during native computation.
 
 The ctypes signatures use `numpy.ctypeslib.ndpointer` to check dtype,
 dimensions, layout, alignment, and output writeability. Outputs own their data,

@@ -101,23 +101,25 @@ class FibreIdentificationResult:
         return self.solutions.shape[0] > 0
 
 
-def _array(value: ArrayLike, shape: tuple[int, ...], name: str) -> FloatArray:
+def _array(
+    value: ArrayLike, shape: tuple[int, ...], name: str, *, copy: bool = False,
+) -> FloatArray:
     raw = np.asarray(value)
     if raw.shape != shape:
         raise ValueError(f"{name} must have shape {shape}; received {raw.shape}")
     if raw.dtype.kind not in "iuf":
         raise TypeError(f"{name} must contain real numeric values, not {raw.dtype}")
-    # Always copy: CDLL releases the GIL, so native reads must not alias caller
-    # arrays that another Python thread could mutate during the solve.
     with np.errstate(over="ignore", invalid="ignore"):
-        result = np.array(raw, dtype=np.float64, order="C", copy=True)
+        result = np.require(raw, dtype=np.float64, requirements=["C", "A"])
+        if copy:
+            result = result.copy(order="C")
     if not np.isfinite(result).all():
         raise ValueError(f"{name} must contain only finite float64 values")
     return result
 
 
-def _pose(value: ArrayLike, name: str) -> FloatArray:
-    pose = _array(value, (4, 4), name)
+def _pose(value: ArrayLike, name: str, *, copy: bool = False) -> FloatArray:
+    pose = _array(value, (4, 4), name, copy=copy)
     rotation = pose[:3, :3]
     with np.errstate(over="ignore", invalid="ignore"):
         valid = (
@@ -161,8 +163,10 @@ class CrxSolver:
         Flange-to-TCP and base-to-reference transforms in millimetres.
         Both default to identity. Outputs describe TCP relative to reference.
 
-    Calls are serialized per instance. Inputs are copied and never modified;
-    all returned arrays own their memory and survive solver closure.
+    Calls are serialized per instance. Compatible NumPy inputs are passed to
+    native code without copying; other layouts and dtypes are normalized.
+    Do not mutate an input while a solver call is running. Inputs are never
+    modified, and all returned arrays own their memory and survive closure.
     """
 
     def __init__(
@@ -171,11 +175,15 @@ class CrxSolver:
         reference: ArrayLike | None = None,
     ) -> None:
         self._lock = threading.RLock()
-        self._tool = np.eye(4) if tool is None else _pose(tool, "tool")
-        self._reference = np.eye(4) if reference is None else _pose(reference, "reference")
+        self._tool = np.eye(4) if tool is None else _pose(tool, "tool", copy=True)
+        self._reference = np.eye(4) if reference is None else _pose(
+            reference, "reference", copy=True
+        )
         self._tool_inverse = _inverse(self._tool)
         self._reference_inverse = _inverse(self._reference)
-        limits = None if joint_limits is None else _array(joint_limits, (2, 6), "joint_limits")
+        limits = None if joint_limits is None else _array(
+            joint_limits, (2, 6), "joint_limits", copy=True
+        )
         if limits is not None and np.any(limits[0] > limits[1]):
             raise ValueError("Lower joint limits must not exceed upper joint limits")
         library = NativeLibrary(dll_path)
