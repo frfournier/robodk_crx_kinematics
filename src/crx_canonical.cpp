@@ -7,6 +7,7 @@
 
 #include "crx_canonical.h"
 #include "crx_numerics.h"
+#include "crx_scalar_kernels.h"
 #include "crx_types.h"
 
 #include <Eigen/Core>
@@ -16,42 +17,6 @@
 
 namespace crx::canonical {
 namespace {
-
-// Vector sizes express the algebraic degree; multiplication cannot silently
-// truncate terms, including for the intermediate quartics in appendix G4.
-template <int N> using Polynomial = Eigen::Matrix<double, N, 1>;
-
-template <int N, int M>
-auto Multiply(const Polynomial<N> &left, const Polynomial<M> &right)
-    -> Polynomial<N + M - 1> {
-  Polynomial<N + M - 1> result = Polynomial<N + M - 1>::Zero();
-  for (int i = 0; i < N; ++i) {
-    result.template segment<M>(i) += left[i] * right;
-  }
-  return result;
-}
-
-constexpr int kQuadraticSize = 3;
-constexpr int kQuarticSize = 5;
-
-auto Square(const Polynomial<kQuadraticSize> &polynomial)
-    -> Polynomial<kQuarticSize> {
-  const double cross01 = polynomial.x() * polynomial.y();
-  const double cross02 = polynomial.x() * polynomial.z();
-  const double cross12 = polynomial.y() * polynomial.z();
-  // Reuse symmetric products while preserving the convolution's accumulation
-  // order, especially the cancellation in the middle coefficient.
-  return {polynomial.x() * polynomial.x(), cross01 + cross01,
-          (cross02 + (polynomial.y() * polynomial.y())) + cross02,
-          cross12 + cross12, polynomial.z() * polynomial.z()};
-}
-
-auto MultiplyByHalfAngleDenominator(
-    const Polynomial<kQuadraticSize> &polynomial) -> Polynomial<kQuarticSize> {
-  // Q(t) = 1 + t^2: only the overlapping middle coefficient needs addition.
-  return {polynomial.x(), polynomial.y(), polynomial.x() + polynomial.z(),
-          polynomial.y(), polynomial.z()};
-}
 
 auto IsRigidTarget(const PoseIsoRT &target) -> bool {
   if (!target.matrix().allFinite() ||
@@ -66,60 +31,12 @@ auto IsRigidTarget(const PoseIsoRT &target) -> bool {
 }
 
 auto ResidualForAxis(const WristCircle &circle, const Vec3 &axis) -> double {
-  const Vec3 x = circle.p + circle.lengths.r * axis;
-  const Vec3 n = Vec3::UnitZ().cross(x);
-  const double a_squared = circle.lengths.a * circle.lengths.a;
-  const double b_squared = circle.lengths.b * circle.lengths.b;
-  const double k = (a_squared + x.squaredNorm() - b_squared) / 2.0;
-  const Vec3 axis_cross_n = axis.cross(n);
-  const double determinant = x.dot(axis_cross_n);
-  // Cramer's rule gives elbow = numerator/determinant. Clearing that
-  // denominator from |elbow|^2=a^2 leaves this residual; its zeros nominate
-  // wrist phases whose elbow also lies on the upper-arm sphere.
-  const Vec3 numerator = k * axis_cross_n + x.dot(axis) * n.cross(x);
-  return numerator.squaredNorm() - (a_squared * determinant * determinant);
+  return scalar::ResidualForAxis(circle.lengths, circle.p, axis);
 }
 
 auto ConstructCoefficients(const WristCircle &circle, const Vec3 &v,
                            const Vec3 &w) -> Coefficients {
-  // Set t = tan((angle - chart_angle)/2), so an axis phase has numerator
-  // v*(1-t^2) + w*(2t) and denominator Q=1+t^2. The quadratic polynomials
-  // below are these numerators (or squared distances) with Q cleared; the
-  // final quartic products clear the remaining denominators in the elbow
-  // sphere residual, yielding a degree-at-most-eight equation in t.
-  const Polynomial<3> kQ{1.0, 0.0, 1.0};
-  const double a_squared = circle.lengths.a * circle.lengths.a;
-  const double b_squared = circle.lengths.b * circle.lengths.b;
-  const double r = circle.lengths.r;
-  const double p_squared = circle.p.squaredNorm();
-  const double pz = circle.p.z();
-  const double pv = circle.p.dot(v);
-  const Polynomial<3> d{pv, 2.0 * circle.p.dot(w), -pv};
-  const Polynomial<3> uz{v.z(), 2.0 * w.z(), -v.z()};
-  const Polynomial<3> z = pz * kQ + r * uz;
-  // Form endpoint distances from vectors, not pÂ²+rÂ² +/- 2r(p.v). Near a
-  // folded equal-link arm those large scalar terms cancel and erase the
-  // closely spaced roots before the eigensolver even sees the polynomial.
-  const Polynomial<3> s{(circle.p + r * v).squaredNorm(),
-                        4.0 * r * circle.p.dot(w),
-                        (circle.p - r * v).squaredNorm()};
-  const Polynomial<3> g = d + r * kQ;
-  const double arm_difference = (circle.lengths.a - circle.lengths.b) *
-                                (circle.lengths.a + circle.lengths.b);
-  const Polynomial<3> a_hat = s - arm_difference * kQ;
-  const Polynomial<3> sphere = s + arm_difference * kQ;
-  const Polynomial<5> d_hat =
-      (4.0 * a_squared) * MultiplyByHalfAngleDenominator(s) - Square(sphere);
-  const Polynomial<5> first_factor =
-      Square(a_hat) - (4.0 * b_squared) * Square(z);
-  const Polynomial<9> first = Multiply(first_factor, Square(g));
-  const Polynomial<3> second_factor =
-      (2.0 * pz) * g + ((r * r) - p_squared) * uz;
-  const Polynomial<9> second = Multiply(d_hat, Multiply(uz, second_factor));
-  Coefficients result{};
-  Eigen::Map<Polynomial<9>> mapped(result.data());
-  mapped = 0.25 * (first + second);
-  return result;
+  return scalar::ConstructCoefficients(circle.lengths, circle.p, v, w);
 }
 
 } // namespace

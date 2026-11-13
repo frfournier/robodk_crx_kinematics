@@ -10,6 +10,7 @@
 #include "crx_incidence.h"
 #include "crx_joint_step.h"
 #include "crx_numerics.h"
+#include "crx_scalar_kernels.h"
 #include "crx_types.h"
 
 #include <algorithm>
@@ -40,21 +41,13 @@ auto ValidRecoveryInput(const WristPhase &phase, const PoseTolerance &tolerance)
 auto RotateLocalX(const Mat3 &rotation, double angle) -> Mat3 {
   const double sine = std::sin(angle);
   const double cosine = std::cos(angle);
-  Mat3 result;
-  result.col(0) = ((1 - cosine) + cosine) * rotation.col(0);
-  result.col(1) = cosine * rotation.col(1) + sine * rotation.col(2);
-  result.col(2) = -sine * rotation.col(1) + cosine * rotation.col(2);
-  return result;
+  return scalar::RotateLocalX(rotation, sine, cosine);
 }
 
 auto RotateLocalY(const Mat3 &rotation, double angle) -> Mat3 {
   const double sine = std::sin(angle);
   const double cosine = std::cos(angle);
-  Mat3 result;
-  result.col(0) = cosine * rotation.col(0) - sine * rotation.col(2);
-  result.col(1) = ((1 - cosine) + cosine) * rotation.col(1);
-  result.col(2) = sine * rotation.col(0) + cosine * rotation.col(2);
-  return result;
+  return scalar::RotateLocalY(rotation, sine, cosine);
 }
 
 auto Angle(double sine, double cosine, double &angle) -> bool {
@@ -139,7 +132,7 @@ struct JointRotations {
   explicit JointRotations(const Vec6 &q) {
     const double sine = std::sin(q[0]);
     const double cosine = std::cos(q[0]);
-    r1 << cosine, -sine, 0, sine, cosine, 0, 0, 0, (1 - cosine) + cosine;
+    r1 = scalar::BaseRotation(sine, cosine);
     r2 = RotateLocalY(r1, q[1]);
     r3 = RotateLocalY(r2, -q[2]);
     r4 = RotateLocalX(r3, -q[3]);
@@ -159,15 +152,9 @@ auto ForwardPose(const Lengths &lengths, const Vec6 &q,
   const auto &[r1, r2, r3, r4, r5] = rotations;
   PoseIsoRT pose = PoseIsoRT::Identity();
   const Mat3 r6 = RotateLocalX(r5, -q[5]);
-  // RoboDK's flange frame permutes/signs the final joint-frame axes. Keeping
-  // this mapping explicit makes the independently rebuilt pose match the
-  // external FK convention used to accept a recovered candidate.
-  pose.linear().col(0) = r6.col(2);
-  pose.linear().col(1) = -r6.col(1);
-  pose.linear().col(2) = r6.col(0);
-  pose.translation() = lengths.a * r2.col(2) +
-                       r4 * Vec3(lengths.b, -lengths.r, 0) +
-                       lengths.c * r5.col(0);
+  const auto assembled = scalar::ForwardPose(lengths, r2, r4, r5, r6);
+  pose.linear() = assembled.rotation;
+  pose.translation() = assembled.translation;
   return pose;
 }
 

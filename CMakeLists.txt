@@ -133,6 +133,34 @@ endif()
 add_library(Eigen3::Eigen INTERFACE IMPORTED)
 target_include_directories(Eigen3::Eigen INTERFACE "${_CRXKIN_EIGEN_SOURCE_DIR}")
 
+# Enclosure primitives must retain a rounding boundary at every operation.
+# Keep this object outside LTO and compile its FP environment access strictly;
+# ordinary numerical discovery retains its existing optimization settings.
+function(_crxkin_strict_enclosure_target target)
+  set_target_properties(${target} PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION FALSE
+    INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE)
+  if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(${target} PRIVATE /fp:strict)
+  else()
+    target_compile_options(${target} PRIVATE -frounding-math -ffp-contract=off -fno-fast-math)
+  endif()
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+      target_compile_options(${target} PRIVATE /clang:-ffp-model=strict /clang:-ffp-contract=off -fno-lto)
+    else()
+      target_compile_options(${target} PRIVATE -ffp-model=strict -ffp-contract=off -fno-lto)
+    endif()
+  endif()
+endfunction()
+
+add_library(crx_interval STATIC src/crx_interval.cpp)
+target_include_directories(crx_interval PUBLIC "${CMAKE_SOURCE_DIR}/src")
+_crxkin_strict_enclosure_target(crx_interval)
+add_library(crx_certification STATIC src/crx_exact_problem.cpp)
+target_link_libraries(crx_certification PUBLIC crx_interval Eigen3::Eigen)
+_crxkin_strict_enclosure_target(crx_certification)
+
 set(_CRXKIN_EIGEN_LICENSE "${_CRXKIN_EIGEN_SOURCE_DIR}/LICENSE")
 set(_CRXKIN_EIGEN_LEGAL_FILES
   COPYING.APACHE
@@ -203,13 +231,14 @@ target_include_directories(crx_kinematics PRIVATE
   "${CMAKE_SOURCE_DIR}/src"     # Private headers beside their implementations.
 )
 
-target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
+target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen crx_certification)
 
 # The Python C boundary catches allocation/solver exceptions. Explicit Clang
 # flags also reach clang-tidy, whose clang-cl driver can lose /EHsc while
 # translating the compilation database to its analysis invocation.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32)
   set_source_files_properties("${CMAKE_SOURCE_DIR}/src/crx_python_api.cpp"
+    "${CMAKE_SOURCE_DIR}/scripts/benchmark_counters.cpp"
     PROPERTIES COMPILE_OPTIONS "-Xclang;-fexceptions;-Xclang;-fcxx-exceptions")
 endif()
 
@@ -342,6 +371,22 @@ endif()
 # Tests and verification utility
 # ------------------------------------------------------------------------------
 if(BUILD_TESTING)
+  add_executable(crx_interval_tests tests/test_crx_interval.cpp)
+  target_link_libraries(crx_interval_tests PRIVATE crx_interval)
+  _crxkin_strict_enclosure_target(crx_interval_tests)
+  add_test(NAME crx.interval COMMAND crx_interval_tests)
+  add_executable(crx_exact_tests tests/test_crx_exact_problem.cpp
+    tests/crx_allocation_probe.cpp src/crx_exact_problem.cpp)
+  target_include_directories(crx_exact_tests PRIVATE src tests)
+  target_link_libraries(crx_exact_tests PRIVATE crx_interval Eigen3::Eigen)
+  target_compile_definitions(crx_exact_tests PRIVATE EIGEN_RUNTIME_NO_MALLOC)
+  _crxkin_strict_enclosure_target(crx_exact_tests)
+  if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(crx_exact_tests PRIVATE /UNDEBUG)
+  else()
+    target_compile_options(crx_exact_tests PRIVATE -UNDEBUG)
+  endif()
+  add_test(NAME crx.exact COMMAND crx_exact_tests)
   # Inspect private solver outcomes without adding DLL exports.
   add_executable(crx_solver_tests
     tests/test_crx_solver_outcomes.cpp ${CRXKIN_CPP_SOURCES})
@@ -365,6 +410,9 @@ if(BUILD_TESTING)
   target_compile_definitions(crx_solver_counters PRIVATE CRXKIN_DISCOVERY_COUNTERS)
   # Opt-in native timing harnesses; no benchmark exports enter the C ABI.
   if(WIN32)
+    add_executable(crx_certification_benchmark EXCLUDE_FROM_ALL
+      scripts/benchmark_certification.cpp src/crx_canonical.cpp src/crx_math_compat.cpp)
+    target_link_libraries(crx_certification_benchmark PRIVATE crx_certification Eigen3::Eigen)
     add_executable(crx_discovery_benchmark EXCLUDE_FROM_ALL
       scripts/benchmark_discovery.cpp
       ${CRXKIN_CANONICAL_SOURCES}
@@ -422,7 +470,7 @@ if(BUILD_TESTING)
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
     set_tests_properties(crx.python-regression PROPERTIES
-      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>"
+      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>;CRXKIN_INTERVAL_PROBE_PATH=$<TARGET_FILE:crx_interval_tests>;CRXKIN_EXACT_PROBE_PATH=$<TARGET_FILE:crx_exact_tests>"
     )
     add_test(
       NAME crx.solver-reliability
@@ -437,7 +485,7 @@ if(BUILD_TESTING)
     add_custom_target(check
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
               --output-on-failure
-      DEPENDS crx_kinematics crx_canonical_tests crx_command_lift_tests
+      DEPENDS crx_kinematics crx_canonical_tests crx_command_lift_tests crx_interval_tests crx_exact_tests
               crx_solver_tests
       COMMENT "Running CMake/CTest regression checks"
       USES_TERMINAL
