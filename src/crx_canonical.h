@@ -21,12 +21,41 @@ struct Lengths {
 
 enum class PreparationStatus { Ready, InvalidInput, NumericalRangeFailure };
 
+struct ResidualInvariants {
+  // Rows of (p.u, u.z) = L (cos(angle), sin(angle)), prepared once per target.
+  double p_v = 0.0;
+  double p_w = 0.0;
+  double v_z = 0.0;
+  double w_z = 0.0;
+  double p_squared_plus_r_squared = 0.0;
+  double height = 0.0;
+  double a_squared = 0.0;
+  double b_squared = 0.0;
+  double arm_difference = 0.0;
+  bool unit_basis = false;
+};
+
 struct WristCircle {
   Lengths lengths{}; // Divided by length_scale, including signed lengths.
   Vec3 p = Vec3::Zero();
   Vec3 v = Vec3::Zero();
   Vec3 w = Vec3::Zero();
   double length_scale = 0.0;
+  ResidualInvariants residual{};
+};
+
+struct ResidualEvaluation {
+  double value = 0.0;
+  double derivative = 0.0;
+  bool used_geometric_fallback = false;
+};
+
+enum class CramerStatus { Ready, GuardRejected, NumericalRangeFailure };
+
+struct CramerEvaluation {
+  double value = 0.0;
+  double derivative = 0.0;
+  Vec3 elbow = Vec3::Zero();
 };
 
 inline constexpr std::size_t kCoefficientCount = 9;
@@ -63,6 +92,19 @@ auto PrepareWristCircle(const Lengths &lengths, const PoseIsoRT &target,
 auto EvaluateResidual(const WristCircle &circle, double angle) -> double;
 auto EvaluateResidualDerivative(const WristCircle &circle, double angle)
     -> double;
+
+// Joint residual/derivative evaluation using cached bivariate invariants.
+// Cancellation and admitted nonunit bases retain the geometric route. The
+// dispatch is numerical, not an enclosure, exclusion or root certificate.
+auto EvaluateResidualPair(const WristCircle &circle, double angle)
+    -> ResidualEvaluation;
+
+// Compact scalar Cramer numerator and its phase derivative. Uses the same
+// conditioning margin as discovery and leaves output unchanged on failure.
+// The returned quotient |N/Delta|^2-a^2 equals f/Delta^2 algebraically; forming
+// it through the elbow retains accuracy near cancellation of f's factors.
+auto EvaluateCramerElbowResidual(const WristCircle &circle, double angle,
+                                 CramerEvaluation &output) -> CramerStatus;
 
 // Direct degree-at-most-eight scalar convolution, with no interpolation or
 // truncation. Supports shifted charts. Failure leaves output unchanged.
