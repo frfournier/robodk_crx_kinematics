@@ -16,7 +16,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests"))
 from crx_asset_reference import derive_model, forward_model
-from fixtures.generate_discovery_cases import make_corpus
+from fixtures.benchmark_models import benchmark_models
 
 ROBOT_ROWS, ROBOT_STRIDE = 93, 20
 CHALLENGES = ("wrist", "extended_elbow", "folded_elbow", "base_axis",
@@ -50,7 +50,7 @@ def legal_lift(q, model):
 
 
 def corpus(random_count, stress_count, seed):
-    models, original = make_corpus(0, 0, seed)
+    models, original = benchmark_models(seed)
     capture = json.loads((ROOT / "tests/fixtures/crx_asset_frames.json").read_text())
     references = [derive_model(asset) for asset in capture["assets"]]
     rng = np.random.default_rng(seed)

@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <map>
 #include <optional>
 #include <queue>
 #include <vector>
@@ -80,11 +81,21 @@ auto ThreeDecimalPlaces(double value) -> double {
   return rounded == 0.0 ? 0.0 : rounded;
 }
 
+using CommandIdentity = std::array<double, kDofCount>;
+
+auto OutputIdentity(const Vec6 &command) -> CommandIdentity {
+  CommandIdentity identity{};
+  for (int axis = 0; axis < kDofCount; ++axis) {
+    identity.at(static_cast<std::size_t>(axis)) =
+        ThreeDecimalPlaces(angle_conv::RadToDeg(command[axis]));
+  }
+  return identity;
+}
+
 auto SameOutputCommand(const Vec6 &a, const Vec6 &b) -> bool {
   for (int axis = 0; axis < kDofCount; ++axis) {
-    const double a_degrees = angle_conv::RadToDeg(a[axis]);
-    const double b_degrees = angle_conv::RadToDeg(b[axis]);
-    if (ThreeDecimalPlaces(a_degrees) != ThreeDecimalPlaces(b_degrees)) {
+    if (ThreeDecimalPlaces(angle_conv::RadToDeg(a[axis])) !=
+        ThreeDecimalPlaces(angle_conv::RadToDeg(b[axis]))) {
       return false;
     }
   }
@@ -121,6 +132,26 @@ struct LiftBox {
   std::uint64_t count = 1;
 };
 
+auto BetterDuplicate(const CommandLift &candidate, const CommandLift &retained,
+                     const Vec6 &lower, const Vec6 &upper) -> bool {
+  // Within one controller-formatted identity, preserve exact box endpoints.
+  // A strictly nearer command or a preserved seed still wins first.
+  if (candidate.travel_squared != retained.travel_squared ||
+      candidate.preserved_seed != retained.preserved_seed) {
+    return Better(candidate, retained);
+  }
+  const auto endpoints = [&](const Vec6 &command) {
+    return ((command.array() == lower.array()) ||
+            (command.array() == upper.array()))
+        .count();
+  };
+  const auto candidate_endpoints = endpoints(candidate.command_rad);
+  const auto retained_endpoints = endpoints(retained.command_rad);
+  return candidate_endpoints == retained_endpoints
+             ? Better(candidate, retained)
+             : candidate_endpoints > retained_endpoints;
+}
+
 auto PrepareBox(LiftBox &box, const Vec6 &lower, const Vec6 &upper,
                 const CommandLimits &limits) -> bool {
   // Keep the subtraction order: moving the allowance before the phase can
@@ -152,6 +183,36 @@ auto PrepareBox(LiftBox &box, const Vec6 &lower, const Vec6 &upper,
     box.count *= count;
   }
   return true;
+}
+
+auto HasRoundedAliases(const std::vector<LiftBox> &boxes, const Vec6 &lower,
+                       const Vec6 &upper) -> bool {
+  // Endpoint preference can replace a rounded duplicate by a lexicographically
+  // later representative. A heap bound on the first visited member is then
+  // insufficient to establish the exact prefix. Use exhaustive selection when
+  // two geometric boxes could share a controller-formatted identity.
+  const double output_bin_rad = angle_conv::DegToRad(0.001);
+  const double magnitude =
+      std::max({1.0, lower.cwiseAbs().maxCoeff(), upper.cwiseAbs().maxCoeff()});
+  const double roundoff = magnitude * numerics::kElementaryRoundoff;
+  // Lifting and degree conversion can merge phases farther apart than the
+  // nominal output bin at large turns. Include their absolute roundoff scale,
+  // and use exhaustive identity selection once that scale spans a whole bin.
+  if (roundoff >= output_bin_rad) {
+    return true;
+  }
+  for (std::size_t i = 0; i < boxes.size(); ++i) {
+    for (std::size_t j = 0; j < i; ++j) {
+      const Vec6 difference =
+          (boxes.at(i).phase - boxes.at(j).phase).unaryExpr([](double value) {
+            return WrapRadPi(value);
+          });
+      if (difference.cwiseAbs().maxCoeff() <= output_bin_rad + 2 * roundoff) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 struct RankedProblem {
@@ -288,7 +349,7 @@ auto RankedPrefix(const std::vector<LiftBox> &boxes,
           return SameOutputCommand(command.command_rad, entry.command_rad);
         });
     if (duplicate != result.commands.end()) {
-      if (Better(command, *duplicate)) {
+      if (BetterDuplicate(command, *duplicate, problem.lower, problem.upper)) {
         *duplicate = command;
         std::make_heap(result.commands.begin(), result.commands.end(), Better);
       }
@@ -455,7 +516,11 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     }
   }
   const auto output_capacity = static_cast<std::size_t>(capacity);
-  if (mode == CommandSelectionMode::RankedPrefix &&
+  // A duplicate's preferred representative can move later in the ordering.
+  // Retain all rounded identities in this bounded fallback, then rank them;
+  // otherwise an evicted identity could become part of the final prefix.
+  const bool retain_all_identities = HasRoundedAliases(boxes, lower, upper);
+  if (mode == CommandSelectionMode::RankedPrefix && !retain_all_identities &&
       result.box_lifts > output_capacity + 1) {
     const auto ranked =
         RankedPrefix(boxes, {lower, upper, limits, seed, validate}, preserved,
@@ -463,11 +528,11 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
     if (ranked.has_value()) {
       return *ranked;
     }
-    result.status = CommandSelectionStatus::WorkLimit;
-    result.commands.clear();
-    return result;
+    // A full frontier or nonfinite travel bound requests the exhaustive path.
+    // Its validator-aware checks preserve RangeFailure versus WorkLimit.
   }
   bool unique_overflow = false;
+  std::map<CommandIdentity, std::size_t> identities;
   auto retain = [&](CommandLift command) {
     if (seed != nullptr) {
       command.travel_squared = (command.command_rad - *seed).squaredNorm();
@@ -475,12 +540,25 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
         return false;
       }
     }
+    if (retain_all_identities) {
+      const auto [entry, inserted] = identities.emplace(
+          OutputIdentity(command.command_rad), result.commands.size());
+      if (inserted) {
+        result.commands.push_back(command);
+      } else {
+        auto &previous = result.commands.at(entry->second);
+        if (BetterDuplicate(command, previous, lower, upper)) {
+          previous = command;
+        }
+      }
+      return true;
+    }
     const auto duplicate = std::find_if(
         result.commands.begin(), result.commands.end(), [&](const auto &entry) {
           return SameOutputCommand(command.command_rad, entry.command_rad);
         });
     if (duplicate != result.commands.end()) {
-      if (Better(command, *duplicate)) {
+      if (BetterDuplicate(command, *duplicate, lower, upper)) {
         *duplicate = command;
         std::make_heap(result.commands.begin(), result.commands.end(), Better);
       }
@@ -544,8 +622,16 @@ auto SelectCommandLifts(const std::vector<Vec6> &postures, const Vec6 &lower,
       ++result.feasible_postures;
     }
   }
-  std::sort_heap(result.commands.begin(), result.commands.end(), Better);
-  result.truncated = unique_overflow;
+  if (retain_all_identities) {
+    std::sort(result.commands.begin(), result.commands.end(), Better);
+  } else {
+    std::sort_heap(result.commands.begin(), result.commands.end(), Better);
+  }
+  result.truncated =
+      unique_overflow || result.commands.size() > output_capacity;
+  if (result.commands.size() > output_capacity) {
+    result.commands.resize(output_capacity);
+  }
   return result;
 }
 } // namespace crx

@@ -9,11 +9,12 @@ from ._native import (
     LibraryError,
     NativeError,
 )
-from ._solver import CrxSolver, FibreIdentificationResult, IKResult, IKStatus
+from ._solver import Coverage, CrxSolver, FibreIdentificationResult, IKResult, IKStatus
 
 __all__ = [
     "ClosedSolverError",
     "ConfigurationError",
+    "Coverage",
     "CrxSolver",
     "FibreIdentificationResult",
     "IKResult",

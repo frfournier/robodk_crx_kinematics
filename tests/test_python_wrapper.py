@@ -20,6 +20,7 @@ from crx_asset_reference import derive_model, forward_model, rigid_inverse
 from crx_kinematics import (
     ClosedSolverError,
     ConfigurationError,
+    Coverage,
     CrxSolver,
     FibreIdentificationResult,
     IKStatus,
@@ -179,6 +180,7 @@ def test_fibre_identification_metadata_and_transforms(factory):
     assert isinstance(identified, FibreIdentificationResult)
     assert identified.success
     assert identified.status == IKStatus.STRICT_CANDIDATES
+    assert identified.coverage == Coverage.NOT_ATTEMPTED
     assert identified.solutions.ndim == 2
     assert identified.solutions.shape[1] == 6
     count = len(identified.solutions)
@@ -202,6 +204,7 @@ def test_fibre_identification_metadata_and_transforms(factory):
     single = solver.identify(target, max_solutions=1)
     assert len(single.solutions) == 1
     assert single.truncated
+    assert single.coverage == identified.coverage
     assert single.aspect_signs.shape == (1,)
     assert single.wrist_addresses.shape == (1, 3)
     narrow = factory(
@@ -227,7 +230,93 @@ def test_fibre_identification_singular_and_unaddressable_rows(factory):
 def test_identification_requires_optional_native_symbol(factory):
     solver = factory()
     solver._library.identify = None
+    solver._library.identify2 = None
     with pytest.raises(NotImplementedError, match=r"0\.5\.0 or newer"):
+        solver.identify(solver.fk(COMMAND))
+
+def test_identification_extension_falls_back_to_old_symbol(factory):
+    solver = factory()
+    target = solver.fk(COMMAND)
+    current = solver.identify(target)
+    solver._library.identify2 = None
+    legacy = solver.identify(target)
+    assert legacy.coverage == Coverage.NOT_ATTEMPTED
+    assert legacy.status == current.status
+    for field in ("solutions", "aspect_signs", "regular", "wrist_addresses",
+                  "wrist_address_valid"):
+        np.testing.assert_array_equal(getattr(legacy, field), getattr(current, field))
+
+
+@pytest.mark.parametrize("asset", ASSETS, ids=lambda a: a["asset"])
+def test_asset_identification_canonical_signs(factory, asset):
+    name = asset["asset"].removeprefix("Fanuc-").removesuffix("-Custom.robot")
+    solver = factory(name)
+    result = solver.identify(solver.fk(COMMAND), max_solutions=64)
+    assert result.success
+    assert result.coverage == Coverage.NOT_ATTEMPTED
+    for command, sign, regular in zip(
+        result.solutions, result.aspect_signs, result.regular, strict=True
+    ):
+        if regular:
+            assert sign == np.sign(np.linalg.det(solver.jacobian(command)))
+
+
+def test_identification_extension_sizes_versions_and_buffers(factory):
+    solver = factory()
+    native = solver._library
+    assert ct.sizeof(_native.FibreMetadata) == ct.sizeof(_native.IKMetadata) == 16
+    assert ct.sizeof(_native.FibreExtension) == 16
+    target = solver.fk(COMMAND)
+    solutions = np.full((3, 6), 12345.)
+    signs, regular, valid = (np.full(3, 12345, dtype=np.int32) for _ in range(3))
+    addresses = np.full((3, 3), 12345, dtype=np.int32)
+    metadata = _native.FibreMetadata()
+
+    class GuardedExtension(ct.Structure):
+        _fields_ = [("before", ct.c_uint64), ("extension", _native.FibreExtension),
+                    ("after", ct.c_uint64)]
+
+    guarded = GuardedExtension(0x12345678, _native.FibreExtension(16, 1, -123, 0),
+                               0x87654321)
+    extension_pointer = ct.cast(
+        ct.byref(guarded, GuardedExtension.extension.offset),
+        ct.POINTER(_native.FibreExtension),
+    )
+    arguments = (solver._handle, target, 2, solutions, signs, regular,
+                 addresses, valid, ct.byref(metadata))
+    for size, version, reserved in [
+        (0, 1, 0), (8, 1, 0), (15, 1, 0), (17, 1, 0),
+        (0xFFFFFFFF, 1, 0), (16, 0, 0), (16, 2, 0), (16, 1, 1),
+    ]:
+        guarded.extension = _native.FibreExtension(size, version, -123, reserved)
+        snapshot = bytes(guarded)
+        assert native.identify2(*arguments, extension_pointer) == -1
+        assert bytes(guarded) == snapshot
+        assert metadata.status == IKStatus.INVALID_INPUT and metadata.count == 0
+        assert np.all(solutions == 12345)
+        assert all(np.all(a == 12345) for a in (signs, regular, addresses, valid))
+    assert native.identify2(*arguments, None) == -1
+    guarded.extension = _native.FibreExtension(16, 1, -123, 0)
+    assert native.identify2(*arguments, extension_pointer) == 0
+    assert guarded.before == 0x12345678 and guarded.after == 0x87654321
+    assert guarded.extension.coverage == Coverage.NOT_ATTEMPTED
+    assert 0 < metadata.count <= 2
+    assert np.all(solutions[metadata.count:] == 12345)
+    assert all(np.all(a[metadata.count:] == 12345)
+               for a in (signs, regular, addresses, valid))
+
+
+def test_identification_rejects_unknown_native_coverage(factory, monkeypatch):
+    solver = factory()
+    identify2 = solver._library.identify2
+
+    def corrupt(*args):
+        code = identify2(*args)
+        ct.cast(args[-1], ct.POINTER(_native.FibreExtension)).contents.coverage = 99
+        return code
+
+    monkeypatch.setattr(solver._library, "identify2", corrupt)
+    with pytest.raises(NativeError, match="coverage"):
         solver.identify(solver.fk(COMMAND))
 
 

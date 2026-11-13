@@ -60,6 +60,26 @@ typedef struct crx_v1_fibre_result {
   int32_t used_singular_representatives;
 } crx_v1_fibre_result;
 
+enum crx_v1_coverage {
+  CRX_COVERAGE_NOT_ATTEMPTED = 0,
+  CRX_COVERAGE_COMPLETE = 1,
+  CRX_COVERAGE_INCONCLUSIVE = 2,
+  CRX_COVERAGE_CONTINUOUS_FIBRE = 3
+};
+
+/* Extension negotiation: caller initializes struct_size, version and reserved.
+ * Only (sizeof(crx_v1_fibre_metadata), 1, 0) is currently supported.
+ * Unsupported sizes/versions/reserved values return -1 without modifying
+ * metadata or array outputs. Future layouts require an explicitly supported
+ * size/version pair; existing layouts and their meanings remain unchanged.
+ */
+typedef struct crx_v1_fibre_metadata {
+  uint32_t struct_size;
+  uint32_t version;
+  int32_t coverage;
+  uint32_t reserved;
+} crx_v1_fibre_metadata;
+
 CRX_API uint32_t crx_v1_abi_version(void);
 /* Returned strings have static lifetime; never free them. */
 CRX_API const char *crx_v1_library_version(void);
@@ -101,8 +121,14 @@ CRX_API int32_t crx_v1_ik(const crx_v1_handle *handle, const double *pose,
  * angle in [-pi,pi); bit 0 is positive shoulder side, bit 1 negative. Invalid
  * addresses use
  * [-1,-1,-1] with address_valid=0. aspect_sign is -1/+1 for regular postures,
- * 0 for singular postures. All outputs are caller-owned. No seed shortcut is
- * used. Discovery remains numerical and makes no completeness claim.
+ * 0 for numerically singular postures. Signs use canonical radians, not sensed
+ * command coordinates: det(J_command) = det(J_canonical) * product(senses).
+ * Regularity currently uses |det| > 1e-10*max(1,|a|,|b|,|r|)^3 and is
+ * numerical. Addresses are target-local; seams/folds can change arcs/ranks. The
+ * base-flip bit is undefined at sin(q[1])=0. Base-flip partners have equal
+ * aspect signs; controller [REAR,LOWERARM,FLIP] flags need not identify a
+ * unique solution. All outputs are caller-owned. No seed shortcut is used.
+ * Discovery remains numerical and makes no completeness claim.
  */
 CRX_API int32_t crx_v1_identify(const crx_v1_handle *handle, const double *pose,
                                 int32_t capacity, double *solutions,
@@ -110,6 +136,21 @@ CRX_API int32_t crx_v1_identify(const crx_v1_handle *handle, const double *pose,
                                 int32_t *wrist_addresses,
                                 int32_t *address_valid,
                                 crx_v1_fibre_result *result);
+
+/* Same arrays, units and numerical status as identify; adds negotiated
+ * metadata. Coverage concerns the internal nominal phase catalogue, before
+ * command limits, turn expansion and output capacity. Even Complete would not
+ * imply an exhaustive returned prefix, resolved command admissibility or
+ * nearest-command certification. This implementation always reports
+ * NotAttempted. result is initialized on failure when non-NULL.
+ */
+CRX_API int32_t crx_v1_identify2(const crx_v1_handle *handle,
+                                 const double *pose, int32_t capacity,
+                                 double *solutions, int32_t *aspect_signs,
+                                 int32_t *regular, int32_t *wrist_addresses,
+                                 int32_t *address_valid,
+                                 crx_v1_fibre_result *result,
+                                 crx_v1_fibre_metadata *metadata);
 
 #ifdef __cplusplus
 }

@@ -75,7 +75,7 @@ def validate(output, models, references, cases, rounds):
                           & (solutions.angle_deg <= ANGLE_DEG)
                           & solutions.limits_ok)
     solutions.to_csv(output / "errors.csv", index=False)
-    grouped = dict(solutions.groupby(["case", "mode", "path"]))
+    grouped = {key: rows for key, rows in solutions.groupby(["case", "mode", "path"])}
     rows = []
     for (index, mode, path), times in timings.groupby(["case", "mode", "path"]):
         item = cases[index]
