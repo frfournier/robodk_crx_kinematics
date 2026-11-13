@@ -7,14 +7,18 @@
 
 #include "crx_python_api.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include "crx_certified_solver.h"
 #include "crx_kinematics.h"
 #include "crx_numerics.h"
 #include "crx_solver.h"
@@ -24,7 +28,13 @@ struct crx_v1_handle {
   crx::CrxModelData model;
 };
 
+struct crx_v1_certificate_handle {
+  crx::CertificateAttachment attachment;
+};
+
 namespace {
+static_assert(static_cast<int>(crx::ball::Failure::UnsupportedExactModel) ==
+              CRX_CERT_UNSUPPORTED_EXACT_MODEL);
 constexpr int kConfigSize = 3;
 constexpr int kModelCount = 7;
 constexpr int kSpatialSize = 3;
@@ -243,6 +253,88 @@ auto IdentifyWithMetadata(const crx_v1_handle *handle, const double *pose,
     return CRX_OK;
   });
 }
+
+auto ValidCertificateOptions(const crx_v1_certificate_options *options)
+    -> bool {
+  return options != nullptr && options->struct_size == sizeof(*options) &&
+         options->version == 1 && options->reserved == 0 &&
+         (options->flags &
+          ~static_cast<std::uint32_t>(CRX_CERTIFICATION_DISABLED)) == 0;
+}
+
+using PendingCertificates =
+    std::vector<std::unique_ptr<crx_v1_certificate_handle>>;
+
+auto StageCertificates(
+    const std::vector<crx::CertificateAttachment> &attachments)
+    -> PendingCertificates {
+  PendingCertificates pending;
+  pending.reserve(attachments.size());
+  for (const auto &attachment : attachments) {
+    if (attachment.attempt.IsCertified()) {
+      auto handle = std::make_unique<crx_v1_certificate_handle>();
+      handle->attachment = attachment;
+      pending.push_back(std::move(handle));
+    } else {
+      pending.push_back(nullptr);
+    }
+  }
+  return pending;
+}
+
+void CommitCertificates(
+    PendingCertificates &pending,
+    const std::vector<crx::CertificateAttachment> &attachments,
+    crx_v1_certificate_handle **output, std::int32_t *failures) {
+  for (std::size_t i = 0; i < pending.size(); ++i) {
+    output[i] = pending.at(i).release();
+    failures[i] = static_cast<std::int32_t>(attachments.at(i).attempt.failure);
+  }
+}
+
+auto CertificateRecord(const crx_v1_certificate_handle &handle)
+    -> crx_v1_ball_certificate {
+  crx_v1_ball_certificate result{};
+  result.struct_size = sizeof(result);
+  result.version = 1;
+  const auto &attachment = handle.attachment;
+  const auto &data = attachment.attempt.certificate.Values();
+  result.identity_schema = data.identity.schema;
+  result.aspect_sign = data.aspect_sign;
+  result.reused = attachment.reused ? 1 : 0;
+  result.used_log_series = data.used_log_series ? 1 : 0;
+  result.reuse_failure = static_cast<std::int32_t>(attachment.reuse_failure);
+  std::copy(data.centre.begin(), data.centre.end(),
+            result.canonical_center_rad);
+  result.existence_radius_rad = data.existence_radius;
+  result.uniqueness_radius_rad = data.uniqueness_radius;
+  result.beta = data.beta;
+  result.lipschitz = data.lipschitz;
+  result.eta = data.eta;
+  result.coarse_eta = data.coarse_eta;
+  result.inverse_residual = data.inverse_residual;
+  result.pose_defect = data.pose_defect;
+  result.screw_norm_sum = data.screw_norm_sum;
+  result.angular_norm_sum = data.angular_norm_sum;
+  result.anchor_position_norm = data.anchor_position_norm;
+  result.length_scale = attachment.length_scale;
+  std::copy(attachment.rotation_deviation_upper.begin(),
+            attachment.rotation_deviation_upper.end(),
+            result.rotation_deviation_upper);
+  result.target_relative_trace[0] = data.target_relative_trace.lo;
+  result.target_relative_trace[1] = data.target_relative_trace.hi;
+  result.closed_form_determinant[0] = data.closed_form_determinant.lo;
+  result.closed_form_determinant[1] = data.closed_form_determinant.hi;
+  for (int row = 0; row < crx::kDofCount; ++row) {
+    for (int col = 0; col < crx::kDofCount; ++col) {
+      result.preconditioner[row * crx::kDofCount + col] =
+          data.preconditioner(row, col);
+    }
+  }
+  std::copy(data.identity.words.begin(), data.identity.words.end(),
+            result.input_words);
+  return result;
+}
 } // namespace
 
 extern "C" {
@@ -443,5 +535,132 @@ std::int32_t crx_v1_identify2(const crx_v1_handle *handle, const double *pose,
   return IdentifyWithMetadata(handle, pose, capacity, solutions, aspect_signs,
                               regular, wrist_addresses, address_valid, result,
                               metadata);
+}
+
+void crx_v1_certificate_destroy(crx_v1_certificate_handle *certificate) {
+  delete certificate;
+}
+
+std::int32_t
+crx_v1_certificate_read(const crx_v1_certificate_handle *certificate,
+                        crx_v1_ball_certificate *output) {
+  if (certificate == nullptr || output == nullptr ||
+      output->struct_size != sizeof(*output) || output->version != 1 ||
+      output->reserved != 0) {
+    return CRX_INVALID_ARGUMENT;
+  }
+  return Guard([&]() -> std::int32_t {
+    if (!certificate->attachment.attempt.IsCertified()) {
+      return CRX_INVALID_ARGUMENT;
+    }
+    *output = CertificateRecord(*certificate);
+    return CRX_OK;
+  });
+}
+
+std::int32_t crx_v1_ik_certified(const crx_v1_handle *handle,
+                                 const double *pose, const double *reference,
+                                 const double *tool, const double *seed_deg,
+                                 std::int32_t capacity, double *solutions,
+                                 crx_v1_ik_result *result,
+                                 crx_v1_certificate_handle **certificates,
+                                 std::int32_t *failures,
+                                 const crx_v1_certificate_options *options,
+                                 const crx_v1_certificate_handle *reuse) {
+  if (result == nullptr) {
+    return CRX_INVALID_ARGUMENT;
+  }
+  *result = {CRX_INVALID_INPUT, 0, 0, 0};
+  if (!ValidCertificateOptions(options)) {
+    return CRX_INVALID_ARGUMENT;
+  }
+  return Guard([&]() -> std::int32_t {
+    if (handle == nullptr || pose == nullptr || reference == nullptr ||
+        tool == nullptr || solutions == nullptr || certificates == nullptr ||
+        failures == nullptr || capacity <= 0) {
+      return CRX_INVALID_ARGUMENT;
+    }
+    crx::Vec6 seed;
+    if (seed_deg != nullptr && !ReadCommand(seed_deg, seed)) {
+      return CRX_INVALID_ARGUMENT;
+    }
+    crx::PoseIsoRT source, ref, tcp;
+    source.matrix() = Eigen::Map<const PoseRow>(pose);
+    ref.matrix() = Eigen::Map<const PoseRow>(reference);
+    tcp.matrix() = Eigen::Map<const PoseRow>(tool);
+    const crx::CertificateOptions requested{
+        (options->flags & CRX_CERTIFICATION_DISABLED) == 0,
+        reuse == nullptr ? nullptr : &reuse->attachment.attempt.certificate};
+    const auto solved = crx::SolveIkCertified(
+        handle->model, source, ref, tcp, seed_deg == nullptr ? nullptr : &seed,
+        capacity, requested);
+    const auto count = solved.result.solutions.size();
+    if (count > static_cast<std::size_t>(capacity) ||
+        count != solved.certificates.size()) {
+      return CRX_INTERNAL_ERROR;
+    }
+    auto pending = StageCertificates(solved.certificates);
+    Eigen::Map<SolutionsRow> output(solutions, capacity, crx::kDofCount);
+    for (std::size_t i = 0; i < count; ++i) {
+      output.row(static_cast<Eigen::Index>(i)) =
+          solved.result.solutions.at(i).transpose() * angle_conv::kDegPerRad;
+    }
+    CommitCertificates(pending, solved.certificates, certificates, failures);
+    *result = {
+        Status(solved.result.status), static_cast<std::int32_t>(count),
+        static_cast<std::int32_t>(solved.result.truncated),
+        static_cast<std::int32_t>(solved.result.used_singular_representatives)};
+    return CRX_OK;
+  });
+}
+
+std::int32_t crx_v1_identify_certified(
+    const crx_v1_handle *handle, const double *pose, const double *reference,
+    const double *tool, std::int32_t capacity, double *solutions,
+    std::int32_t *aspect_signs, std::int32_t *regular,
+    std::int32_t *wrist_addresses, std::int32_t *address_valid,
+    crx_v1_fibre_result *result, crx_v1_fibre_metadata *metadata,
+    crx_v1_certificate_handle **certificates, std::int32_t *failures,
+    const crx_v1_certificate_options *options) {
+  if (result == nullptr) {
+    return CRX_INVALID_ARGUMENT;
+  }
+  *result = {CRX_INVALID_INPUT, 0, 0, 0};
+  if (!ValidCertificateOptions(options) || metadata == nullptr ||
+      metadata->struct_size != sizeof(*metadata) || metadata->version != 1 ||
+      metadata->reserved != 0) {
+    return CRX_INVALID_ARGUMENT;
+  }
+  return Guard([&]() -> std::int32_t {
+    if (handle == nullptr || pose == nullptr || reference == nullptr ||
+        tool == nullptr || solutions == nullptr || aspect_signs == nullptr ||
+        regular == nullptr || wrist_addresses == nullptr ||
+        address_valid == nullptr || certificates == nullptr ||
+        failures == nullptr || capacity <= 0) {
+      return CRX_INVALID_ARGUMENT;
+    }
+    crx::PoseIsoRT source, ref, tcp;
+    source.matrix() = Eigen::Map<const PoseRow>(pose);
+    ref.matrix() = Eigen::Map<const PoseRow>(reference);
+    tcp.matrix() = Eigen::Map<const PoseRow>(tool);
+    const auto identified = crx::IdentifyIkCertified(
+        handle->model, source, ref, tcp, capacity,
+        {(options->flags & CRX_CERTIFICATION_DISABLED) == 0, nullptr});
+    if (identified.result.solutions.size() >
+            static_cast<std::size_t>(capacity) ||
+        identified.result.solutions.size() != identified.certificates.size()) {
+      return CRX_INTERNAL_ERROR;
+    }
+    auto pending = StageCertificates(identified.certificates);
+    if (!CopyIdentifiedSolutions(identified.result, capacity, solutions,
+                                 aspect_signs, regular, wrist_addresses,
+                                 address_valid, result)) {
+      return CRX_INTERNAL_ERROR;
+    }
+    CommitCertificates(pending, identified.certificates, certificates,
+                       failures);
+    metadata->coverage = static_cast<std::int32_t>(identified.result.coverage);
+    return CRX_OK;
+  });
 }
 } // extern "C"

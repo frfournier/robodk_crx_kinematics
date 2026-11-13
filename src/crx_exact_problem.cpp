@@ -195,15 +195,22 @@ auto ValidHomogeneousRow(const PoseIsoRT &pose) -> bool {
 } // namespace
 
 auto Prepare(const Input &input, Problem &output) -> Status {
+  return Prepare(input, FrameConvention::BasePose, output);
+}
+
+auto Prepare(const Input &input, FrameConvention convention, Problem &output)
+    -> Status {
   if (!interval::EnvironmentSupported()) {
     return Status::UnsupportedEnvironment;
   }
-  if (!Validate(input)) {
+  if (!Validate(input) || (convention != FrameConvention::BasePose &&
+                           convention != FrameConvention::ReferenceMap)) {
     return Status::InvalidInput;
   }
   Problem result;
   auto &data = result.data_;
   data.identity = InputIdentity(input);
+  data.identity.schema = static_cast<std::uint32_t>(convention);
   for (const double length : input.lengths) {
     data.length_scale = std::max(data.length_scale, std::abs(length));
   }
@@ -218,20 +225,37 @@ auto Prepare(const Input &input, Problem &output) -> Status {
   const Matrix3 target_rotation = Rotation(target);
   const Matrix3 base_rotation = Rotation(base);
   const Matrix3 tool_rotation = Rotation(tool);
+  const Quaternion left =
+      convention == FrameConvention::BasePose ? Conjugate(base) : base;
   data.target.rotation =
-      Rotation(Product(Product(Conjugate(base), target), Conjugate(tool)));
+      Rotation(Product(Product(left, target), Conjugate(tool)));
   Vector3 translation_difference;
   Vector3 tool_translation;
   for (Eigen::Index i = 0; i < kSpaceDimension; ++i) {
     const auto index = static_cast<std::size_t>(i);
     translation_difference(i) =
-        DifferenceOverScale(input.target.position.at(index),
-                            input.base.position.at(index), data.length_scale);
+        convention == FrameConvention::BasePose
+            ? DifferenceOverScale(input.target.position.at(index),
+                                  input.base.position.at(index),
+                                  data.length_scale)
+            : Interval{input.target.position.at(index)} / scale;
     tool_translation(i) = Interval{input.tool.position.at(index)} / scale;
   }
-  data.target.translation = base_rotation.transpose() * translation_difference -
-                            data.target.rotation * tool_translation;
-  data.target.translation.z() -= Interval{input.base_height} / scale;
+  if (convention == FrameConvention::BasePose) {
+    data.target.translation =
+        base_rotation.transpose() * translation_difference -
+        data.target.rotation * tool_translation;
+    data.target.translation.z() -= Interval{input.base_height} / scale;
+  } else {
+    Vector3 reference_translation;
+    for (Eigen::Index i = 0; i < kSpaceDimension; ++i) {
+      reference_translation(i) =
+          Interval{input.base.position.at(static_cast<std::size_t>(i))} / scale;
+    }
+    data.target.translation = base_rotation * translation_difference +
+                              reference_translation -
+                              data.target.rotation * tool_translation;
+  }
   data.v = data.target.rotation.col(0);
   data.w = data.target.rotation.col(1);
   data.p =
@@ -267,8 +291,9 @@ auto Prepare(const Input &input, Problem &output) -> Status {
   return Status::Ready;
 }
 
-auto Prepare(const CrxModelData &model, const PoseIsoRT &target,
-             const Eigen::Quaterniond &target_quaternion, Problem &output)
+namespace {
+auto NominalInput(const CrxModelData &model, const PoseIsoRT &target,
+                  const Eigen::Quaterniond &target_quaternion, Input &input)
     -> Status {
   if (!interval::EnvironmentSupported()) {
     return Status::UnsupportedEnvironment;
@@ -280,7 +305,6 @@ auto Prepare(const CrxModelData &model, const PoseIsoRT &target,
   }
   constexpr std::array<double, 6> alpha{0,        -kHalfPi, 0,
                                         -kHalfPi, kHalfPi,  -kHalfPi};
-  Input input;
   for (std::size_t i = 0; i < model.dh_rows.size(); ++i) {
     const auto &row = model.dh_rows.at(i);
     if (!std::isfinite(row.alpha_rad) || !std::isfinite(row.a) ||
@@ -308,7 +332,52 @@ auto Prepare(const CrxModelData &model, const PoseIsoRT &target,
                              target_quaternion.y(), target_quaternion.z()};
   input.base = PoseSource(model.base_transform);
   input.tool = PoseSource(model.tool_transform);
+  return Status::Ready;
+}
+} // namespace
+
+auto Prepare(const CrxModelData &model, const PoseIsoRT &target,
+             const Eigen::Quaterniond &target_quaternion, Problem &output)
+    -> Status {
+  Input input;
+  const auto status = NominalInput(model, target, target_quaternion, input);
+  if (status != Status::Ready) {
+    return status;
+  }
   return Prepare(input, output);
+}
+
+auto PrepareReference(const CrxModelData &model, const PoseIsoRT &target,
+                      const Eigen::Quaterniond &target_quaternion,
+                      const PoseIsoRT &reference, const PoseIsoRT &tool,
+                      Problem &output) -> Status {
+  if (!interval::EnvironmentSupported()) {
+    return Status::UnsupportedEnvironment;
+  }
+  if (!ValidHomogeneousRow(reference) || !ValidHomogeneousRow(tool)) {
+    return Status::InvalidInput;
+  }
+  Input input;
+  const auto status = NominalInput(model, target, target_quaternion, input);
+  if (status != Status::Ready) {
+    return status;
+  }
+  // Exact component equality: a tolerance or squared-norm comparison could
+  // silently accept a nonzero subnormal off-pattern translation/rotation.
+  if (!(model.base_transform.linear().array() ==
+        Eigen::Matrix3d::Identity().array())
+           .all() ||
+      model.base_transform.translation().x() != 0 ||
+      model.base_transform.translation().y() != 0 ||
+      model.base_transform.translation().z() != -input.base_height ||
+      !(model.tool_transform.matrix().array() ==
+        PoseIsoRT::Identity().matrix().array())
+           .all()) {
+    return Status::UnsupportedNominalModel;
+  }
+  input.base = PoseSource(reference);
+  input.tool = PoseSource(tool);
+  return Prepare(input, FrameConvention::ReferenceMap, output);
 }
 
 auto Prepare(const CrxModelData &model, const PoseIsoRT &target,

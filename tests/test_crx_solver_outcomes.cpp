@@ -6,6 +6,7 @@
  */
 
 #include "crx_canonical.h"
+#include "crx_certified_solver.h"
 #include "crx_coordinates.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
@@ -22,6 +23,7 @@
 #include <limits>
 
 #include <Eigen/LU>
+#include <xmmintrin.h>
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
@@ -669,8 +671,121 @@ void CheckPhaseDomains() {
 }
 } // namespace
 
+namespace {
+void CheckCertificateIntegration() {
+  auto model = SixteenSolutionModel();
+  const auto target = SixteenSolutionTarget();
+  const auto identity = crx::PoseIsoRT::Identity();
+  const auto certified =
+      crx::IdentifyIkCertified(model, target, identity, identity, 64);
+  const auto disabled = crx::IdentifyIkCertified(
+      model, target, identity, identity, 64, {false, nullptr});
+  Require(certified.result.solutions.size() == 16 &&
+              certified.certificates.size() == 16 &&
+              disabled.result.solutions.size() == 16,
+          "certified sixteen-target retains full numerical discovery");
+  for (std::size_t i = 0; i < certified.certificates.size(); ++i) {
+    const auto &attachment = certified.certificates.at(i);
+    Require(attachment.attempt.IsCertified() &&
+                certified.result.solutions.at(i).regular &&
+                certified.result.solutions.at(i).aspect_sign ==
+                    attachment.attempt.certificate.Values().aspect_sign,
+            "sixteen-target certified labels unavailable");
+    Require((certified.result.solutions.at(i).joints.array() ==
+             disabled.result.solutions.at(i).joints.array())
+                    .all() &&
+                disabled.certificates.at(i).attempt.failure ==
+                    crx::ball::Failure::NotRequested,
+            "certificate option changed ordered numerical candidates");
+  }
+  const Vec6 seed = certified.result.solutions.front().joints;
+  auto scaled = model;
+  constexpr double kSmallScale = 1e-4;
+  for (auto &row : scaled.dh_rows) {
+    row.a *= kSmallScale;
+    row.d *= kSmallScale;
+  }
+  scaled.base_transform.translation() *= kSmallScale;
+  auto scaled_target = target;
+  scaled_target.translation() *= kSmallScale;
+  const auto policy = crx::IdentifyIkCertified(scaled, scaled_target, identity,
+                                               identity, 64, {false, nullptr});
+  const auto upgraded =
+      crx::IdentifyIkCertified(scaled, scaled_target, identity, identity, 64);
+  Require(policy.result.solutions.size() == upgraded.result.solutions.size() &&
+              !upgraded.result.solutions.empty(),
+          "small-scale numerical prefix changed");
+  int upgrades = 0;
+  for (std::size_t i = 0; i < upgraded.result.solutions.size(); ++i) {
+    Require(!policy.result.solutions.at(i).regular,
+            "small-scale control should lie below numerical threshold");
+    const bool valid = upgraded.certificates.at(i).attempt.IsCertified();
+    Require(upgraded.result.solutions.at(i).regular == valid,
+            "regularity upgraded without a certificate");
+    upgrades += valid ? 1 : 0;
+  }
+  Require(upgrades > 0, "valid proof failed to upgrade numerical regularity");
+  const auto seeded =
+      crx::SolveIkCertified(model, target, identity, identity, &seed, 1);
+  Require(seeded.result.status == IkStatus::StrictSeed &&
+              seeded.certificates.front().attempt.IsCertified(),
+          "strict seed certificate missing");
+  auto changed = target;
+  changed.translation().x() += 1e-14;
+  const auto reused = crx::SolveIkCertified(
+      model, changed, identity, identity, &seed, 1,
+      {true, &seeded.certificates.front().attempt.certificate});
+  Require(reused.result.status == IkStatus::StrictSeed &&
+              reused.certificates.front().attempt.IsCertified() &&
+              reused.certificates.front().reused,
+          "target-change certificate reuse failed");
+  auto limits_changed = model;
+  limits_changed.lower_limits_rad(0) -= 1e-6;
+  const auto fresh = crx::SolveIkCertified(
+      limits_changed, target, identity, identity, &seed, 1,
+      {true, &seeded.certificates.front().attempt.certificate});
+  Require(fresh.certificates.front().attempt.IsCertified() &&
+              !fresh.certificates.front().reused &&
+              fresh.certificates.front().reuse_failure ==
+                  crx::ball::Failure::IdentityMismatch,
+          "model mismatch did not fall back to fresh proof");
+  Vec6 generic;
+  generic << .4, -.7, .8, -.3, .9, -1.2;
+  for (const double b : {.6, -.6}) {
+    model.dh_rows.at(3).d = b;
+    const auto desired = Target(model, generic);
+    const auto result =
+        crx::SolveIkCertified(model, desired, identity, identity, &generic, 1);
+    Require(result.result.status == IkStatus::StrictSeed &&
+                result.certificates.front().attempt.IsCertified(),
+            "signed model strict seed proof failed");
+  }
+  model.base_transform.translation().x() = .01;
+  const auto desired = Target(model, generic);
+  const auto unsupported =
+      crx::SolveIkCertified(model, desired, identity, identity, &generic, 1);
+  Require(unsupported.result.status == IkStatus::StrictSeed &&
+              unsupported.certificates.front().attempt.failure ==
+                  crx::ball::Failure::UnsupportedExactModel,
+          "unsupported exact frame changed numerical seed policy");
+  const auto safe_model = SixteenSolutionModel();
+  const auto control = _mm_getcsr();
+  _mm_setcsr(control | 0x8000U);
+  const auto unsafe = crx::SolveIkCertified(
+      safe_model, target, identity, identity, &seed, 1,
+      {true, &seeded.certificates.front().attempt.certificate});
+  _mm_setcsr(control);
+  Require(unsafe.result.status == IkStatus::StrictSeed &&
+              unsafe.certificates.front().attempt.failure ==
+                  crx::ball::Failure::UnsupportedEnvironment &&
+              !unsafe.certificates.front().attempt.IsCertified(),
+          "unsafe caller controls reused a certificate");
+}
+} // namespace
+
 auto main() -> int {
   CheckFibreIdentification();
+  CheckCertificateIntegration();
   CheckJointTrig();
   CheckCrxForwardGeometry();
   CheckCanonicalCoordinates();

@@ -52,6 +52,31 @@ class FibreExtension(ct.Structure):
     ]
 
 
+class CertificateOptions(ct.Structure):
+    _fields_ = [(name, ct.c_uint32) for name in (
+        "struct_size", "version", "flags", "reserved",
+    )]
+
+
+class BallRecord(ct.Structure):
+    _fields_ = [
+        ("struct_size", ct.c_uint32), ("version", ct.c_uint32),
+        ("reserved", ct.c_uint32), ("identity_schema", ct.c_uint32),
+        ("aspect_sign", ct.c_int32), ("reused", ct.c_int32),
+        ("used_log_series", ct.c_int32), ("reuse_failure", ct.c_int32),
+        ("canonical_center_rad", ct.c_double * 6),
+        *[(name, ct.c_double) for name in (
+            "existence_radius_rad", "uniqueness_radius_rad", "beta", "lipschitz",
+            "eta", "coarse_eta", "inverse_residual", "pose_defect", "screw_norm_sum",
+            "angular_norm_sum", "anchor_position_norm", "length_scale",
+        )],
+        ("rotation_deviation_upper", ct.c_double * 3),
+        ("target_relative_trace", ct.c_double * 2),
+        ("closed_form_determinant", ct.c_double * 2),
+        ("preconditioner", ct.c_double * 36), ("input_words", ct.c_uint64 * 77),
+    ]
+
+
 def _array_type(dtype, shape, *, output=False):
     flags = ("C_CONTIGUOUS", "ALIGNED", "WRITEABLE") if output else (
         "C_CONTIGUOUS", "ALIGNED",
@@ -187,6 +212,29 @@ class NativeLibrary:
             ]
             identify2.restype = ct.c_int32
             self.identify2 = identify2
+
+        certificate_names = ("ik_certified", "identify_certified", "certificate_read", "certificate_destroy")
+        if not all(hasattr(self.lib, "crx_v1_" + name) for name in certificate_names):
+            for name in certificate_names:
+                setattr(self, name, None)
+        else:
+            integer_rows = ndpointer(dtype=np.int32, ndim=1,
+                                     flags=("C_CONTIGUOUS", "ALIGNED", "WRITEABLE"))
+            address_rows = ndpointer(dtype=np.int32, ndim=2,
+                                     flags=("C_CONTIGUOUS", "ALIGNED", "WRITEABLE"))
+            self._function("ik_certified", [
+                ct.c_void_p, pose, pose, pose, _optional(vector), ct.c_int32,
+                solutions, ct.POINTER(IKMetadata), ct.POINTER(ct.c_void_p),
+                integer_rows, ct.POINTER(CertificateOptions), ct.c_void_p,
+            ])
+            self._function("identify_certified", [
+                ct.c_void_p, pose, pose, pose, ct.c_int32, solutions,
+                integer_rows, integer_rows, address_rows, integer_rows,
+                ct.POINTER(FibreMetadata), ct.POINTER(FibreExtension),
+                ct.POINTER(ct.c_void_p), integer_rows, ct.POINTER(CertificateOptions),
+            ])
+            self._function("certificate_read", [ct.c_void_p, ct.POINTER(BallRecord)])
+            self._function("certificate_destroy", [ct.c_void_p], None)
 
     def close_directory(self) -> None:
         if self.directory is not None:
