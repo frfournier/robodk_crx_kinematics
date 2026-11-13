@@ -30,6 +30,7 @@ from ._native import (
 )
 
 if TYPE_CHECKING:
+    from ._catalogues import CatalogueOptions, CatalogueResult, CommandProfile
     import os
     from pathlib import Path
     from types import TracebackType
@@ -353,6 +354,54 @@ class CrxSolver:
             if not np.isfinite(result).all():
                 raise NativeError("TCP Jacobian exceeds the float64 numerical range")
             return result
+
+    def catalogue(
+        self, pose: ArrayLike, *, seed: ArrayLike | None = None,
+        max_solutions: int = 64, joint_limits: ArrayLike | None = None,
+        weights: ArrayLike | None = None, profile: CommandProfile | int = 0,
+        options: CatalogueOptions | None = None,
+    ) -> CatalogueResult:
+        """Opt-in nominal phase coverage, command admission and nearest proofs.
+
+        Limits/seed use raw degrees in the explicit command profile. Callback
+        commands are already coupled; DECOUPLED_USER requires its own limit box.
+        Commands are proof enclosures, with Yes/No/Undecided admission. A possible
+        minimizer band does not mean equal exact travel. Numerical fallback is
+        returned separately. Old DLLs provide only numerical fallback with
+        NotAttempted coverage and no reconstructed degree-provenance claim.
+        """
+        from ._catalogues import (CatalogueOptions, CommandProfile, old_dll_result,
+                                  read_query)
+        target = _pose(pose, "pose")
+        command = None if seed is None else _array(seed, (6,), "seed")
+        limits = None if joint_limits is None else _array(joint_limits, (2, 6), "joint_limits")
+        travel_weights = np.ones(6) if weights is None else _array(weights, (6,), "weights")
+        if np.any(travel_weights <= 0): raise ValueError("weights must be positive")
+        if limits is not None and np.any(limits[0] > limits[1]):
+            raise ValueError("Lower joint limits must not exceed upper joint limits")
+        if isinstance(profile, (bool, np.bool_)): raise TypeError("profile must be a CommandProfile")
+        profile = CommandProfile(operator.index(profile))
+        if profile == CommandProfile.DECOUPLED_USER and limits is None:
+            raise ValueError("Decoupled user commands require an explicit joint_limits box")
+        if isinstance(max_solutions, (bool, np.bool_)): raise TypeError("max_solutions must be an integer")
+        capacity = operator.index(max_solutions)
+        if not 0 <= capacity <= 512: raise ValueError("max_solutions must be in [0, 512]")
+        requested = CatalogueOptions() if options is None else options
+        if not isinstance(requested, CatalogueOptions): raise TypeError("options must be CatalogueOptions")
+        native_options = requested.native(profile, capacity)
+        with self._lock:
+            self._require_open()
+            if self._library.catalogue_query is None:
+                return old_dll_result(self, target, limits, command, travel_weights, profile, capacity)
+            pointer = ct.c_void_p()
+            try:
+                check(self._library.catalogue_query(self._handle, target, self._reference,
+                    self._tool, limits, command, travel_weights, ct.byref(native_options), ct.byref(pointer)))
+            except BaseException:
+                if pointer.value: self._library.catalogue_destroy(pointer)
+                raise
+            if not pointer.value: raise NativeError("Native query returned a null catalogue handle")
+            return read_query(self._library, pointer)
 
     def ik(
         self, pose: ArrayLike, *, seed: ArrayLike | None = None,

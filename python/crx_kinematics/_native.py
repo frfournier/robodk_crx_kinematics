@@ -236,6 +236,9 @@ class NativeLibrary:
             self._function("certificate_read", [ct.c_void_p, ct.POINTER(BallRecord)])
             self._function("certificate_destroy", [ct.c_void_p], None)
 
+        from ._catalogue_native import bind
+        bind(self, vector, pose, limits, _optional, BallRecord)
+
     def close_directory(self) -> None:
         if self.directory is not None:
             self.directory.close()

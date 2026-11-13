@@ -6,6 +6,7 @@
  */
 
 #include "crx_python_api.h"
+#include "crx_api_handles.h"
 
 #include <algorithm>
 #include <array>
@@ -23,14 +24,6 @@
 #include "crx_numerics.h"
 #include "crx_solver.h"
 #include "crx_types.h"
-
-struct crx_v1_handle {
-  crx::CrxModelData model;
-};
-
-struct crx_v1_certificate_handle {
-  crx::CertificateAttachment attachment;
-};
 
 namespace {
 static_assert(static_cast<int>(crx::ball::Failure::UnsupportedExactModel) ==
@@ -361,7 +354,10 @@ std::int32_t crx_v1_create(std::int32_t model_id, const double *limits_deg,
       return CRX_INVALID_ARGUMENT;
     }
     auto handle = std::make_unique<crx_v1_handle>();
-    handle->model = BuildModel(kModels.at(static_cast<std::size_t>(model_id)));
+    const auto &spec = kModels.at(static_cast<std::size_t>(model_id));
+    handle->model = BuildModel(spec);
+    handle->lower_degrees = spec.lower;
+    handle->upper_degrees = spec.upper;
     if (limits_deg != nullptr) {
       const Eigen::Map<const LimitsRow> limits(limits_deg);
       if (!limits.allFinite() ||
@@ -372,6 +368,9 @@ std::int32_t crx_v1_create(std::int32_t model_id, const double *limits_deg,
           limits.row(0).transpose() * angle_conv::kRadPerDeg;
       handle->model.upper_limits_rad =
           limits.row(1).transpose() * angle_conv::kRadPerDeg;
+      std::copy_n(limits_deg, crx::kDofCount, handle->lower_degrees.begin());
+      std::copy_n(limits_deg + crx::kDofCount, crx::kDofCount,
+                  handle->upper_degrees.begin());
     }
     *output = handle.release();
     return CRX_OK;
