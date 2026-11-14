@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import ctypes as ct
 from dataclasses import dataclass, field, replace
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 import operator
 import threading
 import weakref
@@ -96,6 +96,71 @@ class RootReason(IntEnum):
     ZERO_DERIVATIVE = 7
     ZERO_DETERMINANT = 8
     ARITHMETIC_FAILURE = 9
+
+
+class NearStratum(IntFlag):
+    """Numerical proximity/enclosure ambiguity; no exact family classification."""
+    DETERMINANT_ZERO = 1
+    BASE_AXIS = 2
+    COINCIDENT_SPHERES = 4
+    VERTICAL_ARM = 8
+    POLYNOMIAL_ENCLOSES_ZERO = 16
+    ARM_SHELL = 32
+
+
+class RecoverySource(IntFlag):
+    DETERMINANT = 1
+    BOUNDARY = 2
+    UNRESOLVED_DOMAIN = 4
+    CARDINAL = 8
+
+
+class RecoveryStatus(IntEnum):
+    CANDIDATES = 0
+    NO_CANDIDATE = 1
+    NEEDS_REFINEMENT = 2
+    INVALID_INPUT = 3
+    NUMERICAL_RANGE_FAILURE = 4
+
+
+@dataclass(frozen=True, eq=False)
+class FibreRecovery:
+    """Owned numerical canonical witnesses, separately from exact-problem balls.
+
+    Defects are normalized numerical magnitudes, not proof intervals; NaN means
+    unavailable. Position errors use normalized lengths, orientation radians.
+    """
+    index: int
+    source: RecoverySource
+    near_stratum: NearStratum
+    used_singular_representatives: bool
+    refinement_attempted: bool
+    candidate_count: int
+    attempted_balls: int
+    certified_balls: int
+    numerical_status: RecoveryStatus
+    phase: float
+    delta_defect: float
+    base_axis_defect: float
+    coincident_defect: float
+    vertical_defect: float
+    shell_defect: float
+    compatibility_defect: float
+    canonical_rad: np.ndarray
+    position_errors: np.ndarray
+    orientation_errors: np.ndarray
+
+
+@dataclass(frozen=True)
+class FibreStrata:
+    """Bounded numerical recovery diagnostics; not a continuous-fibre verdict."""
+    recovery_budget_exhausted: bool
+    source_domains: int
+    candidate_budget_exhausted: bool
+    total_ball_attempts: int
+    total_certified_balls: int
+    nomination_count: int
+    recoveries: tuple[FibreRecovery, ...]
 
 
 @dataclass(frozen=True)
@@ -301,7 +366,9 @@ def _summary(record):
         ranking=Ranking, root_status=RootStatus, profile=CommandProfile, numerical_status=IKStatus),
         ("entire_circle_unresolved", "nominal_infeasible", "enumeration_complete", "admission_complete",
          "command_infeasible", "truncated", "has_seed", "numerical_truncated", "used_singular_representatives"))
-    if (result.phase_count > 512 or result.command_count > 1 << 20 or result.numerical_count > 512
+    # Conservative storage bound includes ordinary discovery plus 32*8 partial
+    # exceptional nominations. It is not an exact solution-count theorem.
+    if (result.phase_count > 1024 or result.command_count > 1 << 20 or result.numerical_count > 512
             or result.returned_count > min(512, result.command_count) or result.identity_schema not in (0, 1, 2)
             or result.chart_shift >= 8 or result.chart_attempts > 8
             or np.any(result.root_leaf_count > 1 << 20)):
@@ -349,6 +416,45 @@ class CatalogueResult:
 
     @property
     def nearest_certified(self) -> bool: return self.summary.ranking == Ranking.UNIQUE
+
+    @property
+    def strata(self) -> FibreStrata | None:
+        """Owned diagnostics, or None for DLLs without the optional endpoints."""
+        owner = self._owner
+        if owner is None or getattr(owner.library, "catalogue_strata_read", None) is None:
+            return None
+        with owner.lock:
+            info = self._read("catalogue_strata_read", abi.Strata)
+            if (info.count > 32 or info.recovery_budget_exhausted not in (0, 1)
+                    or info.candidate_budget_exhausted not in (0, 1)
+                    or not info.total_certified_balls <= info.total_ball_attempts <= info.nomination_count <= 1024
+                    or info.total_certified_balls != self.summary.phase_count):
+                raise NativeError("Native catalogue returned invalid recovery counts")
+            recoveries = []
+            for index in range(info.count):
+                record = self._read("catalogue_recovery_read", abi.Recovery, index)
+                if (record.index != index or record.source == 0 or record.source & ~15
+                        or record.near_stratum & ~63 or record.candidate_count > 8
+                        or not record.certified_balls <= record.attempted_balls <= record.candidate_count):
+                    raise NativeError("Native catalogue returned invalid recovery metadata")
+                recovery = _decode(record, FibreRecovery, dict(source=RecoverySource,
+                    near_stratum=NearStratum, numerical_status=RecoveryStatus),
+                    ("used_singular_representatives", "refinement_attempted"))
+                count = record.candidate_count
+                recovery = replace(recovery,
+                    canonical_rad=_readonly(recovery.canonical_rad[:count]),
+                    position_errors=_readonly(recovery.position_errors[:count]),
+                    orientation_errors=_readonly(recovery.orientation_errors[:count]))
+                if (not np.isfinite(recovery.canonical_rad).all()
+                        or not np.isfinite(recovery.position_errors).all()
+                        or not np.isfinite(recovery.orientation_errors).all()
+                        or np.any(recovery.position_errors < 0) or np.any(recovery.orientation_errors < 0)
+                        or (recovery.numerical_status == RecoveryStatus.CANDIDATES) != bool(count)):
+                    raise NativeError("Native catalogue returned invalid numerical witnesses")
+                recoveries.append(recovery)
+            return FibreStrata(bool(info.recovery_budget_exhausted), info.source_domains,
+                bool(info.candidate_budget_exhausted), info.total_ball_attempts,
+                info.total_certified_balls, info.nomination_count, tuple(recoveries))
 
     def close(self) -> None:
         if self._owner is not None: self._owner.close()

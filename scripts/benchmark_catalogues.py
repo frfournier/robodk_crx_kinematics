@@ -7,6 +7,9 @@ benchmarks stopped. Native stages exclude scratch copying/cleanup and checksum
 validation; actual C API measurements include query/summary/destruction. Clock
 overhead is retained. This does not substitute for the ordinary-IK regression
 and matched refinement-counter comparisons in benchmark_solvers.py.
+The parent must provide the catalogue API (F05 or later). Exceptional stages
+reuse the shipped recovery implementation, with root/preparation work held out;
+their local-ball budget is toggled to expose the additional certificate cost.
 """
 
 import argparse
@@ -19,6 +22,7 @@ from pathlib import Path
 import platform
 import random
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -83,6 +87,17 @@ def generate(candidate, seed, small):
             finally: query.close()
             append(f"{asset['model']}:decoupled", 'decoupled', source, raw_context(seed=command_seed),
                 mode=2, model_id=model_id, original_limits=asset['limits'].ravel().tolist(), profile=1)
+            for index in ([0] if small else [0,7]):
+                for direction in [-1,1]:
+                    target = asset['poses'][index].copy()
+                    target[0,3] += direction*2.**-30*max(1.,np.linalg.norm(target[:3,3]))
+                    command_seed = asset['seeds'][index]
+                    query = solver.catalogue(target,seed=command_seed,max_solutions=0)
+                    try: source = unflatten(query.summary.input_words.view(np.float64).tolist())
+                    finally: query.close()
+                    append(f"{asset['model']}:nearby:{index}:{direction}", 'nearby_exceptional',
+                        source,raw_context(*asset['limits'],command_seed),mode=2,model_id=model_id,
+                        original_limits=asset['limits'].ravel().tolist(),capacity=1 if small else 64)
     append('sixteen', 'sixteen', witness(), raw_context())
     append('root_work', 'root_work', witness(), raw_context(), root_options=[0, 40, 4096, 8])
     append('candidate_work', 'candidate_work', witness(), raw_context(), candidate_budget=0)
@@ -99,6 +114,19 @@ def generate(candidate, seed, small):
     zero['lengths'] = [1., 1., 0., 0.]
     zero['target'] = pose()
     append('zero_polynomial', 'zero_polynomial', zero, raw_context())
+    for perturb in [0.,-1e-12,1e-12,-1e-8,1e-8]:
+        common = witness()
+        common['lengths'] = [1.,1.,0.,.25]
+        common['target'] = pose([.5,.5,.5,.5],[1.,-.25+perturb,0.])
+        append(f'common_delta:{perturb}', 'common_delta', common, raw_context())
+    for name,lengths,quaternion,position in [
+        ('axis_circle',[5.,3.,0.,0.],[.5,-.5,-.5,-.5],[0.,0.,4.]),
+        ('vertical_arm',[1.,1.,0.,0.],[1.,0.,0.,0.],[0.,0.,2.]),
+        ('shell_tangent',[1.,1.,0.,0.],[.5,.5,.5,.5],[2.,0.,0.])]:
+        source = witness()
+        source['lengths'] = lengths
+        source['target'] = pose(quaternion,position)
+        append(name,name,source,raw_context())
     far = witness()
     far['target']['position'] = [20., 30., -40.]
     append('no_roots', 'no_roots', far, raw_context())
@@ -143,7 +171,7 @@ def summarize(output, cases, timed, rounds):
     summary = dict(case_count=len(cases), eligible_operations=len(outcomes), timed=timed,
         timing_method='Per-call steady_clock boundaries; reset/copy/cleanup/consumption outside; clock overhead retained',
         native_api_scope='Actual DLL query + summary + destroy; model construction excluded',
-        stage_implementation='Shipped strict command source in separate stage-only object, no runtime timing hooks',
+        stage_implementation='Shipped strict command and ordinary exceptional sources in separate stage-only objects; no runtime timing hooks',
         ordinary_ik_regression='Requires separate paired complete-DLL and counter comparisons',
         outcomes=outcomes.groupby('operation').size().to_dict(), groups={})
     if timed:
@@ -165,7 +193,7 @@ def matrix(source):
     return result
 
 
-def python_queries(candidate, cases, output, timed, rounds, minimum_ms):
+def python_queries(candidate, parent, cases, output, timed, rounds, minimum_ms):
     """Time the shipped typed wrapper separately from native stage costs."""
     rows, prepared = [], []
     def signature(result):
@@ -173,18 +201,22 @@ def python_queries(candidate, cases, output, timed, rounds, minimum_ms):
         return (int(summary.coverage), int(summary.ranking), summary.root_count,
             summary.phase_count, summary.command_count, summary.yes, summary.undecided,
             int(summary.numerical_status), summary.numerical_count, summary.numerical_truncated)
+    def strata_signature(value):
+        if value is None: return None
+        return (value.recovery_budget_exhausted,value.candidate_budget_exhausted,
+            value.source_domains,value.total_ball_attempts,value.total_certified_balls,value.nomination_count,
+            tuple((r.index,int(r.source),int(r.near_stratum),r.used_singular_representatives,
+                r.refinement_attempted,r.candidate_count,r.attempted_balls,r.certified_balls,int(r.numerical_status),
+                struct.pack('7d',r.phase,r.delta_defect,r.base_axis_defect,r.coincident_defect,
+                            r.vertical_defect,r.shell_defect,r.compatibility_defect),
+                r.canonical_rad.tobytes(),r.position_errors.tobytes(),r.orientation_errors.tobytes())
+                for r in value.recoveries))
     with ExitStack() as stack:
         solvers = {}
         for item in cases:
             if item['model_id'] < 0 or item['mode'] != 2: continue
             source, raw = item['source'], item['raw']
             reference, tool = matrix(source['base']), matrix(source['tool'])
-            key = item['model_id'], tuple(item['original_limits']), reference.tobytes(), tool.tobytes()
-            if key not in solvers:
-                names = ['CRX-3iA', 'CRX-5iA', 'CRX-10iA', 'CRX-10iA-L', 'CRX-20iA-L', 'CRX-25iA', 'CRX-30iA']
-                solvers[key] = stack.enter_context(CrxSolver(names[item['model_id']], dll_path=candidate,
-                    joint_limits=np.array(item['original_limits']).reshape(2, 6), reference=reference, tool=tool))
-            solver = solvers[key]
             target = matrix(source['target'])
             arguments = dict(seed=np.array(raw['seed']) if item['seeded'] else None, weights=np.array(raw['weights']),
                 joint_limits=np.array([raw['lower'], raw['upper']]), profile=CommandProfile(item['profile']), max_solutions=item['capacity'])
@@ -192,15 +224,29 @@ def python_queries(candidate, cases, output, timed, rounds, minimum_ms):
                 max_leaves=item['root_options'][2], max_chart_attempts=item['root_options'][3],
                 max_candidate_certificates=item['candidate_budget'], max_pair_tests=item['pair_budget'], max_lifts=item['lift_budget'])
             numerical = None
-            for enabled in [False, True]:
+            specifications = [(candidate,'python_disabled',False,False),
+                (candidate,'python_enabled',True,False),
+                (candidate,'python_enabled_with_strata',True,True),
+                (parent,'python_parent_catalogue',True,False)]
+            for library,operation,enabled,read_strata in specifications:
+                key = str(library),item['model_id'],tuple(item['original_limits']),reference.tobytes(),tool.tobytes()
+                if key not in solvers:
+                    names = ['CRX-3iA','CRX-5iA','CRX-10iA','CRX-10iA-L','CRX-20iA-L','CRX-25iA','CRX-30iA']
+                    solvers[key] = stack.enter_context(CrxSolver(names[item['model_id']],dll_path=library,
+                        joint_limits=np.array(item['original_limits']).reshape(2,6),reference=reference,tool=tool))
+                solver = solvers[key]
                 requested = CatalogueOptions(enabled=enabled, **options)
                 result = solver.catalogue(target, options=requested, **arguments)
                 expected, array = signature(result), result.numerical_solutions.copy()
+                snapshot = result.strata if read_strata else None
+                if read_strata and snapshot is None: raise RuntimeError('Missing optional exceptional diagnostics')
+                expected_strata = strata_signature(snapshot)
                 result.close()
-                if enabled and not np.array_equal(array, numerical): raise RuntimeError('Enabled/disabled numerical fallback differs')
-                numerical = array
-                prepared.append((item['id'], 'python_enabled' if enabled else 'python_disabled', solver,
-                                 target, arguments, requested, expected, array))
+                if library == candidate:
+                    if enabled and not np.array_equal(array,numerical): raise RuntimeError('Enabled/disabled numerical fallback differs')
+                    numerical = array
+                prepared.append((item['id'],operation,solver,target,arguments,requested,
+                                 expected,array,read_strata,expected_strata))
         # Verification does not enter a clock branch. All result/cache checks
         # happen outside timing; only query construction and native close count.
         if timed:
@@ -209,18 +255,22 @@ def python_queries(candidate, cases, output, timed, rounds, minimum_ms):
             for round in range(-1, rounds):
                 generator.shuffle(order)
                 for index in order:
-                    ident, operation, solver, target, arguments, options, expected, numerical = prepared[index]
+                    ident,operation,solver,target,arguments,options,expected,numerical,read_strata,expected_strata = prepared[index]
                     elapsed, iterations = 0, 0
                     budget_ns = 0 if round < 0 else minimum_ms*1e6
                     while True:
                         result = None # Snapshot destruction excluded from the next call.
+                        snapshot = None
                         start = time.perf_counter_ns()
                         result = solver.catalogue(target, options=options, **arguments)
+                        if read_strata: snapshot = result.strata
                         result.close()
                         stop = time.perf_counter_ns()
                         elapsed += stop-start
                         if signature(result) != expected or not np.array_equal(result.numerical_solutions, numerical):
                             raise RuntimeError('Typed wrapper outcome changed during timing')
+                        if strata_signature(snapshot) != expected_strata:
+                            raise RuntimeError('Typed exceptional diagnostic snapshot changed during timing')
                         iterations += 1
                         if elapsed >= budget_ns or iterations >= 16384: break
                     if round >= 0:
@@ -229,7 +279,7 @@ def python_queries(candidate, cases, output, timed, rounds, minimum_ms):
     frame = pd.DataFrame(rows, columns=['case', 'operation', 'round', 'iterations', 'total_ns', 'us'])
     frame.to_csv(output/'python-timings.csv', index=False)
     return dict(eligible_operations=len(prepared), numerical_parity=True,
-        scope='Typed wrapper query, snapshots and native cache close; array destruction and validation outside timing')
+        scope='Typed query/snapshots/native close; with_strata also materializes optional diagnostics; parent_catalogue uses parent DLL; array destruction and validation outside timing')
 
 
 def main():
@@ -260,12 +310,14 @@ def main():
     sources = [*sorted((ROOT/'src').glob('*.[ch]*')), *sorted((ROOT/'include').glob('*.h')),
         *sorted((ROOT/'python/crx_kinematics').glob('*.py')), Path(__file__), ROOT/'scripts/benchmark_catalogues.cpp',
         ROOT/'scripts/catalogue_command_stages.cpp', ROOT/'scripts/catalogue_command_stages.h',
+        ROOT/'scripts/exceptional_stages.cpp', ROOT/'scripts/exceptional_stages.h',
         ROOT/'scripts/validate_catalogues.py', ROOT/'CMakeLists.txt', ROOT/'CMakePresets.json',
         ROOT/'pyproject.toml', ROOT/'uv.lock', ROOT/'tests/fixtures/crx_asset_frames.json', *sorted((ROOT/'tests').glob('*.py'))]
     source_hashes = {path.relative_to(ROOT).as_posix(): sha(path) for path in sources}
     compile_commands = json.loads(args.compile_commands.read_text())
     selected = [entry for entry in compile_commands if any(label in entry['command'] for label in [
-        'crx_catalogue_benchmark.dir', 'crx_catalogue_benchmark_commands.dir', 'crx_kinematics.dir'])]
+        'crx_catalogue_benchmark.dir', 'crx_catalogue_benchmark_commands.dir',
+        'crx_exceptional_benchmark_stages.dir', 'crx_kinematics.dir'])]
     if any('CRXKIN_DISCOVERY_COUNTERS' in entry['command'] for entry in selected): raise RuntimeError('Counter instrumentation in a timed target')
     with zipfile.ZipFile(output/'sources.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
         for path in sources: archive.write(path, path.relative_to(ROOT).as_posix())
@@ -285,7 +337,7 @@ def main():
         str(binaries/'candidate.dll'), str(binaries/'parent.dll'), str(output/'native'), str(args.rounds), str(args.minimum_ms)]
     with (output/'native.log').open('w') as log:
         subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
-    wrapper = python_queries(binaries/'candidate.dll', cases, output, args.time, args.rounds, args.minimum_ms)
+    wrapper = python_queries(binaries/'candidate.dll',binaries/'parent.dll',cases,output,args.time,args.rounds,args.minimum_ms)
     if binary_hashes != {path.name: sha(path) for path in binaries.iterdir()} or any(sha(ROOT/name) != value for name, value in source_hashes.items()):
         raise RuntimeError('Benchmark source/binary inputs changed')
     result = summarize(output, cases, args.time, args.rounds)

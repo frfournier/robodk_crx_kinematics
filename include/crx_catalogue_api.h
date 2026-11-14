@@ -179,6 +179,62 @@ typedef struct crx_v1_catalogue_leaf {
       determinant_bernstein[5][2];
 } crx_v1_catalogue_leaf;
 
+/* Optional numerical exceptional-stratum diagnostics. These flags report
+ * proximity (threshold 4096*DBL_EPSILON) or coefficient enclosures, never exact
+ * equations, exhaustive families or ContinuousFibre. Existing layouts and
+ * coverage semantics are unchanged. Complete regular covers need no recovery.
+ */
+enum crx_v1_near_stratum {
+  CRX_NEAR_DETERMINANT_ZERO = 1,
+  CRX_NEAR_BASE_AXIS = 2,
+  CRX_NEAR_COINCIDENT_SPHERES = 4,
+  CRX_NEAR_VERTICAL_ARM = 8,
+  CRX_POLYNOMIAL_ENCLOSES_ZERO = 16,
+  CRX_NEAR_ARM_SHELL = 32
+};
+
+enum crx_v1_recovery_source {
+  CRX_RECOVERY_DETERMINANT = 1,
+  CRX_RECOVERY_BOUNDARY = 2,
+  CRX_RECOVERY_UNRESOLVED_DOMAIN = 4,
+  CRX_RECOVERY_CARDINAL = 8
+};
+
+enum crx_v1_recovery_status {
+  CRX_RECOVERY_CANDIDATES = 0,
+  CRX_RECOVERY_NO_CANDIDATE = 1,
+  CRX_RECOVERY_NEEDS_REFINEMENT = 2,
+  CRX_RECOVERY_INVALID_INPUT = 3,
+  CRX_RECOVERY_RANGE_FAILURE = 4
+};
+
+typedef struct crx_v1_catalogue_strata {
+  uint32_t struct_size, version, reserved, count;
+  uint32_t recovery_budget_exhausted, source_domains;
+  uint32_t candidate_budget_exhausted, total_ball_attempts;
+  uint32_t total_certified_balls, nomination_count;
+} crx_v1_catalogue_strata;
+
+/* At most 32 recovery attempts, each retaining up to eight full FK-checked
+ * canonical numerical configurations. They carry no exact acceptance claim;
+ * certified_balls counts separate local proof attempts against the raw target.
+ * phase/canonical_rad are radians; position_errors are in normalized length
+ * units (multiply by summary.length_scale), orientation_errors in radians.
+ * Defects are scale-normalized magnitudes, not interval certificates. Vertical
+ * and compatibility defects are NaN if no elbow witness was available.
+ * source flags can combine several numerically coincident nominations. No
+ * exhaustive interpretation attaches to source_domains or a merged nomination.
+ */
+typedef struct crx_v1_catalogue_recovery {
+  uint32_t struct_size, version, reserved, index, source, near_stratum;
+  uint32_t used_singular_representatives, refinement_attempted, candidate_count;
+  uint32_t attempted_balls, certified_balls;
+  int32_t numerical_status;
+  double phase, delta_defect, base_axis_defect, coincident_defect;
+  double vertical_defect, shell_defect, compatibility_defect;
+  double canonical_rad[8][6], position_errors[8], orientation_errors[8];
+} crx_v1_catalogue_recovery;
+
 /* pose/reference/tool use the raw forward-reference contract of ik_certified.
  * limits_deg NULL uses model's ORIGINAL degree box for callback profile. The
  * decoupled profile REQUIRES an explicit 2x6 box in user coordinates, where
@@ -220,6 +276,11 @@ CRX_API int32_t crx_v1_catalogue_leaf_read(const crx_v1_catalogue_handle *,
  */
 CRX_API int32_t crx_v1_catalogue_numerical(const crx_v1_catalogue_handle *,
                                            uint32_t index, double *command_deg);
+CRX_API int32_t crx_v1_catalogue_strata_read(const crx_v1_catalogue_handle *,
+                                             crx_v1_catalogue_strata *);
+CRX_API int32_t crx_v1_catalogue_recovery_read(const crx_v1_catalogue_handle *,
+                                               uint32_t index,
+                                               crx_v1_catalogue_recovery *);
 
 #ifdef __cplusplus
 }
