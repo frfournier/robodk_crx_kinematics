@@ -77,14 +77,16 @@ auto Forward(const Lengths &lengths, const Vec6 &q) -> Witness {
   return witness;
 }
 
-auto Contains(const JointRecovery &result, const Vec6 &q) -> bool {
+template <typename Recovery>
+auto Contains(const Recovery &result, const Vec6 &q, double tolerance = 1e-8)
+    -> bool {
   for (std::size_t i = 0; i < result.count; ++i) {
     bool matches = true;
     for (int joint = 0; joint < 6; ++joint) {
       matches =
           matches &&
           std::abs(std::remainder(result.candidates[i].joints[joint] - q[joint],
-                                  2.0 * kPi)) < 1e-8;
+                                  2.0 * kPi)) < tolerance;
     }
     if (matches) {
       return true;
@@ -729,6 +731,101 @@ void TestTargetOnlyDiscovery() {
   // End-to-end omitted-point recovery is checked by Python's
   // test_exact_omitted_point_is_not_lost through the allocation-guarded probe.
 }
+
+void TestVerticalDiscovery() {
+  // The exact geometric half-angle numerator is proportional to
+  // -(8t^2+17)^2(2303t^2-12097)(10657t^2+25057). It has two simple real
+  // phases and no omitted root; each phase lifts to two regular base branches.
+  // This nondegenerate CRX-10iA-ratio fibre therefore has FOUR configurations.
+  const Lengths four_lengths{1, 1, 8.0 / 27, 5.0 / 18};
+  const PoseTolerance tolerance{1e-10, 1e-10};
+  for (const double normal : {-1.0, 1.0}) {
+    PoseIsoRT target = PoseIsoRT::Identity();
+    target.linear().diagonal() = Vec3(1, normal, normal);
+    target.translation() = Vec3(0.1, 0, 0.025 + normal * four_lengths.c);
+    const auto closed =
+        DiscoverJointCandidates(four_lengths, target, tolerance);
+    DiscoveryOptions general_options;
+    general_options.use_vertical_closed_form = false;
+    const auto general = DiscoverJointCandidates(four_lengths, target,
+                                                 tolerance, general_options);
+    Require(
+        closed.status == RecoveryStatus::Candidates && closed.count == 4 &&
+            closed.used_vertical_closed_form && general.count == 4,
+        "four regular vertical configurations are retained in both directions");
+    for (std::size_t i = 0; i < closed.count; ++i) {
+      const auto &candidate = closed.candidates[i];
+      CheckCandidatePose(four_lengths, target, candidate, tolerance);
+      Require(Contains(general, candidate.joints),
+              "exact four-configuration fibre matches independent chart route");
+      const Vec3 axis = Forward(four_lengths, candidate.joints).axis;
+      Require(std::abs(axis.x() + 4897.0 / 7200) < 1e-12,
+              "vertical phase agrees with exact rational root cosine");
+    }
+    for (const double tilt : {-1e-9, -1e-16, 1e-16, 1e-9}) {
+      auto nearby = target;
+      nearby.linear() =
+          Rotation(Vec3::UnitY(), tilt).linear() * target.linear();
+      const auto perturbed =
+          DiscoverJointCandidates(four_lengths, nearby, tolerance);
+      const auto reference = DiscoverJointCandidates(
+          four_lengths, nearby, tolerance, general_options);
+      Require(!perturbed.used_vertical_closed_form &&
+                  perturbed.status == reference.status &&
+                  perturbed.count == reference.count,
+              "nonzero vertical perturbations retain the general route");
+      for (std::size_t i = 0; i < perturbed.count; ++i) {
+        CheckCandidatePose(four_lengths, nearby, perturbed.candidates[i],
+                           tolerance);
+      }
+    }
+  }
+  constexpr std::array<Lengths, 6> kModels{{{410, 430, 145, 130},
+                                            {540, 540, 160, 150},
+                                            {710, 540, 160, 150},
+                                            {710, 540, 160, 150},
+                                            {950, 750, 180, 185},
+                                            {950, 750, 180, 185}}};
+  for (const auto &model : kModels) {
+    for (const double scale : {1e-100, 1.0, 1e100}) {
+      for (const double sign : {-1.0, 1.0}) {
+        const Lengths lengths{model.a * scale, sign * model.b * scale,
+                              model.c * scale, sign * model.r * scale};
+        for (const double normal : {-1.0, 1.0}) {
+          for (const double height : {0.0, 0.3}) {
+            PoseIsoRT target = PoseIsoRT::Identity();
+            target.linear() << std::cos(0.7), -normal * std::sin(0.7), 0,
+                std::sin(0.7), normal * std::cos(0.7), 0, 0, 0, normal;
+            target.translation() =
+                Vec3(0.7 * lengths.a, 0.1 * lengths.a,
+                     height * lengths.a + normal * lengths.c);
+            const PoseTolerance scaled{scale * 1e-8, 1e-10};
+            const auto result =
+                DiscoverJointCandidates(lengths, target, scaled);
+            Require(result.status == RecoveryStatus::Candidates &&
+                        result.used_vertical_closed_form && result.count >= 8 &&
+                        result.count <= 16 && result.count % 4 == 0,
+                    "signed/scaled vertical asset ratios use closed discovery");
+            for (std::size_t i = 0; i < result.count; ++i) {
+              CheckCandidatePose(lengths, target, result.candidates[i], scaled);
+            }
+          }
+        }
+      }
+    }
+  }
+  PoseIsoRT target = PoseIsoRT::Identity();
+  target.translation() = Vec3(0, 0, 0.4 + four_lengths.c);
+  Require(!DiscoverJointCandidates(four_lengths, target, tolerance)
+               .used_vertical_closed_form,
+          "zero phase amplitude retains existing exceptional handling");
+  target.translation() = Vec3(0.1, 0, 0.025 + four_lengths.c);
+  target.linear()(0, 2) = 16 * crx::numerics::kEpsilon;
+  Require(
+      !DiscoverJointCandidates(four_lengths, target, tolerance)
+           .used_vertical_closed_form,
+      "an admitted near-rigid vertical basis does not imply an exact normal");
+}
 } // namespace
 
 void RunJointRecoveryTests() {
@@ -742,6 +839,7 @@ void RunJointRecoveryTests() {
   TestBoundedPoseCorrection();
   TestSingularAccuracyCorrection();
   TestTargetOnlyDiscovery();
+  TestVerticalDiscovery();
 }
 
 auto RunDiscoveryProbe(int argc, char **argv) -> int {
@@ -768,9 +866,12 @@ auto RunDiscoveryProbe(int argc, char **argv) -> int {
   const auto allocations = crx::test::AllocationCount();
   const bool previous = Eigen::internal::is_malloc_allowed();
   Eigen::internal::set_is_malloc_allowed(false);
+  DiscoveryOptions options;
+  options.use_vertical_closed_form =
+      std::string_view(argv[1]) != "--discover-general";
   const auto result =
       DiscoverJointCandidates({values[0], values[1], values[2], values[3]},
-                              target, {values[16], values[17]});
+                              target, {values[16], values[17]}, options);
   Eigen::internal::set_is_malloc_allowed(previous);
   Require(crx::test::AllocationCount() == allocations,
           "discovery probe allocated");
@@ -802,6 +903,10 @@ auto RunDiscoveryProbe(int argc, char **argv) -> int {
                 candidate.orientation_error);
   }
   std::printf("]");
+  if (std::string_view(argv[1]) != "--discover") {
+    std::printf(",\"vertical_closed_form\":%s",
+                result.used_vertical_closed_form ? "true" : "false");
+  }
   if (std::string_view(argv[1]) == "--diagnose-discovery") {
     WristCircle circle;
     const Lengths lengths{values[0], values[1], values[2], values[3]};
