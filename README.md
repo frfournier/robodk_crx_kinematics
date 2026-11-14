@@ -143,6 +143,12 @@ tool/reference transforms, numerical outcomes, units, and memory guarantees.
 The wrapper requires the additive ABI in [crx_python_api.h](include/crx_python_api.h);
 existing RoboDK exports remain compatible.
 
+The separate [nominal path-coverage tool](docs/path-coverage.md) checks whole
+affine-position/homogeneous-quaternion paths and builds a certified subgraph of
+task branches. Run `uv run python -m crx_kinematics.paths` with a JSON request and
+the CMake-built `crx_path_tool.exe`. It retains unresolved intervals and links;
+its task-coverage claims do not imply exhaustive robot-space connectivity.
+
 ## Verify
 
 ```powershell

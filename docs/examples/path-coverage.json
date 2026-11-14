@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "model": {
+    "lengths_mm": [1, 0.6, 0.2, 0.5],
+    "lower_commands_radians": [-4, -4, -4, -4, -4, -4],
+    "upper_commands_radians": [4, 4, 4, 4, 4, 4]
+  },
+  "limits_degrees": {
+    "lower": [-180, -180, -180, -180, -180, -180],
+    "upper": [180, 180, 180, 180, 180, 180]
+  },
+  "tasks": [
+    {
+      "id": "first",
+      "target": {
+        "quaternion": [60, -7, 7, -19],
+        "position_mm": [0.421875, 0.46875, 0.4296875]
+      }
+    },
+    {
+      "id": "again",
+      "target": {
+        "quaternion": [60, -7, 7, -19],
+        "position_mm": [0.421875, 0.46875, 0.4296875]
+      }
+    }
+  ],
+  "connections": [["first", "again"]],
+  "options": {"max_paths": 16}
+}
