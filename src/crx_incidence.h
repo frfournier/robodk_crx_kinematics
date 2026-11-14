@@ -32,7 +32,8 @@ struct ElbowCandidates {
 // the horizontal arm circle with that plane. Near the base axis, intersect the
 // wrist plane first and test the base-plane cross product. Coincident spheres
 // use horizontal antipodal representatives of the wrist-plane circle;
-// unsupported undetermined circles return NeedsRefinement.
+// a compatible on-axis horizontal circle also retains antipodes. Proximity
+// dispatch and representative flags never establish an exact continuous fibre.
 // NoCandidate concerns this wrist point only, not target reachability.
 // These numerical candidates still need joint recovery and full-pose FK checks.
 // Joint offsets and family-preserving lengths belong in the coordinate bridge.

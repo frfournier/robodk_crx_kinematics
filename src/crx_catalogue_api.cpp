@@ -25,6 +25,15 @@ static_assert(sizeof(crx_v1_catalogue_command) == 200);
 static_assert(sizeof(crx_v1_catalogue_range) == 224);
 static_assert(sizeof(crx_v1_catalogue_chart) == 448);
 static_assert(sizeof(crx_v1_catalogue_leaf) == 456);
+static_assert(sizeof(crx_v1_catalogue_strata) == 40);
+static_assert(sizeof(crx_v1_catalogue_recovery) == 616);
+static_assert(static_cast<int>(crx::canonical::RecoveryStatus::Candidates) ==
+              CRX_RECOVERY_CANDIDATES);
+static_assert(
+    static_cast<int>(crx::canonical::RecoveryStatus::NumericalRangeFailure) ==
+    CRX_RECOVERY_RANGE_FAILURE);
+static_assert(static_cast<int>(crx::catalogue::NearArmShell) ==
+              CRX_NEAR_ARM_SHELL);
 static_assert(static_cast<int>(crx::command::Ranking::NoAdmissible) ==
               CRX_RANK_NO_ADMISSIBLE);
 static_assert(static_cast<int>(crx::command::Failure::ArithmeticUnavailable) ==
@@ -357,6 +366,64 @@ std::int32_t crx_v1_catalogue_numerical(const crx_v1_catalogue_handle *handle,
     for (std::size_t i = 0; i < 6; ++i)
       command_deg[i] =
           value(static_cast<Eigen::Index>(i)) * angle_conv::kDegPerRad;
+    return CRX_OK;
+  });
+}
+
+std::int32_t crx_v1_catalogue_strata_read(const crx_v1_catalogue_handle *handle,
+                                          crx_v1_catalogue_strata *output) {
+  if (handle == nullptr || !Negotiated(output))
+    return CRX_INVALID_ARGUMENT;
+  return Guard([&]() -> std::int32_t {
+    const auto &phases = handle->query.phases;
+    auto out = MakeRecord<crx_v1_catalogue_strata>();
+    out.count = static_cast<std::uint32_t>(phases.recoveries.size());
+    out.recovery_budget_exhausted = phases.recovery_budget_exhausted;
+    out.source_domains = phases.recovery_domains;
+    out.candidate_budget_exhausted = phases.candidate_budget_exhausted;
+    out.total_ball_attempts = phases.attempted_balls;
+    out.total_certified_balls = phases.certified_balls;
+    out.nomination_count = phases.nominations;
+    *output = out;
+    return CRX_OK;
+  });
+}
+
+std::int32_t
+crx_v1_catalogue_recovery_read(const crx_v1_catalogue_handle *handle,
+                               std::uint32_t index,
+                               crx_v1_catalogue_recovery *output) {
+  if (handle == nullptr || !Negotiated(output) ||
+      index >= handle->query.phases.recoveries.size())
+    return CRX_INVALID_ARGUMENT;
+  return Guard([&]() -> std::int32_t {
+    const auto &recovery = handle->query.phases.recoveries.at(index);
+    const auto &numerical = recovery.numerical;
+    auto out = MakeRecord<crx_v1_catalogue_recovery>();
+    out.index = index;
+    out.source = recovery.source;
+    out.near_stratum = recovery.near_stratum;
+    out.used_singular_representatives = numerical.used_singular_representatives;
+    out.refinement_attempted = recovery.refinement_attempted;
+    out.candidate_count = static_cast<std::uint32_t>(numerical.count);
+    out.attempted_balls = recovery.attempted_balls;
+    out.certified_balls = recovery.certified_balls;
+    out.numerical_status = static_cast<int>(numerical.status);
+    out.phase = recovery.phase;
+    out.delta_defect = recovery.delta_defect;
+    out.base_axis_defect = recovery.base_axis_defect;
+    out.coincident_defect = recovery.coincident_defect;
+    out.vertical_defect = recovery.vertical_defect;
+    out.shell_defect = recovery.shell_defect;
+    out.compatibility_defect = recovery.compatibility_defect;
+    for (std::size_t i = 0; i < numerical.count; ++i) {
+      const auto &candidate = numerical.candidates.at(i);
+      for (std::size_t j = 0; j < 6; ++j)
+        out.canonical_rad[i][j] = candidate.joints(static_cast<int>(j));
+      out.position_errors[i] = candidate.position_error;
+      out.orientation_errors[i] = candidate.orientation_error;
+    }
+    *output = out;
     return CRX_OK;
   });
 }

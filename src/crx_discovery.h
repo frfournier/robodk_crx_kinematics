@@ -17,6 +17,15 @@ namespace crx::canonical {
 // Four analytic circle crossings, with at most two phases per crossing.
 inline constexpr std::size_t kBoundaryPhaseCapacity = 4 * 2;
 
+struct WristBoundaryPhases {
+  std::array<WristPhase, kBoundaryPhaseCapacity> values{};
+  std::size_t count = 0;
+};
+
+// Analytic numerical nominations for a prepared, unchanged wrist circle:
+// u.z=0, x.u=0 and both arm shells. They are not incidence/coverage proofs.
+auto NominateWristBoundaries(const WristCircle &circle) -> WristBoundaryPhases;
+
 struct DiscoveryOptions {
   RootOptions roots{};
   int max_polish_iterations = numerics::kPolishIterations;
