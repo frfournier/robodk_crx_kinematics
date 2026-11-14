@@ -259,55 +259,57 @@ auto EvaluateCentre(const exact::Problem &problem, const Centre &centre,
   return Failure::None;
 }
 
-auto Certify(const exact::Problem &problem, const Centre &centre,
-             Request request) -> Attempt {
-  if (!interval::EnvironmentSupported()) {
-    return Failed(Failure::UnsupportedEnvironment);
-  }
-  if (!problem.IsReady() || !Finite(centre) ||
-      !std::isfinite(request.uniqueness_radius) ||
+namespace detail {
+auto CheckKinematics(const exact::Pose &target, const Centre &centre,
+                     const Kinematics &kinematics, Request request,
+                     Bounds &output) -> Failure {
+  if (!interval::EnvironmentSupported())
+    return Failure::UnsupportedEnvironment;
+  if (!Finite(centre) || !std::isfinite(request.uniqueness_radius) ||
       request.uniqueness_radius < 0 || request.expected_aspect < -1 ||
-      request.expected_aspect > 1) {
-    return Failed(Failure::InvalidInput);
-  }
-  Kinematics kinematics;
-  const auto status = EvaluateCentre(problem, centre, kinematics);
-  if (status != Failure::None) {
-    return Failed(status);
+      request.expected_aspect > 1)
+    return Failure::InvalidInput;
+  if (!Valid(target.rotation) || !Valid(target.translation) ||
+      !Valid(kinematics.anchor.rotation) ||
+      !Valid(kinematics.anchor.translation) || !Valid(kinematics.body_jacobian))
+    return Failure::KinematicsUnavailable;
+  for (std::size_t i = 0; i < kJoints; ++i) {
+    if (!Valid(kinematics.axes.at(i)) || !Valid(kinematics.origins.at(i)))
+      return Failure::KinematicsUnavailable;
   }
   const PointMatrix6 inverse = request.preconditioner != nullptr
                                    ? *request.preconditioner
                                    : InverseProposal(kinematics.body_jacobian);
   if (!inverse.allFinite()) {
-    return Failed(Failure::InvalidPreconditioner);
+    return Failure::InvalidPreconditioner;
   }
   const Matrix6 x = Enclose(inverse);
   const Matrix6 error = Matrix6::Identity() - x * kinematics.body_jacobian;
   const Interval error_norm = RowSum(error);
   if (!error_norm.IsValid()) {
-    return Failed(Failure::ArithmeticUnavailable);
+    return Failure::ArithmeticUnavailable;
   }
   if (error_norm.hi >= 1) {
-    return Failed(Failure::InverseResidual);
+    return Failure::InverseResidual;
   }
   const auto x_norm = RowSum(x);
   const Interval beta =
       Interval{x_norm.hi} / (Interval{1} - Interval{error_norm.hi});
   if (!x_norm.IsValid() || !beta.IsValid() || beta.hi <= 0) {
-    return Failed(Failure::ArithmeticUnavailable);
+    return Failure::ArithmeticUnavailable;
   }
   const int sign = DeterminantSign(x);
   if (sign == 0) {
-    return Failed(Failure::UncertainDeterminantSign);
+    return Failure::UncertainDeterminantSign;
   }
   const auto determinant = kinematics.closed_form_determinant;
-  const int closed_sign =
-      determinant.ContainsZero() ? 0 : (determinant.lo > 0 ? 1 : -1);
+  const int closed_sign = (!determinant.IsValid() || determinant.ContainsZero())
+                              ? 0
+                              : (determinant.lo > 0 ? 1 : -1);
   if ((closed_sign != 0 && closed_sign != sign) ||
       (request.expected_aspect != 0 && request.expected_aspect != sign)) {
-    return Failed(Failure::AspectDisagreement);
+    return Failure::AspectDisagreement;
   }
-  const auto &target = problem.Data().target;
   const Matrix3 relative_rotation =
       kinematics.anchor.rotation.transpose() * target.rotation;
   const Vector3 relative_translation =
@@ -315,10 +317,10 @@ auto Certify(const exact::Problem &problem, const Centre &centre,
       (target.translation - kinematics.anchor.translation);
   const Interval trace = relative_rotation.trace();
   if (!trace.IsValid()) {
-    return Failed(Failure::ArithmeticUnavailable);
+    return Failure::ArithmeticUnavailable;
   }
   if (trace.lo < 1) {
-    return Failed(Failure::TargetLogDomain);
+    return Failure::TargetLogDomain;
   }
   Eigen::Matrix<Interval, kSpace, kSpace + 1> defect;
   defect.block<kSpace, kSpace>(0, 0) = relative_rotation - Matrix3::Identity();
@@ -346,7 +348,7 @@ auto Certify(const exact::Problem &problem, const Centre &centre,
   const Interval p0 = Norm(kinematics.anchor.translation);
   if (!defect_norm.IsValid() || !eta.IsValid() || !screw_sum.IsValid() ||
       !angular_sum.IsValid() || !p0.IsValid()) {
-    return Failed(Failure::ArithmeticUnavailable);
+    return Failure::ArithmeticUnavailable;
   }
   double radius = request.uniqueness_radius;
   if (radius == 0) {
@@ -356,18 +358,18 @@ auto Certify(const exact::Problem &problem, const Centre &centre,
     const Interval cap_l = RegionalLipschitz(kProposalCap, screw_sum.hi, p0.hi);
     const Interval product = Interval{beta.hi} * cap_l;
     if (!product.IsValid() || product.hi <= 0) {
-      return Failed(Failure::ArithmeticUnavailable);
+      return Failure::ArithmeticUnavailable;
     }
     radius = std::min(kProposalCap, .5 / product.hi);
   }
   if (!std::isfinite(radius) || radius <= 0) {
-    return Failed(Failure::RadiusInequality);
+    return Failure::RadiusInequality;
   }
   const Interval l = RegionalLipschitz(radius, screw_sum.hi, p0.hi);
   const Interval rho = Interval{2} * Interval{eta.hi};
   const Interval domain = Interval{radius} * Interval{angular_sum.hi};
   if (!l.IsValid() || !rho.IsValid() || !domain.IsValid()) {
-    return Failed(Failure::ArithmeticUnavailable);
+    return Failure::ArithmeticUnavailable;
   }
   const Interval beta_l = Interval{beta.hi} * Interval{l.hi};
   const Interval contraction = beta_l * Interval{radius};
@@ -377,15 +379,13 @@ auto Certify(const exact::Problem &problem, const Centre &centre,
       Interval{eta.hi};
   if (!contraction.IsValid() || !discriminant.IsValid() ||
       !radius_polynomial.IsValid()) {
-    return Failed(Failure::ArithmeticUnavailable);
+    return Failure::ArithmeticUnavailable;
   }
   if (domain.hi >= interval::Pi().lo || contraction.hi >= 1 ||
       discriminant.hi > 1 || rho.hi > radius || radius_polynomial.hi > rho.hi) {
-    return Failed(Failure::RadiusInequality);
+    return Failure::RadiusInequality;
   }
-  Attempt result;
-  auto &data = result.certificate.data_;
-  data.identity = problem.Data().identity;
+  Bounds data;
   data.centre = centre;
   data.preconditioner = inverse;
   data.existence_radius = rho.hi;
@@ -403,6 +403,35 @@ auto Certify(const exact::Problem &problem, const Centre &centre,
   data.target_relative_trace = trace;
   data.closed_form_determinant = determinant;
   data.aspect_sign = sign;
+  output = data;
+  return Failure::None;
+}
+
+} // namespace detail
+
+auto Certify(const exact::Problem &problem, const Centre &centre,
+             Request request) -> Attempt {
+  if (!interval::EnvironmentSupported()) {
+    return Failed(Failure::UnsupportedEnvironment);
+  }
+  if (!problem.IsReady() || !Finite(centre) ||
+      !std::isfinite(request.uniqueness_radius) ||
+      request.uniqueness_radius < 0 || request.expected_aspect < -1 ||
+      request.expected_aspect > 1) {
+    return Failed(Failure::InvalidInput);
+  }
+  Kinematics kinematics;
+  const auto status = EvaluateCentre(problem, centre, kinematics);
+  if (status != Failure::None) {
+    return Failed(status);
+  }
+  Attempt result;
+  const auto checked =
+      detail::CheckKinematics(problem.Data().target, centre, kinematics,
+                              request, result.certificate.data_);
+  if (checked != Failure::None)
+    return Failed(checked);
+  result.certificate.data_.identity = problem.Data().identity;
   result.certificate.valid_ = true;
   result.failure = Failure::None;
   return result;
