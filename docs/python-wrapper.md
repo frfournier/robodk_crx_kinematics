@@ -149,8 +149,8 @@ remains invalid. These labels keep their numerical ambiguity guards.
 `crx_v1_identify2` endpoint currently returns `NOT_ATTEMPTED` for every outcome.
 Coverage describes the internal nominal phase catalogue before limits, turn
 expansion or output capacity. It is independent of `truncated`, command
-admissibility and nearest-command claims. Only a later certified catalogue
-implementation may report `COMPLETE`; an empty numerical search proves no
+admissibility and nearest-command claims. The opt-in `catalogue()` query below
+may report `COMPLETE`; an empty numerical search proves no
 infeasibility. Older DLLs with only `crx_v1_identify` keep working, with
 conservative `NOT_ATTEMPTED` coverage.
 
@@ -184,6 +184,109 @@ An empty search is not proof of unreachability. Configuration can be undefined
 at an arm singularity without invalidating a solution. Standalone
 `configuration()` raises `ConfigurationError` in that case.
 
+## Verified nominal catalogues and command ranking
+
+Exceptional recovery is available through the optional `query.strata` snapshot.
+It is `None` for older catalogue DLLs without the diagnostic endpoints. On newer
+DLLs it reports bounded recovery work, local-ball attempt totals and any budget
+exhaustion. A complete regular root cover needs no exceptional attempts.
+
+`strata.recoveries` retains full FK-checked numerical configurations in canonical
+radians, their numerical position/orientation errors, nomination sources and
+`NearStratum` flags. Position errors use normalized lengths; multiply by
+`query.summary.length_scale` for the model's physical units. Defects report
+numerical proximity to determinant-zero, base-axis, coincident-sphere,
+vertical-arm and arm-shell conditions. `POLYNOMIAL_ENCLOSES_ZERO` means all
+coefficient intervals contain zero. None of these flags proves an exact stratum
+or continuous family. Unavailable witness-dependent defects are NaN.
+
+Local ball certificates remain in `query.phases`, separately from these numerical
+witnesses. Added witnesses cannot complete an unresolved root cover or establish
+global nearest selection. Exact continuous-family classification and family
+parametrizations are deferred; `ContinuousFibre` is never produced. Snapshot
+arrays are immutable and survive model/query closure. Reading `strata` after
+query closure raises an error, as for other lazy native audit reads.
+
+```python
+from crx_kinematics import CatalogueOptions, CommandProfile, CrxSolver, Ranking
+
+with CrxSolver("CRX-10iA", dll_path="build/Release/crx_kinematics.dll") as robot:
+    start = [20., 30., 40., 50., 60., 70.]
+    target = robot.fk(start)
+    query = robot.catalogue(target, seed=start, max_solutions=1)
+
+try:
+    print(query.coverage, query.summary.admission_complete)
+    if query.summary.ranking == Ranking.UNIQUE:
+        command = query.commands[0]
+        print(command.radians)  # six [lo,hi] enclosures of the exact command
+    print(query.numerical_solutions)  # separate, explicitly numerical fallback
+    chart = query.chart(0)
+    leaf = query.leaf(0, 0)  # root cover domains and Bernstein witnesses
+finally:
+    query.close()
+```
+
+This opt-in path defines an exact quaternion-rigid nominal target from the raw
+target/reference/tool inputs. Complete phase coverage requires an exhaustive
+simple-wrist-root cover and the matching number of disjoint local existence
+balls. Unresolved strata, arithmetic and work exhaustion stay inconclusive.
+The C++ implementation and its additional radius/ordering arguments have not
+been formally verified. Existing `ik()`/`identify()` behavior remains unchanged.
+
+`catalogue()` retains the original model degree-limit inputs, including custom
+limits, before any rounded conversion. `joint_limits=` can instead supply an
+explicit `(2,6)` box for this query. `seed=` is six command degrees; `weights=`
+is six positive finite squared-travel weights, defaulting to ones. Mathematical
+pi/180 defines proof conversions; original binary64 provenance is available in
+`query.summary.raw_words` as lower/upper/seed/weight groups of six. The exact
+target/model identity and frame schema are in `input_words`/`identity_schema`.
+
+Default `CommandProfile.CALLBACK` uses the already-coupled command coordinates
+of FK/IK. `CommandProfile.DECOUPLED_USER` explicitly uses
+`user[2]=callback[2]-callback[1]` and requires a limit rectangle in that user
+convention. A callback limit rectangle cannot simply be relabelled as a
+decoupled rectangle. The seed and weights use the selected convention too.
+
+Each exact command is enclosed by a `CertifiedCommand.radians` box. Admission
+is `YES`, `NO`, or `UNDECIDED`; retained rows are Yes or Undecided. Boundary
+uncertainty is never clamped into Yes. `Ranking.UNIQUE` requires one Yes row's
+upper weighted cost to be strictly below every potential competitor's lower
+cost. `POSSIBLE_MINIMIZERS` contains all possible nearest lifts and does not
+prove equal exact costs. A distant undecided boundary row can be excluded by
+its certified lower travel bound. Without a guaranteed admissible candidate,
+or with unavailable competitors/costs, nearest selection remains inconclusive.
+
+`summary.nominal_infeasible` means the nominal exact pose has a complete
+zero-root exclusion cover. `summary.command_infeasible` also requires fully
+resolved command admission. Complete phases alone prove neither complete
+command admission nor an exhaustive returned prefix. An approximate numerical
+seed may coexist with exact nominal pose exclusion; its separate numerical
+status is never upgraded to a proof.
+
+`max_solutions` is 0..512. It limits the materialized command/fallback prefix
+after proof enumeration; zero requests proof work without numerical fallback.
+`command(i)` can audit every potential command up to `summary.command_count`.
+`phase(i)`, `command_range(i)`, `chart(i)` and `leaf(chart,i)` return owned
+read-only snapshots. Phase snapshots carry canonical centres and radii;
+rounding a command-box midpoint does not make it an exact FK solution.
+
+The native audit cache owns all proofs and survives solver closure. `close()`
+releases only that cache; materialized arrays remain readable. Lazy reads after
+query closure raise an error. Concurrent cache reads and closure are serialized.
+`CatalogueOptions` sets bounded root/ball/pair/lift work;
+`CatalogueOptions(enabled=False)` runs the same numerical fallback with
+`NOT_ATTEMPTED` coverage and no proof work. Older ABI-1 DLLs lacking the query
+exports also return numerical fallback with `NOT_ATTEMPTED` coverage and
+`raw_provenance_available=False`, rather than reconstructing original degree
+inputs from rounded getters.
+
+The additive C declarations are in `include/crx_catalogue_api.h`. Options,
+summary, command, range, chart and leaf layouts negotiate exact size/version
+pairs and zero reserved fields. Query errors return NULL ownership; failed
+record reads leave outputs unchanged. Root charts expose both original and
+opposite fixed-degree polynomial slots and the full leaf witnesses.
+
 ## NumPy memory and errors
 
 Inputs must have exactly the documented shapes. Real integer/floating arrays
@@ -209,7 +312,116 @@ supported, with garbage collection as a cleanup fallback.
 
 The additive C API in `include/crx_python_api.h` uses row-major matrices and
 six-value IK rows. RoboDK retains column-major poses and twelve-value IK records.
-DLLs without ABI 1 are rejected; no deployment or legacy fallback occurs.
+DLLs without ABI 1 are rejected. Optional additive exports fall back as described
+above; no deployment occurs.
+
+## Calibrated models
+
+`CalibratedSolver` is a separate declared six-revolute modified-DH model. Its
+associated `CrxSolver` proposes nominal seeds; each seed is corrected independently
+using the calibrated FK and Jacobian. The nominal solver keeps its existing
+signature, frames and numerical fallback policy. An empty nominal search does
+not establish calibrated infeasibility.
+
+The declared relation is `F=base*DH_1*...*DH_6*tool`, in the same output frame as
+the target. Supply the complete base/tool geometry in that frame; the calibrated
+model does not silently compose the nominal solver's reference/TCP settings.
+Lengths and positions are millimetres. Commands are already coupled RoboDK
+degrees; no extra J3 coupling is applied. Each DH row is
+`(alpha_correction_rad,a_mm,theta_correction_rad,d_mm)`, with separate integer
+quarter-turn declarations: `angle=quarter*pi/2+correction`. No tolerance snaps an
+arbitrary calibrated twist to an orthogonal nominal twist.
+
+For example, this explicitly synthetic perturbation starts from nominal 10iA
+geometry. It is not measured robot calibration:
+
+```python
+import numpy as np
+from crx_kinematics import CalibratedFrame, CalibratedSolver, CrxSolver
+
+dh = np.zeros((6, 4))
+dh[0, 3], dh[2, 1], dh[3, 3], dh[4, 3], dh[5, 3] = 245, 540, 540, -150, 160
+dh[2, 1] += 0.02       # Synthetic 0.02 mm link correction.
+dh[3, 0] = 3e-5        # Synthetic twist correction, radians.
+dh[4, 2] = -2e-5       # Synthetic encoder-zero correction, radians.
+
+with CrxSolver("CRX-10iA", dll_path="build/Release/crx_kinematics.dll") as nominal:
+    with CalibratedSolver(
+        nominal, dh,
+        alpha_quarters=[0, -1, 0, -1, 1, -1],
+        theta_quarters=[0, -1, 0, 0, 0, 0],
+        base=CalibratedFrame(position=[0, 0, -245]),
+    ) as calibrated:
+        target = CalibratedFrame.from_matrix(calibrated.fk([30, -40, 45, 50, -35, 20]))
+        result = calibrated.ik(target, max_candidates=64)
+
+# Result arrays, exact declared target and local proof snapshots survive closure.
+print(result.coverage.name)  # Always INCONCLUSIVE.
+print(result.solutions)     # Numerical centres of certified, admitted local roots.
+for index in result.solution_indices:
+    proof = result.attempts[index].certificate
+    print(proof.existence_radius_rad, proof.commands_admitted)
+```
+
+`CalibratedFrame(q,p)` retains the exact represented homogeneous quaternion and
+position. A nonzero quaternion need not be normalized. `from_matrix()` chooses
+and records a quaternion to define the exact SO(3) target; it does not assume
+that binary64 matrix entries are exactly orthogonal. Results retain that declared
+target and all model/target identity words. Base/tool frames accept the same
+explicit representation or validated matrices.
+
+Joint limits default to a copy of the associated nominal solver's reported
+`joint_limits` values in degrees. Explicit `joint_limits` has shape `(2,6)`;
+`limit_units="radians"` requires explicit limits. Raw bounds and their unit tag
+are retained in the model identity. Degree bounds are converted with enclosed
+mathematical `pi/180`, preserving admission at uncertain boundaries. Limits act
+on complete real commands and turn numbers, not on phases.
+
+`ik(..., seed=..., max_candidates=...)` can include an explicit command-degree
+seed; it counts toward the maximum of 512 candidates. `correct(target, rows)`
+accepts explicit `(N,6)` proposed command-degree rows without nominal discovery.
+Both methods retain every attempted seed and its correction status, work counts,
+numerical residuals and optional local proof. A calibrated symmetry partner is
+never generated by flipping an already corrected result. Duplicate seeds remain
+separate attempts; row counts do not count distinct exact roots.
+
+Proofs are enabled by default. `result.solutions` then contains only centres
+whose exact local root has a valid certificate and whose whole existence ball
+is admitted by the declared command limits. A numerical candidate whose proof
+or admission check failed stays in `result.attempts`, with inconclusive coverage.
+`CalibratedOptions(certify=False)` returns explicitly numerical converged,
+in-limit candidates instead. Proof enablement does not change the numerical
+correction or its stop rule. A loose numerical tolerance cannot fabricate a
+certificate. A failed correction, singular step, budget, radius or boundary
+check never proves unreachable.
+
+Default correction limits are 24 accepted Newton updates, 12 step halvings and
+a 0.25-radian maximum step, with `1e-13` normalized position and orientation
+dispatch tolerances. `CalibratedOptions` exposes those settings and an optional
+uniqueness radius. Each attempt uses at most
+`1+max_iterations*(max_backtracks+1)` numerical evaluations. Calibrated Jacobian
+signs are local labels, never global aspects; coverage is always `INCONCLUSIVE`,
+and no global nearest-solution guarantee is made.
+
+`fk(joints)` and `jacobian(joints)` evaluate the declared calibrated geometry
+numerically without enforcing limits. The Jacobian is the body Jacobian in
+translation-first `(v;omega)` order, with millimetres/radian translation columns
+and command-radian derivatives; input joints remain degrees. The numerical
+model cache does not define the exact geometry used by the proof checker.
+
+Calls and closure are serialized per calibrated model. Returned arrays are owned
+read-only snapshots and remain usable after closing both models. Closing the
+calibrated model does not close the externally owned nominal solver. The
+automatic `ik` seed workflow needs that nominal solver open; explicit correction
+and calibrated FK/Jacobian use the independently owned calibrated handle.
+
+The additive native surface is in `include/crx_calibrated_api.h`, with separately
+negotiated size/version/reserved records and bounded owned query snapshots.
+Missing calibrated exports raise `NotImplementedError` when requested; existing
+nominal operations still work with older compatible DLLs. Importing the package
+does not load a native library. The standalone
+[calibrated validation report](validation/calibrated-ik-certification.md) states
+the derivation, local claim boundaries and completed evidence.
 
 ## Distribution and testing
 

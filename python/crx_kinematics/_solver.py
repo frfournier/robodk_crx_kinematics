@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ctypes as ct
+from contextlib import ExitStack
 import operator
 import threading
 import weakref
@@ -14,6 +15,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+
+from ._certificates import BallCertificate, certificate_buffers, decode_certificates
 
 from ._native import (
     ClosedSolverError,
@@ -27,6 +30,7 @@ from ._native import (
 )
 
 if TYPE_CHECKING:
+    from ._catalogues import CatalogueOptions, CatalogueResult, CommandProfile
     import os
     from pathlib import Path
     from types import TracebackType
@@ -79,6 +83,8 @@ class IKResult:
     used_singular_representatives: bool
     position_residuals_mm: FloatArray
     orientation_residuals_deg: FloatArray
+    certificates: tuple[BallCertificate | None, ...] | None = None
+    certificate_failures: IntArray | None = None
 
     @property
     def success(self) -> bool:
@@ -118,6 +124,14 @@ class FibreIdentificationResult:
     truncated: bool
     used_singular_representatives: bool
     coverage: Coverage = Coverage.NOT_ATTEMPTED
+    certificates: tuple[BallCertificate | None, ...] | None = None
+    certificate_failures: IntArray | None = None
+
+    @property
+    def regular_certified(self) -> NDArray[np.bool_]:
+        if self.certificates is None:
+            return np.zeros(len(self.solutions), dtype=np.bool_)
+        return np.asarray([value is not None for value in self.certificates], dtype=np.bool_)
 
     @property
     def success(self) -> bool:
@@ -341,9 +355,58 @@ class CrxSolver:
                 raise NativeError("TCP Jacobian exceeds the float64 numerical range")
             return result
 
+    def catalogue(
+        self, pose: ArrayLike, *, seed: ArrayLike | None = None,
+        max_solutions: int = 64, joint_limits: ArrayLike | None = None,
+        weights: ArrayLike | None = None, profile: CommandProfile | int = 0,
+        options: CatalogueOptions | None = None,
+    ) -> CatalogueResult:
+        """Opt-in nominal phase coverage, command admission and nearest proofs.
+
+        Limits/seed use raw degrees in the explicit command profile. Callback
+        commands are already coupled; DECOUPLED_USER requires its own limit box.
+        Commands are proof enclosures, with Yes/No/Undecided admission. A possible
+        minimizer band does not mean equal exact travel. Numerical fallback is
+        returned separately. Old DLLs provide only numerical fallback with
+        NotAttempted coverage and no reconstructed degree-provenance claim.
+        """
+        from ._catalogues import (CatalogueOptions, CommandProfile, old_dll_result,
+                                  read_query)
+        target = _pose(pose, "pose")
+        command = None if seed is None else _array(seed, (6,), "seed")
+        limits = None if joint_limits is None else _array(joint_limits, (2, 6), "joint_limits")
+        travel_weights = np.ones(6) if weights is None else _array(weights, (6,), "weights")
+        if np.any(travel_weights <= 0): raise ValueError("weights must be positive")
+        if limits is not None and np.any(limits[0] > limits[1]):
+            raise ValueError("Lower joint limits must not exceed upper joint limits")
+        if isinstance(profile, (bool, np.bool_)): raise TypeError("profile must be a CommandProfile")
+        profile = CommandProfile(operator.index(profile))
+        if profile == CommandProfile.DECOUPLED_USER and limits is None:
+            raise ValueError("Decoupled user commands require an explicit joint_limits box")
+        if isinstance(max_solutions, (bool, np.bool_)): raise TypeError("max_solutions must be an integer")
+        capacity = operator.index(max_solutions)
+        if not 0 <= capacity <= 512: raise ValueError("max_solutions must be in [0, 512]")
+        requested = CatalogueOptions() if options is None else options
+        if not isinstance(requested, CatalogueOptions): raise TypeError("options must be CatalogueOptions")
+        native_options = requested.native(profile, capacity)
+        with self._lock:
+            self._require_open()
+            if self._library.catalogue_query is None:
+                return old_dll_result(self, target, limits, command, travel_weights, profile, capacity)
+            pointer = ct.c_void_p()
+            try:
+                check(self._library.catalogue_query(self._handle, target, self._reference,
+                    self._tool, limits, command, travel_weights, ct.byref(native_options), ct.byref(pointer)))
+            except BaseException:
+                if pointer.value: self._library.catalogue_destroy(pointer)
+                raise
+            if not pointer.value: raise NativeError("Native query returned a null catalogue handle")
+            return read_query(self._library, pointer)
+
     def ik(
         self, pose: ArrayLike, *, seed: ArrayLike | None = None,
-        max_solutions: int = 1,
+        max_solutions: int = 1, certify: bool = False,
+        reuse: BallCertificate | None = None,
     ) -> IKResult:
         """Solve a TCP target, preserving native outcomes and full turns.
 
@@ -352,9 +415,19 @@ class CrxSolver:
         command travel from the seed; without a seed, lexicographically.
         Approximate seed fallback is retained and explicitly marked. Empty
         results do not certify infeasibility or exhaustive singular coverage.
+        certify=True requests local exact-pose balls; failed hypotheses remain
+        inconclusive and approximate results never receive them. reuse borrows
+        an earlier certificate's native cache, revalidating its identity/domain/
+        radius reserve. Returned balls use their explicit canonical centres.
         """
         target = _pose(pose, "pose")
         command = None if seed is None else _array(seed, (6,), "seed")
+        if not isinstance(certify, (bool, np.bool_)):
+            raise TypeError("certify must be a boolean")
+        if reuse is not None and not isinstance(reuse, BallCertificate):
+            raise TypeError("reuse must be a BallCertificate or None")
+        if reuse is not None and not certify:
+            raise ValueError("reuse requires certify=True")
         if isinstance(max_solutions, (bool, np.bool_)):
             raise TypeError("max_solutions must be a positive integer")
         capacity = operator.index(max_solutions)
@@ -364,12 +437,22 @@ class CrxSolver:
             flange_target = np.ascontiguousarray(self._reference @ target @ self._tool_inverse)
         if not np.isfinite(flange_target).all():
             raise ValueError("Flange target exceeds the float64 numerical range")
-        with self._lock:
+        with self._lock, ExitStack() as certificate_stack:
             self._require_open()
             output = np.empty((capacity, 6), dtype=np.float64)
             metadata = IKMetadata()
-            check(self._library.ik(self._handle, flange_target, command,
-                                   capacity, output, ct.byref(metadata)))
+            if certify:
+                options, handles, failures = certificate_stack.enter_context(
+                    certificate_buffers(self._library, capacity))
+                previous = None if reuse is None else certificate_stack.enter_context(
+                    reuse._owner.borrow(self._library))
+                check(self._library.ik_certified(
+                    self._handle, target, self._reference, self._tool, command,
+                    capacity, output, ct.byref(metadata), handles, failures,
+                    ct.byref(options), previous))
+            else:
+                check(self._library.ik(self._handle, flange_target, command,
+                                       capacity, output, ct.byref(metadata)))
             if not 0 <= metadata.count <= capacity:
                 raise NativeError("Native API returned an invalid solution count")
             try:
@@ -400,19 +483,30 @@ class CrxSolver:
                 position[i] = np.hypot.reduce(actual[:3, 3] - target[:3, 3])
                 chord = np.linalg.norm(actual[:3, :3] - target[:3, :3])
                 angle[i] = np.degrees(2 * np.arcsin(np.clip(chord / (2 * np.sqrt(2)), 0, 1)))
+            certificates = decode_certificates(self._library, handles, failures, len(solutions)) if certify else None
+            if status == IKStatus.APPROXIMATE_SEED and certificates is not None and any(certificates):
+                for certificate in certificates:
+                    if certificate is not None:
+                        certificate.close()
+                raise NativeError("Approximate output received a strict certificate")
             return IKResult(solutions, configs, valid, status, bool(metadata.truncated),
-                            bool(metadata.used_singular_representatives), position, angle)
+                            bool(metadata.used_singular_representatives), position, angle,
+                            certificates, failures[:len(solutions)].copy() if certify else None)
 
     def identify(
-        self, pose: ArrayLike, *, max_solutions: int = 64,
+        self, pose: ArrayLike, *, max_solutions: int = 64, certify: bool = False,
     ) -> FibreIdentificationResult:
         """Identify discovered inverse-kinematics branches for a TCP target.
 
         This always performs full discovery and does not take a seed. Wrist-
         circle addresses are numerical labels; ambiguous assignments are
         reported through ``wrist_address_valid``.
+        certify=True additionally requests local pose certificates and certified
+        regularity/aspect labels. Coverage remains a separate obligation.
         """
         target = _pose(pose, "pose")
+        if not isinstance(certify, (bool, np.bool_)):
+            raise TypeError("certify must be a boolean")
         if isinstance(max_solutions, (bool, np.bool_)):
             raise TypeError("max_solutions must be a positive integer")
         capacity = operator.index(max_solutions)
@@ -424,7 +518,7 @@ class CrxSolver:
             )
         if not np.isfinite(flange_target).all():
             raise ValueError("Flange target exceeds the float64 numerical range")
-        with self._lock:
+        with self._lock, ExitStack() as certificate_stack:
             self._require_open()
             if self._library.identify is None and self._library.identify2 is None:
                 raise NotImplementedError(
@@ -442,9 +536,18 @@ class CrxSolver:
                 regular_i, addresses, address_valid_i, ct.byref(metadata),
             )
             coverage = Coverage.NOT_ATTEMPTED
-            if self._library.identify2 is not None:
+            if certify or self._library.identify2 is not None:
                 extension = FibreExtension(ct.sizeof(FibreExtension), 1, 0, 0)
-                check(self._library.identify2(*arguments, ct.byref(extension)))
+                if certify:
+                    options, handles, failures = certificate_stack.enter_context(
+                        certificate_buffers(self._library, capacity))
+                    check(self._library.identify_certified(
+                        self._handle, target, self._reference, self._tool, capacity,
+                        solutions, signs, regular_i, addresses, address_valid_i,
+                        ct.byref(metadata), ct.byref(extension), handles, failures,
+                        ct.byref(options)))
+                else:
+                    check(self._library.identify2(*arguments, ct.byref(extension)))
                 if (extension.struct_size != ct.sizeof(FibreExtension)
                         or extension.version != 1 or extension.reserved != 0):
                     raise NativeError("Native identification changed the metadata layout")
@@ -488,9 +591,18 @@ class CrxSolver:
                     or np.any((valid_addresses[:, 2] < 0)
                               | (valid_addresses[:, 2] > 1))):
                 raise NativeError("Native identification returned an invalid wrist address")
+            certificates = decode_certificates(self._library, handles, failures, count) if certify else None
+            if certificates is not None:
+                for i, certificate in enumerate(certificates):
+                    if certificate is not None and (not regular[i] or certificate.aspect_sign != signs[i]):
+                        for item in certificates:
+                            if item is not None:
+                                item.close()
+                        raise NativeError("Certified aspect disagrees with identification metadata")
             return FibreIdentificationResult(
                 solutions, signs, regular, addresses, address_valid, status,
                 bool(metadata.truncated),
                 bool(metadata.used_singular_representatives),
                 coverage,
+                certificates, failures[:count].copy() if certify else None,
             )

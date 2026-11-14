@@ -606,10 +606,7 @@ auto RealProjection(const Coefficients &coefficients, double t)
           evaluation.derivative * (1 + (argument * argument)) / (2 * bound)};
 }
 
-struct GeometricPhases {
-  std::array<WristPhase, kBoundaryPhaseCapacity> values{};
-  std::size_t count = 0;
-};
+using GeometricPhases = WristBoundaryPhases;
 
 void AppendCircleCrossings(GeometricPhases &result, double cosine, double sine,
                            double rhs) {
@@ -1017,6 +1014,10 @@ auto DiscoverNearbyJointCandidates(const Lengths &lengths,
   return RefineElbowBranch(
       problem, direct, EvaluateElbowResidual, sign,
       {angle, numerics::kNearbyIterations, numerics::kNearbyRadiusRad}, angle);
+}
+
+auto NominateWristBoundaries(const WristCircle &circle) -> WristBoundaryPhases {
+  return BoundaryPhases(circle);
 }
 
 auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
