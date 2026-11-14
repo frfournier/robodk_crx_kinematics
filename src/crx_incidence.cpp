@@ -96,7 +96,8 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
   }
   const Vec3 wrist_perpendicular = u - radial.dot(u) * radial;
   const double wrist_sine = wrist_perpendicular.norm();
-  if (wrist_sine > horizontal / distance &&
+  if (wrist_sine >
+          std::max(horizontal / distance, numerics::kDirectionTolerance) &&
       height_squared > numerics::kFourthRootEpsilon * height_scale) {
     // Choose the better conditioned plane pair. Intersect the arm circle
     // with the wrist plane first; test the vertical base plane afterward.
@@ -140,15 +141,22 @@ auto FindElbowCandidates(double a, double b, const Vec3 &x, const Vec3 &u)
     const double z = along * (x.z() / distance);
     const double wrist_horizontal = std::hypot(u.x(), u.y());
     const double rhs = (x.z() - z) * u.z();
+    Vec3 direction = Vec3::UnitX();
+    double along_plane = 0;
     if (wrist_horizontal <= numerics::kDirectionTolerance) {
-      result.status =
-          std::abs(rhs) > numerics::kIncidenceResidualTolerance * scale
-              ? IncidenceStatus::NoCandidate
-              : IncidenceStatus::NeedsRefinement;
-      return result;
+      if (std::abs(rhs) > numerics::kIncidenceResidualTolerance * scale) {
+        result.status = IncidenceStatus::NoCandidate;
+        return result;
+      }
+      // Both plane normals are vertical: a compatible horizontal elbow circle
+      // has no preferred azimuth. Retain antipodal numerical representatives,
+      // including its single-point limit; full recovery still checks FK.
+      // Near-zero coefficients only dispatch here, never prove a family.
+      result.used_singular_representatives = true;
+    } else {
+      direction = Vec3(u.x() / wrist_horizontal, u.y() / wrist_horizontal, 0);
+      along_plane = rhs / wrist_horizontal;
     }
-    const Vec3 direction(u.x() / wrist_horizontal, u.y() / wrist_horizontal, 0);
-    const double along_plane = rhs / wrist_horizontal;
     const double remaining = height_squared - along_plane * along_plane;
     if (remaining < -numerics::kIncidenceAmbiguityFactor * height_tolerance) {
       result.status = IncidenceStatus::NoCandidate;

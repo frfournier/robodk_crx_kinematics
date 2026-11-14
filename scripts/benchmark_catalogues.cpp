@@ -9,6 +9,7 @@
 #include "crx_discovery.h"
 #include "crx_exact_problem.h"
 #include "crx_phase_catalogue.h"
+#include "exceptional_stages.h"
 
 #include <algorithm>
 #include <array>
@@ -47,14 +48,27 @@ enum class Operation {
   Commands,
   ApiDisabled,
   ApiEnabled,
-  Parent
+  Parent,
+  RecoveryNoBalls,
+  RecoveryWithBalls,
+  ParentQuery
 };
-constexpr std::array<const char *, 13> kNames{
-    "exact_prepare",   "root_cover",       "numerical_nomination",
-    "candidate_balls", "phase_assembly",   "command_context",
-    "turn_ranges",     "turn_enumeration", "travel_ranking",
-    "command_full",    "api_disabled",     "api_enabled",
-    "parent_ik"};
+constexpr std::array<const char *, 16> kNames{"exact_prepare",
+                                              "root_cover",
+                                              "numerical_nomination",
+                                              "candidate_balls",
+                                              "phase_assembly",
+                                              "command_context",
+                                              "turn_ranges",
+                                              "turn_enumeration",
+                                              "travel_ranking",
+                                              "command_full",
+                                              "api_disabled",
+                                              "api_enabled",
+                                              "parent_ik",
+                                              "exceptional_numerical",
+                                              "exceptional_with_balls",
+                                              "parent_catalogue"};
 constexpr std::size_t kAxes = 6;
 volatile std::uint64_t checksum = 0;
 
@@ -112,6 +126,9 @@ struct Case {
   crx::root::Certificate roots;
   crx::canonical::JointDiscovery nominations;
   std::vector<crx::ball::Certificate> balls;
+  std::vector<crx::ball::Certificate> ordinary_balls;
+  crx::benchmark::ExceptionalContext exceptional_context;
+  crx::catalogue::BuildResult expected_recovery;
   std::uint32_t attempted_balls = 0;
   crx::catalogue::PhaseCatalogue phases;
   crx::command::Context context;
@@ -121,6 +138,7 @@ struct Case {
 };
 
 struct Scratch {
+  crx::benchmark::ExceptionalScratch exceptional;
   crx::exact::Problem problem;
   crx::root::Certificate roots, assembly_roots;
   crx::canonical::JointDiscovery nominations;
@@ -141,7 +159,20 @@ struct Outcome {
   std::uint64_t nominations = 0, balls = 0, box_lifts = 0, yes = 0,
                 undecided = 0;
   std::uint64_t commands = 0, digest = 0;
+  std::uint64_t recoveries = 0, refinements = 0, refinement_failures = 0;
+  std::uint64_t recovery_candidates = 0, recovery_local_proofs = 0;
 };
+
+void ResetExceptional(const Case &item,
+                      crx::benchmark::ExceptionalScratch &scratch) {
+  scratch = {};
+  scratch.result.nominations =
+      static_cast<std::uint32_t>(item.nominations.count);
+  scratch.result.attempted_balls = item.attempted_balls;
+  scratch.result.certified_balls =
+      static_cast<std::uint32_t>(item.ordinary_balls.size());
+  scratch.balls = item.ordinary_balls;
+}
 
 template <std::size_t N>
 auto Read(std::istream &input, std::array<double, N> &values) -> bool {
@@ -250,12 +281,23 @@ void Prepare(Case &item, const Api &api, const Api &parent) {
         static_cast<std::size_t>(item.options.max_candidate_certificates)));
     item.balls = CertifyBalls(item);
   }
+  item.ordinary_balls = item.balls;
+  item.exceptional_context = crx::benchmark::PrepareExceptional(item.problem);
+  crx::benchmark::ExceptionalScratch exceptional;
+  ResetExceptional(item, exceptional);
+  if (!item.roots.IsComplete() && item.exceptional_context.ready &&
+      !crx::benchmark::RecoverExceptional(item.exceptional_context, item.roots,
+                                          item.options, exceptional))
+    Fail("Exceptional stage preparation failed");
+  item.balls = std::move(exceptional.balls);
+  item.expected_recovery = std::move(exceptional.result);
   item.phases = crx::catalogue::Assemble(item.problem, item.roots, item.balls,
                                          item.options.max_pair_tests);
   const auto assembled = crx::catalogue::Build(item.problem, item.options);
   if (assembled.catalogue.Values().coverage != item.phases.Values().coverage ||
       assembled.certified_balls != item.balls.size() ||
-      assembled.nominations != item.nominations.count)
+      assembled.nominations != item.expected_recovery.nominations ||
+      assembled.recoveries.size() != item.expected_recovery.recoveries.size())
     Fail("Stage/full discovery outcomes differ");
   item.complete_commands = crx::command::Certify(item.problem, item.phases,
                                                  item.context, item.commands);
@@ -308,6 +350,10 @@ void Prepare(Case &item, const Api &api, const Api &parent) {
 }
 
 auto Eligible(const Case &item, Operation op) -> bool {
+  if (op == Operation::RecoveryNoBalls || op == Operation::RecoveryWithBalls)
+    return !item.roots.IsComplete() && item.exceptional_context.ready;
+  if (op == Operation::ParentQuery)
+    return item.parent != nullptr;
   if (op == Operation::Nominate)
     return !item.roots.IsComplete() || item.roots.Values().simple_roots != 0;
   if (op == Operation::Balls)
@@ -327,6 +373,8 @@ auto Eligible(const Case &item, Operation op) -> bool {
 
 void Reset(const Case &item, Operation op, Scratch &scratch) {
   scratch.status = 0;
+  if (op == Operation::RecoveryNoBalls || op == Operation::RecoveryWithBalls)
+    ResetExceptional(item, scratch.exceptional);
   if (op == Operation::Roots)
     scratch.roots = {};
   if (op == Operation::Balls || op == Operation::Assemble) {
@@ -348,7 +396,8 @@ void Reset(const Case &item, Operation op, Scratch &scratch) {
   scratch.summary = {};
 }
 
-void CallApi(const Case &item, const Api &api, bool enabled, Scratch &scratch) {
+void CallApi(const Case &item, const Api &api, bool enabled, Scratch &scratch,
+             bool parent_handle = false) {
   crx_v1_catalogue_options options{};
   options.struct_size = sizeof(options);
   options.version = 1;
@@ -363,11 +412,11 @@ void CallApi(const Case &item, const Api &api, bool enabled, Scratch &scratch) {
   options.max_pair_tests = item.options.max_pair_tests;
   options.max_lifts = item.commands.max_lifts;
   crx_v1_catalogue_handle *handle = nullptr;
-  scratch.status =
-      api.query(item.handle, item.target.data(), item.reference.data(),
-                item.tool.data(), item.query_limits.data(),
-                item.raw.has_seed ? item.raw.seed_degrees.data() : nullptr,
-                item.raw.weights.data(), &options, &handle);
+  scratch.status = api.query(
+      parent_handle ? item.parent : item.handle, item.target.data(),
+      item.reference.data(), item.tool.data(), item.query_limits.data(),
+      item.raw.has_seed ? item.raw.seed_degrees.data() : nullptr,
+      item.raw.weights.data(), &options, &handle);
   if (scratch.status != 0 || handle == nullptr)
     Fail("Native query failed");
   scratch.summary.struct_size = sizeof(scratch.summary);
@@ -381,6 +430,20 @@ void CallApi(const Case &item, const Api &api, bool enabled, Scratch &scratch) {
 void Run(const Case &item, Operation op, const Api &api, const Api &parent,
          Scratch &scratch) {
   switch (op) {
+  case Operation::RecoveryNoBalls:
+  case Operation::RecoveryWithBalls: {
+    auto options = item.options;
+    if (op == Operation::RecoveryNoBalls)
+      options.max_candidate_certificates =
+          scratch.exceptional.result.attempted_balls;
+    if (!crx::benchmark::RecoverExceptional(
+            item.exceptional_context, item.roots, options, scratch.exceptional))
+      Fail("Exceptional stage failed");
+    break;
+  }
+  case Operation::ParentQuery:
+    CallApi(item, parent, true, scratch, true);
+    break;
   case Operation::Prepare:
     scratch.status = static_cast<int>(crx::exact::Prepare(
         item.input,
@@ -538,8 +601,9 @@ auto Describe(const Case &item, Operation op, const Scratch &scratch)
       Mix(out.digest, lift.travel_squared.hi);
     }
   }
-  if (op == Operation::ApiDisabled || op == Operation::ApiEnabled) {
-    if (op == Operation::ApiEnabled &&
+  if (op == Operation::ApiDisabled || op == Operation::ApiEnabled ||
+      op == Operation::ParentQuery) {
+    if ((op == Operation::ApiEnabled || op == Operation::ParentQuery) &&
         (scratch.summary.identity_schema !=
              item.problem.Data().identity.schema ||
          !std::equal(item.problem.Data().identity.words.begin(),
@@ -566,6 +630,34 @@ auto Describe(const Case &item, Operation op, const Scratch &scratch)
     for (int i = 0; i < scratch.numerical.count * static_cast<int>(kAxes); ++i)
       Mix(out.digest, scratch.numerical_values.at(static_cast<std::size_t>(i)));
   }
+  if (op == Operation::RecoveryNoBalls || op == Operation::RecoveryWithBalls) {
+    const auto &recovered = scratch.exceptional.result;
+    out.nominations = recovered.nominations;
+    out.balls = recovered.certified_balls;
+    out.phases = scratch.exceptional.balls.size();
+    out.recoveries = recovered.recoveries.size();
+    for (const auto &attempt : recovered.recoveries) {
+      out.refinements += attempt.refinement_attempted;
+      out.refinement_failures += attempt.refinement_attempted &&
+                                 attempt.numerical.status !=
+                                     crx::canonical::RecoveryStatus::Candidates;
+      out.recovery_candidates += attempt.numerical.count;
+      out.recovery_local_proofs += attempt.certified_balls;
+      out.digest ^= attempt.source;
+      out.digest ^= attempt.near_stratum;
+      Mix(out.digest, attempt.phase);
+      Mix(out.digest, attempt.delta_defect);
+      for (std::size_t i = 0; i < attempt.numerical.count; ++i) {
+        const auto &candidate = attempt.numerical.candidates.at(i);
+        for (int j = 0; j < 6; ++j)
+          Mix(out.digest, candidate.joints(j));
+        Mix(out.digest, candidate.position_error);
+        Mix(out.digest, candidate.orientation_error);
+      }
+    }
+    for (const auto &ball : scratch.exceptional.balls)
+      Consume(out.digest, ball);
+  }
   return out;
 }
 
@@ -576,7 +668,11 @@ auto Equal(const Outcome &a, const Outcome &b) -> bool {
          a.nominations == b.nominations && a.balls == b.balls &&
          a.box_lifts == b.box_lifts && a.yes == b.yes &&
          a.undecided == b.undecided && a.commands == b.commands &&
-         a.digest == b.digest;
+         a.digest == b.digest && a.recoveries == b.recoveries &&
+         a.refinements == b.refinements &&
+         a.refinement_failures == b.refinement_failures &&
+         a.recovery_candidates == b.recovery_candidates &&
+         a.recovery_local_proofs == b.recovery_local_proofs;
 }
 
 void Write(std::ostream &stream, int id, std::size_t op, const Outcome &out) {
@@ -585,7 +681,9 @@ void Write(std::ostream &stream, int id, std::size_t op, const Outcome &out) {
          << out.nodes << ',' << out.leaves << ',' << out.depth << ','
          << out.phases << ',' << out.nominations << ',' << out.balls << ','
          << out.box_lifts << ',' << out.yes << ',' << out.undecided << ','
-         << out.commands << ',' << out.digest << '\n';
+         << out.commands << ',' << out.digest << ',' << out.recoveries << ','
+         << out.refinements << ',' << out.refinement_failures << ','
+         << out.recovery_candidates << ',' << out.recovery_local_proofs << '\n';
 }
 } // namespace
 
@@ -603,7 +701,7 @@ auto main(int argc, char **argv) -> int {
   if (!crx::interval::EnvironmentSupported())
     Fail("Unsupported FP environment");
   const Api api = Load(std::filesystem::absolute(argv[3]), true),
-            parent = Load(std::filesystem::absolute(argv[4]), false);
+            parent = Load(std::filesystem::absolute(argv[4]), true);
   std::ifstream input(argv[2]);
   std::vector<Case> cases;
   for (;;) {
@@ -621,7 +719,9 @@ auto main(int argc, char **argv) -> int {
       samples(output / "timings.csv");
   outcomes
       << "case,operation,status,coverage,ranking,roots,nodes,leaves,depth,"
-         "phases,nominations,balls,box_lifts,yes,undecided,commands,digest\n";
+         "phases,nominations,balls,box_lifts,yes,undecided,commands,digest,"
+         "recoveries,refinements,refinement_failures,recovery_candidates,"
+         "recovery_local_proofs\n";
   samples << "case,operation,round,iterations,total_ns,us\n"
           << std::setprecision(17);
   std::vector<std::array<Outcome, kNames.size()>> expected(cases.size());
@@ -638,6 +738,7 @@ auto main(int argc, char **argv) -> int {
       if (operation == Operation::ApiEnabled &&
           (scratch.summary.coverage !=
                static_cast<int>(item.phases.Values().coverage) ||
+           scratch.summary.phase_count != item.phases.Values().balls.size() ||
            scratch.summary.ranking !=
                static_cast<int>(item.complete_commands.Values().ranking) ||
            scratch.summary.yes != item.complete_commands.Values().yes))

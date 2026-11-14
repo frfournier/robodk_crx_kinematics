@@ -115,6 +115,29 @@ void TestBranchesAndFallback() {
   // A scalar zero with an inconsistent vertical wrist plane is rejected.
   const Vec3 vertical(0, 0, 2);
   ExpectStatus(1, 1, vertical, Vec3::UnitZ(), IncidenceStatus::NoCandidate);
+  for (const double sign : {-1.0, 1.0}) {
+    const Vec3 point(0, 0, 4 * sign);
+    const auto circle = FindElbowCandidates(5, -3, point, Vec3::UnitZ());
+    Require(circle.status == IncidenceStatus::PointCandidates &&
+                circle.count == 2 && circle.used_singular_representatives,
+            "compatible on-axis circle retains antipodal representatives");
+    for (const auto &elbow : circle.points) {
+      CheckWitness(5, -3, point, Vec3::UnitZ(), elbow);
+      Near(elbow.z(), point.z(), "on-axis circle height");
+      Near(std::hypot(elbow.x(), elbow.y()), 3, "on-axis circle radius");
+    }
+    Require((circle.points[0] - circle.points[1]).norm() > 5,
+            "on-axis antipodes are distinct");
+    ExpectStatus(5, 3, Vec3(0, 0, 4.01 * sign), Vec3::UnitZ(),
+                 IncidenceStatus::NoCandidate);
+  }
+  const auto rounded_circle =
+      FindElbowCandidates(1, .6, Vec3(0, 0, std::nextafter(.8, 1.0)),
+                          Vec3(0, 0, std::nextafter(1.0, 2.0)));
+  Require(rounded_circle.status == IncidenceStatus::PointCandidates &&
+              rounded_circle.count == 2 &&
+              rounded_circle.used_singular_representatives,
+          "roundoff parallelism must not select an unstable plane pair");
   Require(
       reference::FindElbowCandidates(1, 1, vertical, Vec3::UnitZ()).status ==
           reference::IncidenceStatus::NoCandidate,
