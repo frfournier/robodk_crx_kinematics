@@ -40,6 +40,9 @@ SOURCES += \
     $$PWD/src/crx_calibrated_api.cpp \
     $$PWD/src/crx_calibrated_solver.cpp \
     $$PWD/src/crx_certified_solver.cpp \
+    $$PWD/src/crx_verified_solver.cpp \
+    $$PWD/src/crx_catalogue_api.cpp \
+    $$PWD/src/crx_catalogue_discovery.cpp \
     $$PWD/src/crx_solver.cpp \
     $$PWD/src/crx_robodk_adapter.cpp
 
@@ -48,6 +51,7 @@ HEADERS += \
     $$PWD/src/crx_calibrated_model.h \
     $$PWD/src/crx_calibrated_certificate.h \
     $$PWD/src/crx_calibrated_solver.h \
+    $$PWD/src/crx_path_certificate.h \
     $$PWD/src/crx_coordinates.h \
     $$PWD/src/crx_discovery_counters.h \
     $$PWD/src/crx_numerics.h \
@@ -60,6 +64,12 @@ HEADERS += \
     $$PWD/src/crx_polynomial_roots.h \
     $$PWD/include/crx_kinematics.h \
     $$PWD/include/crx_python_api.h \
+    $$PWD/include/crx_catalogue_api.h \
+    $$PWD/src/crx_api_handles.h \
+    $$PWD/src/crx_verified_solver.h \
+    $$PWD/src/crx_command_certificate.h \
+    $$PWD/src/crx_phase_catalogue.h \
+    $$PWD/src/crx_root_certificate.h \
     $$PWD/src/crx_types.h \
     $$PWD/src/crx_math_helpers.h \
     $$PWD/src/crx_solver.h \
@@ -84,7 +94,7 @@ QMAKE_EXTRA_COMPILERS += joint_trig
 # Enclosure operations need strict per-operation rounding boundaries. Keep
 # these translation units outside whole-program optimization, independently
 # of the ordinary numerical sources above.
-ENCLOSURE_SOURCES = $$PWD/src/crx_interval.cpp $$PWD/src/crx_exact_problem.cpp $$PWD/src/crx_ball_certificate.cpp $$PWD/src/crx_calibrated_model.cpp $$PWD/src/crx_calibrated_certificate.cpp
+ENCLOSURE_SOURCES = $$PWD/src/crx_interval.cpp $$PWD/src/crx_exact_problem.cpp $$PWD/src/crx_ball_certificate.cpp $$PWD/src/crx_root_certificate.cpp $$PWD/src/crx_phase_catalogue.cpp $$PWD/src/crx_command_certificate.cpp $$PWD/src/crx_path_certificate.cpp $$PWD/src/crx_calibrated_model.cpp $$PWD/src/crx_calibrated_certificate.cpp
 enclosure.input = ENCLOSURE_SOURCES
 enclosure.output = ${QMAKE_FILE_BASE}_enclosure_release$${QMAKE_EXT_OBJ}
 CONFIG(debug, debug|release): enclosure.output = ${QMAKE_FILE_BASE}_enclosure_debug$${QMAKE_EXT_OBJ}

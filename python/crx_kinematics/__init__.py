@@ -15,8 +15,17 @@ from ._calibrated import (
     CalibratedAttempt, CalibratedBallCertificate, CalibratedFrame, CalibratedGeometry,
     CalibratedIdentity, CalibratedOptions, CalibratedResult, CalibratedSolver, CalibratedStatus,
 )
+from ._catalogues import (Admission, CatalogueOptions, CatalogueResult, CatalogueSummary,
+    CertifiedCommand, CommandFailure, CommandProfile, CommandRange, PhaseCertificate,
+    PhaseFailure, QueryPreparation, Ranking, RootChart, RootKind, RootLeaf, RootReason, RootStatus,
+    FibreRecovery, FibreStrata, NearStratum, RecoverySource, RecoveryStatus)
 
 __all__ = [
+    "Admission", "CatalogueOptions", "CatalogueResult", "CatalogueSummary",
+    "CertifiedCommand", "CommandFailure", "CommandProfile", "CommandRange",
+    "PhaseCertificate", "PhaseFailure", "QueryPreparation", "Ranking",
+    "RootChart", "RootKind", "RootLeaf", "RootReason", "RootStatus",
+    "FibreRecovery", "FibreStrata", "NearStratum", "RecoverySource", "RecoveryStatus",
     "BallCertificate",
     "CertificateFailure",
     "CalibratedAttempt",

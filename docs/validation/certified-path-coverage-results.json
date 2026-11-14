@@ -1,0 +1,6908 @@
+{
+  "schema": 1,
+  "source_identity": "117e23747c308d93d839007e18692a5d641eb497ed76a6dd52ad736e3751f34b",
+  "dataset_sha256": "37b99535b6880926c970a0ba5c6657a370cf0a0bc7598160d9c142f604c70045",
+  "candidate_sha256": "0d5d25c6aceafc129882b7e8796ab29057bc11dff6f8fc25533565c5fde56cdb",
+  "backend_sha256": "2fa45aaf417aacb4b5e31eef68619bc6de248720cf0c9dca920ff07ffc4a6885",
+  "feature_driver_sha256": "09a13245e5a4e50c12a6729087aedf206c3aba5b1bebbb1e5ea7b0f8455da549",
+  "parent_commit": "427307200057212c9523a907928dddd1340d577e",
+  "parent_sha256": "aca4d3d566131a20c6170be14fab60daac703595566dec71b6a1b0ff5471c38b",
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700H",
+  "affinity_mask": 1,
+  "environment": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1"
+  },
+  "feature_iterations": 3,
+  "feature_rounds": 9,
+  "ordinary_iterations": 8,
+  "ordinary_rounds": 9,
+  "totals": {
+    "queries": 42,
+    "certified_task_coverage": 25,
+    "certified_task_infeasible": 0,
+    "inconclusive": 17,
+    "attempted_paths": 145,
+    "complete_paths": 114,
+    "positive_uniform_cells": 3698,
+    "retained_leaves": 3872,
+    "subdivisions": 3727,
+    "max_retained_payload_bytes": 2511770,
+    "ordinary_pairs": 14674,
+    "ordinary_ordered_solution_and_best_rows": 337498
+  },
+  "feature_cases": [
+    {
+      "id": "synthetic_constant_16",
+      "model": "synthetic",
+      "kind": "constant",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 32,
+      "components": 16,
+      "edges": 16,
+      "attempted_paths": 16,
+      "complete_paths": 16,
+      "retained_leaves": 16,
+      "positive_uniform_cells": 16,
+      "accepted_cells": 16,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 16.0,
+      "numerical_samples": 16,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 585858,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 36,
+        "enumerated_lifts": 32,
+        "pair_tests": 256,
+        "path_attempts": 16,
+        "path_nodes": 16,
+        "path_certificates": 16,
+        "cell_checks": 16,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2203.6,
+            2113.5,
+            2121.633333333333,
+            2237.5333333333333,
+            2173.133333333333,
+            2267.6,
+            2193.866666666667,
+            2199.2000000000003,
+            2200.766666666667
+          ],
+          "median_us": 2199.2000000000003,
+          "p95_us": 2255.5733333333333
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            6509.766666666666,
+            6354.166666666667,
+            7858.5,
+            6654.366666666666,
+            6810.5,
+            7826.666666666667,
+            6752.599999999999,
+            6710.233333333334,
+            6726.400000000001
+          ],
+          "median_us": 6726.400000000001,
+          "p95_us": 7845.766666666666
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            1807.5333333333335,
+            1854.5,
+            1875.5666666666666,
+            1887.4333333333334,
+            2069.5,
+            1981.7333333333333,
+            1942.8999999999999,
+            1899.6666666666667,
+            1916.3333333333333
+          ],
+          "median_us": 1899.6666666666667,
+          "p95_us": 2034.3933333333332
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            555.2333333333333,
+            543.6333333333333,
+            581.2666666666667,
+            558.8666666666667,
+            578.2333333333333,
+            558,
+            594.1999999999999,
+            564.6666666666666,
+            566.6333333333333
+          ],
+          "median_us": 564.6666666666666,
+          "p95_us": 589.0266666666666
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            222.70000000000002,
+            217.73333333333335,
+            330.59999999999997,
+            240.20000000000002,
+            244,
+            227.73333333333335,
+            234.33333333333334,
+            222.20000000000002,
+            246.1
+          ],
+          "median_us": 234.33333333333334,
+          "p95_us": 296.79999999999995
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 148.66793529971454,
+      "certified_parameter_per_second": 8422.530268468152,
+      "positive_cells_per_second": 28335.30106257379,
+      "numerical_samples_per_second": 68278.80512091039,
+      "audit_sha256": "ff95f60cf3194dd4d0143f4fc4021de7e65267de1950e80b5415f1f490d22ae4",
+      "measurement_sha256": "a91bcbc29e6979953dc3f8472231de3d8f79d5dbe786be68b7cdadee38f75c8c"
+    },
+    {
+      "id": "synthetic_tiny_16",
+      "model": "synthetic",
+      "kind": "tiny_translation",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 32,
+      "components": 16,
+      "edges": 16,
+      "attempted_paths": 16,
+      "complete_paths": 16,
+      "retained_leaves": 16,
+      "positive_uniform_cells": 16,
+      "accepted_cells": 16,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 16.0,
+      "numerical_samples": 16,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 585858,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 36,
+        "enumerated_lifts": 32,
+        "pair_tests": 256,
+        "path_attempts": 16,
+        "path_nodes": 16,
+        "path_certificates": 16,
+        "cell_checks": 16,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2312.4333333333334,
+            2277.1666666666665,
+            2248.3333333333335,
+            2209.4,
+            2342.2000000000003,
+            2236.633333333333,
+            2321.4333333333334,
+            3061.566666666667,
+            2462.4666666666667
+          ],
+          "median_us": 2312.4333333333334,
+          "p95_us": 2821.9266666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            6732.766666666666,
+            6909.8,
+            7051.833333333333,
+            6607.966666666667,
+            6626.933333333333,
+            6861.433333333333,
+            6582.633333333334,
+            6607.533333333333,
+            6770.099999999999
+          ],
+          "median_us": 6732.766666666666,
+          "p95_us": 6995.0199999999995
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            1962.9333333333334,
+            1996.8333333333333,
+            1964.2666666666667,
+            1977.1666666666667,
+            2031.6000000000001,
+            1932.4333333333334,
+            1911.5666666666666,
+            1930.8333333333333,
+            1911.2
+          ],
+          "median_us": 1962.9333333333334,
+          "p95_us": 2017.6933333333334
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            869.3000000000001,
+            602.2666666666667,
+            577.4666666666667,
+            605.0666666666667,
+            564.5,
+            564.8000000000001,
+            549.8666666666667,
+            562.2333333333333,
+            566.4333333333333
+          ],
+          "median_us": 566.4333333333333,
+          "p95_us": 763.6066666666667
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            258.6333333333333,
+            242.6,
+            249.13333333333333,
+            234.73333333333335,
+            251.0666666666667,
+            229.6,
+            252.66666666666666,
+            229.76666666666665,
+            239.6
+          ],
+          "median_us": 242.6,
+          "p95_us": 256.24666666666667
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 148.52735131174407,
+      "certified_parameter_per_second": 8151.066431191414,
+      "positive_cells_per_second": 28246.925204495972,
+      "numerical_samples_per_second": 65952.18466611707,
+      "audit_sha256": "05e04a0b543cb1beab3942fe58af8deda35834877dc707cea68cdc248e55dc8a",
+      "measurement_sha256": "121249cbdf377d3f696cdb85cfe5420416254b4997dfb79dd64f9586205aa91c"
+    },
+    {
+      "id": "synthetic_moving",
+      "model": "synthetic",
+      "kind": "moving_translation",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 2,
+      "components": 1,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 125,
+      "positive_uniform_cells": 125,
+      "accepted_cells": 125,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 125,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 563834,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 32,
+        "enumerated_lifts": 2,
+        "pair_tests": 1,
+        "path_attempts": 1,
+        "path_nodes": 249,
+        "path_certificates": 560,
+        "cell_checks": 553,
+        "subdivisions": 124
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2220.0666666666666,
+            2261.5333333333333,
+            2289.9666666666667,
+            2204.7999999999997,
+            2175.6,
+            2299.266666666667,
+            2270.9666666666667,
+            2245,
+            2350.9333333333334
+          ],
+          "median_us": 2261.5333333333333,
+          "p95_us": 2330.266666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            59513.53333333333,
+            57539.299999999996,
+            59466.4,
+            60704.43333333333,
+            59029.53333333333,
+            58312.23333333334,
+            56625.799999999996,
+            58039.36666666667,
+            56801.26666666666
+          ],
+          "median_us": 58312.23333333334,
+          "p95_us": 60228.07333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            55437.166666666664,
+            56624.26666666666,
+            54018.63333333333,
+            58999.36666666667,
+            54198.76666666666,
+            56890.73333333334,
+            56086.833333333336,
+            54324.76666666666,
+            54843.666666666664
+          ],
+          "median_us": 55437.166666666664,
+          "p95_us": 58155.91333333334
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            4398.666666666667,
+            4354.866666666667,
+            4401.3,
+            4317.7,
+            4452.166666666667,
+            5220.366666666667,
+            4690.566666666667,
+            4339.866666666667,
+            4317.400000000001
+          ],
+          "median_us": 4398.666666666667,
+          "p95_us": 5008.446666666667
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            1910.6666666666667,
+            1796.1333333333332,
+            1874.8999999999999,
+            1804.3333333333333,
+            1804.2666666666667,
+            1884.8999999999999,
+            1852.3,
+            1792.5666666666666,
+            1860.8999999999999
+          ],
+          "median_us": 1852.3,
+          "p95_us": 1900.36
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 17.149060202919113,
+      "certified_parameter_per_second": 18.038439915459847,
+      "positive_cells_per_second": 28417.702334040616,
+      "numerical_samples_per_second": 67483.66895211358,
+      "audit_sha256": "0b1baa3d75e9c478c59b300f64d2c3887dfbb53c1d377d720662551d008b9d62",
+      "measurement_sha256": "79530b7454296fbb3418c742c82e4aaf03b6075005ca50abaa4550e253e289b6"
+    },
+    {
+      "id": "synthetic_budget",
+      "model": "synthetic",
+      "kind": "restricted_moving_budget",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 2,
+      "components": 2,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 3,
+      "positive_uniform_cells": 0,
+      "accepted_cells": 0,
+      "unresolved_leaves": 3,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 0,
+          "parameter": [
+            0,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 8
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.0,
+      "numerical_samples": 3,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 110906,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 32,
+        "enumerated_lifts": 2,
+        "pair_tests": 1,
+        "path_attempts": 1,
+        "path_nodes": 3,
+        "path_certificates": 8,
+        "cell_checks": 5,
+        "subdivisions": 2
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2217.1666666666665,
+            2319.5333333333333,
+            2248.3333333333335,
+            2263.9666666666667,
+            2316.4,
+            2250.633333333333,
+            2282.9,
+            2296.2999999999997,
+            2231.633333333333
+          ],
+          "median_us": 2263.9666666666667,
+          "p95_us": 2318.28
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            2948.7000000000003,
+            3050.366666666667,
+            3101.9666666666667,
+            3068.1666666666665,
+            2982.1,
+            3063.066666666667,
+            3038.6,
+            2968.366666666667,
+            3071.433333333333
+          ],
+          "median_us": 3050.366666666667,
+          "p95_us": 3089.753333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            662.1,
+            665.3666666666667,
+            666.9333333333333,
+            658.5,
+            663.7333333333333,
+            695.0333333333333,
+            650.5666666666667,
+            640.6666666666666,
+            721.0666666666666
+          ],
+          "median_us": 663.7333333333333,
+          "p95_us": 710.6533333333333
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            0.06666666666666667,
+            0,
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0,
+            0,
+            0,
+            0.03333333333333333
+          ],
+          "median_us": 0.0,
+          "p95_us": 0.05333333333333332
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            43.9,
+            43.03333333333333,
+            43.666666666666664,
+            42.96666666666667,
+            44.699999999999996,
+            43.03333333333333,
+            42.73333333333333,
+            42.1,
+            42.699999999999996
+          ],
+          "median_us": 43.03333333333333,
+          "p95_us": 44.379999999999995
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 327.8294412693556,
+      "certified_parameter_per_second": 0.0,
+      "positive_cells_per_second": null,
+      "numerical_samples_per_second": 69713.400464756,
+      "audit_sha256": "77121005d6e90a40d04eb77f0e7f3bcef0ae19e93e6cc6f0bbec833bb426b0af",
+      "measurement_sha256": "0e72708dbea5a66b5b891b7f2b7c3395346eadf54ecfdeb80ec15bbfcfcfa376"
+    },
+    {
+      "id": "synthetic_broad",
+      "model": "synthetic",
+      "kind": "broad_translation",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 32,
+      "components": 32,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 68,
+      "positive_uniform_cells": 60,
+      "accepted_cells": 60,
+      "unresolved_leaves": 8,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 134,
+          "parameter": [
+            0.029296875,
+            0.02978515625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 134,
+          "parameter": [
+            0.02978515625,
+            0.0302734375
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 134,
+          "parameter": [
+            0.0302734375,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 134,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 134,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 134,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 134,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 134,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.029296874999999667,
+      "numerical_samples": 68,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 688322,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 36,
+        "enumerated_lifts": 32,
+        "pair_tests": 256,
+        "path_attempts": 1,
+        "path_nodes": 127,
+        "path_certificates": 321,
+        "cell_checks": 301,
+        "subdivisions": 67
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2345.1666666666665,
+            2236.9333333333334,
+            2224.866666666667,
+            2334.233333333333,
+            2210.5333333333333,
+            2304.633333333333,
+            2246.766666666667,
+            2283.4,
+            2418.233333333333
+          ],
+          "median_us": 2283.4,
+          "p95_us": 2389.0066666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            35027.86666666667,
+            35797.86666666667,
+            34941.23333333333,
+            34743.63333333333,
+            34980.299999999996,
+            35966.066666666666,
+            46516.63333333333,
+            38935.066666666666,
+            38216.433333333334
+          ],
+          "median_us": 35797.86666666667,
+          "p95_us": 43484.00666666666
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            32255.86666666667,
+            30564.233333333334,
+            30623.666666666668,
+            31617.899999999998,
+            31055.266666666666,
+            36562.9,
+            32144.333333333332,
+            31481.466666666664,
+            30935.600000000002
+          ],
+          "median_us": 31481.466666666664,
+          "p95_us": 34840.08666666667
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            2055.7999999999997,
+            2060.5,
+            2049.9,
+            2099.5666666666666,
+            2084.4,
+            2101.4666666666667,
+            2128.4,
+            2073.2999999999997,
+            2052.233333333333
+          ],
+          "median_us": 2073.2999999999997,
+          "p95_us": 2117.6266666666666
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            1040.3,
+            975.4666666666667,
+            1208.7,
+            974.5666666666666,
+            1063.7666666666667,
+            993.2333333333332,
+            1035.5666666666666,
+            980,
+            1010.0666666666666
+          ],
+          "median_us": 1010.0666666666666,
+          "p95_us": 1150.7266666666667
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 27.934625527033266,
+      "certified_parameter_per_second": 0.9306070555797803,
+      "positive_cells_per_second": 28939.372015627265,
+      "numerical_samples_per_second": 67322.28895782457,
+      "audit_sha256": "2275fd8c4fd01fcbf9a62a5ed579f1dbde633a24861715458a525e2a1cd534bb",
+      "measurement_sha256": "09f012afd7dd816fd3af42df0b804cc634152a47e10f6923601149e6ce544342"
+    },
+    {
+      "id": "synthetic_zero_work",
+      "model": "synthetic",
+      "kind": "zero_path_work",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 32,
+      "components": 32,
+      "edges": 0,
+      "attempted_paths": 16,
+      "complete_paths": 0,
+      "retained_leaves": 16,
+      "positive_uniform_cells": 0,
+      "accepted_cells": 0,
+      "unresolved_leaves": 16,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 0,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 17,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 34,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 51,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 68,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 85,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 102,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 119,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 136,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 153,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 170,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 187,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 204,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 221,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 238,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 255,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.0,
+      "numerical_samples": 16,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 586994,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 36,
+        "enumerated_lifts": 32,
+        "pair_tests": 256,
+        "path_attempts": 16,
+        "path_nodes": 0,
+        "path_certificates": 0,
+        "cell_checks": 0,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2497.5,
+            2399.1,
+            2401.733333333333,
+            2248.866666666667,
+            2217.1,
+            2281.9333333333334,
+            2197.266666666667,
+            2217.0333333333333,
+            2210.233333333333
+          ],
+          "median_us": 2248.866666666667,
+          "p95_us": 2459.193333333333
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            5575.766666666666,
+            5297.766666666666,
+            5183.833333333333,
+            5055.366666666667,
+            5136.466666666666,
+            4925.433333333333,
+            4874.400000000001,
+            5103.099999999999,
+            4867.733333333334
+          ],
+          "median_us": 5103.099999999999,
+          "p95_us": 5464.566666666667
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            275.96666666666664,
+            235.13333333333333,
+            223.79999999999998,
+            218.79999999999998,
+            221.79999999999998,
+            216.20000000000002,
+            223.76666666666665,
+            218.13333333333333,
+            216.9333333333333
+          ],
+          "median_us": 221.79999999999998,
+          "p95_us": 259.6333333333333
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            0.06666666666666667,
+            0.03333333333333333,
+            0.03333333333333333,
+            0.03333333333333333,
+            0.06666666666666667,
+            0.06666666666666667,
+            0.03333333333333333,
+            0.03333333333333333,
+            0.06666666666666667
+          ],
+          "median_us": 0.03333333333333333,
+          "p95_us": 0.06666666666666667
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            249.53333333333333,
+            244.6,
+            231.13333333333333,
+            266.6333333333333,
+            235.66666666666666,
+            223.66666666666666,
+            230.9,
+            229.03333333333333,
+            234.0666666666667
+          ],
+          "median_us": 234.0666666666667,
+          "p95_us": 259.7933333333333
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 195.95931884540772,
+      "certified_parameter_per_second": 0.0,
+      "positive_cells_per_second": null,
+      "numerical_samples_per_second": 68356.59356308743,
+      "audit_sha256": "52f7a4ea5a4eb323b4d92f8d66236a8680b342776f1b58da9b23e62e14c2aa7f",
+      "measurement_sha256": "48b93f4e2c2f5493cb74a8bb5c5607e5c22cb1c3e85ba00413c3639f148a51a7"
+    },
+    {
+      "id": "synthetic_partial_cover",
+      "model": "synthetic",
+      "kind": "incomplete_endpoint_catalogues",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 0,
+      "vertices": 32,
+      "components": 18,
+      "edges": 14,
+      "attempted_paths": 16,
+      "complete_paths": 14,
+      "retained_leaves": 16,
+      "positive_uniform_cells": 14,
+      "accepted_cells": 14,
+      "unresolved_leaves": 2,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 206,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 4,
+          "cell_failure": 0
+        },
+        {
+          "pair": 223,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 4,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 14.0,
+      "numerical_samples": 16,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 553810,
+      "work": {
+        "root_nodes": 0,
+        "endpoint_certificates": 32,
+        "enumerated_lifts": 0,
+        "pair_tests": 256,
+        "path_attempts": 16,
+        "path_nodes": 14,
+        "path_certificates": 14,
+        "cell_checks": 14,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2085.1,
+            2217,
+            2191.6,
+            2351.9,
+            2460.4333333333334,
+            2326.6666666666665,
+            2225.4333333333334,
+            2327.7000000000003,
+            2225.366666666667
+          ],
+          "median_us": 2225.4333333333334,
+          "p95_us": 2417.02
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            6799.733333333334,
+            6931.466666666667,
+            7711.8,
+            7389.733333333334,
+            7355.900000000001,
+            7351.466666666667,
+            7082.766666666666,
+            7334.433333333333,
+            7123.866666666666
+          ],
+          "median_us": 7334.433333333333,
+          "p95_us": 7582.973333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            1730.2,
+            1741.4333333333334,
+            2405.0666666666666,
+            1834.5,
+            1764.9333333333334,
+            1748.4333333333334,
+            1720.7,
+            1766.0333333333335,
+            1688.7
+          ],
+          "median_us": 1748.4333333333334,
+          "p95_us": 2176.8399999999997
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            495.09999999999997,
+            493.59999999999997,
+            527.1999999999999,
+            510.43333333333334,
+            495.3666666666666,
+            506.40000000000003,
+            495.8333333333333,
+            496.8333333333333,
+            495.8333333333333
+          ],
+          "median_us": 495.8333333333333,
+          "p95_us": 520.4933333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            232.79999999999998,
+            227.46666666666667,
+            287.93333333333334,
+            246.36666666666667,
+            245,
+            232.86666666666667,
+            230.9333333333333,
+            226.9,
+            284.90000000000003
+          ],
+          "median_us": 232.86666666666667,
+          "p95_us": 286.72
+        }
+      ],
+      "path_completion_rate": 0.875,
+      "queries_per_second": 136.34318488590347,
+      "certified_parameter_per_second": 8007.168322116942,
+      "positive_cells_per_second": 28235.29411764706,
+      "numerical_samples_per_second": 68708.84626395648,
+      "audit_sha256": "b11255ce2ea1634c25881fe978670e98f164b5bc09a2fbee4be2d007913da314",
+      "measurement_sha256": "33c01f3a9e712bcfaca526dc7293c62e0ef341b5f3fa0861aa6e77249675ad53"
+    },
+    {
+      "id": "synthetic_no_points",
+      "model": "synthetic",
+      "kind": "zero_endpoint_proof_work",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 0,
+      "vertices": 0,
+      "components": 0,
+      "edges": 0,
+      "attempted_paths": 0,
+      "complete_paths": 0,
+      "retained_leaves": 0,
+      "positive_uniform_cells": 0,
+      "accepted_cells": 0,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 0.0,
+      "numerical_samples": 0,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 38230,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 0,
+        "enumerated_lifts": 0,
+        "pair_tests": 0,
+        "path_attempts": 0,
+        "path_nodes": 0,
+        "path_certificates": 0,
+        "cell_checks": 0,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2253.766666666667,
+            2164.866666666667,
+            2240.0333333333333,
+            2301.0333333333333,
+            2306.1666666666665,
+            2245,
+            2209.4666666666667,
+            2270.133333333333,
+            2290.9333333333334
+          ],
+          "median_us": 2253.766666666667,
+          "p95_us": 2304.1133333333332
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            646.5,
+            689.7333333333332,
+            676.1666666666666,
+            651.2666666666667,
+            661.5,
+            651.5333333333333,
+            745.5,
+            664.5,
+            659.6333333333333
+          ],
+          "median_us": 661.5,
+          "p95_us": 723.1933333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            0.06666666666666667,
+            0,
+            0.13333333333333333,
+            0.03333333333333333,
+            0.09999999999999999,
+            0.03333333333333333,
+            0.09999999999999999,
+            0,
+            0.09999999999999999
+          ],
+          "median_us": 0.06666666666666667,
+          "p95_us": 0.11999999999999998
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            0,
+            0.03333333333333333,
+            0.06666666666666667,
+            0.03333333333333333,
+            0,
+            0,
+            0.06666666666666667,
+            0.03333333333333333,
+            0.06666666666666667
+          ],
+          "median_us": 0.03333333333333333,
+          "p95_us": 0.06666666666666667
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            0.06666666666666667,
+            0,
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0,
+            0.09999999999999999,
+            0,
+            0.06666666666666667
+          ],
+          "median_us": 0.03333333333333333,
+          "p95_us": 0.08666666666666664
+        }
+      ],
+      "path_completion_rate": null,
+      "queries_per_second": 1511.715797430083,
+      "certified_parameter_per_second": null,
+      "positive_cells_per_second": null,
+      "numerical_samples_per_second": null,
+      "audit_sha256": "bce654b5478605255366331824669c75abec704d1b9ccf564d992d75cf20695d",
+      "measurement_sha256": "b33a8198929578d28742f457cd903922c2b3f605145c6a333a1fc34825eaee70"
+    },
+    {
+      "id": "synthetic_turns",
+      "model": "synthetic",
+      "kind": "distinct_real_turns",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 64,
+      "components": 32,
+      "edges": 32,
+      "attempted_paths": 32,
+      "complete_paths": 32,
+      "retained_leaves": 32,
+      "positive_uniform_cells": 32,
+      "accepted_cells": 32,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 32.0,
+      "numerical_samples": 32,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 1281618,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 68,
+        "enumerated_lifts": 64,
+        "pair_tests": 1024,
+        "path_attempts": 32,
+        "path_nodes": 32,
+        "path_certificates": 32,
+        "cell_checks": 32,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2267.366666666667,
+            2251.1666666666665,
+            2192.133333333333,
+            2218.766666666667,
+            2212,
+            2252.233333333333,
+            2197.4666666666667,
+            2280.866666666667,
+            2211.4
+          ],
+          "median_us": 2218.766666666667,
+          "p95_us": 2275.4666666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            15932.6,
+            15820.566666666666,
+            16392.233333333334,
+            15553.266666666668,
+            15480.300000000001,
+            16155.199999999999,
+            15703.433333333334,
+            15707.5,
+            15405.633333333333
+          ],
+          "median_us": 15707.5,
+          "p95_us": 16297.42
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            3748.133333333333,
+            3910.6666666666665,
+            3901.366666666667,
+            3775.0333333333333,
+            3733.933333333333,
+            3891.4666666666667,
+            3788.6,
+            4945.333333333333,
+            4055.6
+          ],
+          "median_us": 3891.4666666666667,
+          "p95_us": 4589.44
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            1140.1666666666667,
+            1104.3333333333333,
+            1105.9333333333334,
+            1122.1666666666667,
+            1190.2333333333333,
+            1124.1000000000001,
+            1129.4666666666667,
+            1148.9333333333334,
+            1122.2
+          ],
+          "median_us": 1124.1000000000001,
+          "p95_us": 1173.7133333333334
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            461.1666666666667,
+            1859.1333333333332,
+            461.7,
+            459.6666666666667,
+            478.2,
+            458,
+            470.3333333333333,
+            457.4666666666667,
+            470.93333333333334
+          ],
+          "median_us": 461.7,
+          "p95_us": 1306.7599999999993
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 63.66385484641095,
+      "certified_parameter_per_second": 8223.120674295895,
+      "positive_cells_per_second": 28467.218219019658,
+      "numerical_samples_per_second": 69309.07515702838,
+      "audit_sha256": "cf20c4118089ca6abda7f9092506490efb4c325ac360232abc1948b5aba181fe",
+      "measurement_sha256": "9978a3c611bad366a1509276d23b9ad99e0ce2b3bd3ee3a1c9bfbcc3d88f93d9"
+    },
+    {
+      "id": "synthetic_decoupled",
+      "model": "synthetic",
+      "kind": "decoupled_user_profile",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 32,
+      "components": 16,
+      "edges": 16,
+      "attempted_paths": 16,
+      "complete_paths": 16,
+      "retained_leaves": 16,
+      "positive_uniform_cells": 16,
+      "accepted_cells": 16,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 16.0,
+      "numerical_samples": 16,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 585858,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 48,
+        "enumerated_lifts": 32,
+        "pair_tests": 256,
+        "path_attempts": 16,
+        "path_nodes": 16,
+        "path_certificates": 16,
+        "cell_checks": 16,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2235.633333333333,
+            2225.8333333333335,
+            2229.2999999999997,
+            2303.366666666667,
+            2269.7000000000003,
+            2262.0333333333333,
+            2197.5666666666666,
+            2350.366666666667,
+            2219.5
+          ],
+          "median_us": 2235.633333333333,
+          "p95_us": 2331.5666666666666
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            7351.866666666666,
+            7263.2,
+            7240.900000000001,
+            7197.666666666667,
+            7248.866666666666,
+            7467.133333333334,
+            7342.066666666667,
+            7329.966666666667,
+            7326.400000000001
+          ],
+          "median_us": 7326.400000000001,
+          "p95_us": 7421.026666666667
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            1895.3333333333333,
+            2050.4,
+            1956.8,
+            1946.5333333333335,
+            1959.8999999999999,
+            1892.0666666666666,
+            1885.1666666666667,
+            1927.8999999999999,
+            1905.3333333333333
+          ],
+          "median_us": 1927.8999999999999,
+          "p95_us": 2014.2
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            604.4,
+            565.3000000000001,
+            562.7333333333333,
+            570.3000000000001,
+            580.1333333333333,
+            579.1666666666666,
+            566.7666666666667,
+            554.1333333333333,
+            577.6
+          ],
+          "median_us": 570.3000000000001,
+          "p95_us": 594.6933333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            235.73333333333335,
+            227.23333333333335,
+            240.36666666666667,
+            229.23333333333335,
+            244.26666666666665,
+            226.46666666666667,
+            232.5,
+            227.29999999999998,
+            236.03333333333333
+          ],
+          "median_us": 232.5,
+          "p95_us": 242.70666666666665
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 136.492683992138,
+      "certified_parameter_per_second": 8299.18564240884,
+      "positive_cells_per_second": 28055.40943363142,
+      "numerical_samples_per_second": 68817.20430107527,
+      "audit_sha256": "aeb898187816e86b3a93fbc6ac198eda654b477b114990f049b7461c218b4183",
+      "measurement_sha256": "4b898d4a17a7fc557676fbce928dcdfebc298d166a39e660bd50543036c2e9ae"
+    },
+    {
+      "id": "synthetic_quaternion_zero",
+      "model": "synthetic",
+      "kind": "vanishing_path_quaternion",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 32,
+      "components": 32,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 30,
+      "positive_uniform_cells": 2,
+      "accepted_cells": 2,
+      "unresolved_leaves": 28,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 0,
+          "parameter": [
+            3.725290298461914e-09,
+            7.450580596923828e-09
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            7.450580596923828e-09,
+            1.4901161193847656e-08
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            1.4901161193847656e-08,
+            2.9802322387695312e-08
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            2.9802322387695312e-08,
+            5.960464477539063e-08
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            5.960464477539063e-08,
+            1.1920928955078125e-07
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            1.1920928955078125e-07,
+            2.384185791015625e-07
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            2.384185791015625e-07,
+            4.76837158203125e-07
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            4.76837158203125e-07,
+            9.5367431640625e-07
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            9.5367431640625e-07,
+            1.9073486328125e-06
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            1.9073486328125e-06,
+            3.814697265625e-06
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            3.814697265625e-06,
+            7.62939453125e-06
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            7.62939453125e-06,
+            1.52587890625e-05
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            1.52587890625e-05,
+            3.0517578125e-05
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            3.0517578125e-05,
+            6.103515625e-05
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            6.103515625e-05,
+            0.0001220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.0001220703125,
+            0.000244140625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.000244140625,
+            0.00048828125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.00048828125,
+            0.0009765625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.0009765625,
+            0.001953125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.001953125,
+            0.00390625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.00390625,
+            0.0078125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.0078125,
+            0.015625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.015625,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 3.7252899653950067e-09,
+      "numerical_samples": 30,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 510114,
+      "work": {
+        "root_nodes": 80,
+        "endpoint_certificates": 36,
+        "enumerated_lifts": 32,
+        "pair_tests": 256,
+        "path_attempts": 1,
+        "path_nodes": 31,
+        "path_certificates": 83,
+        "cell_checks": 83,
+        "subdivisions": 29
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            2463.6666666666665,
+            2252.9333333333334,
+            2273.7000000000003,
+            2266.2999999999997,
+            2206.1,
+            3119.0333333333333,
+            2168.4,
+            2361.7999999999997,
+            2204.2000000000003
+          ],
+          "median_us": 2266.2999999999997,
+          "p95_us": 2856.8866666666663
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            12042.933333333334,
+            11959.133333333333,
+            12148.9,
+            12194.333333333334,
+            11778.699999999999,
+            11897.933333333334,
+            11680,
+            12505.566666666666,
+            11799.566666666666
+          ],
+          "median_us": 11959.133333333333,
+          "p95_us": 12381.073333333334
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            7749.133333333334,
+            7769.900000000001,
+            7745.666666666667,
+            7853.900000000001,
+            7636.2,
+            7634.633333333334,
+            7594.666666666667,
+            8073.633333333334,
+            7599.566666666667
+          ],
+          "median_us": 7745.666666666667,
+          "p95_us": 7985.740000000001
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            70.36666666666666,
+            71.60000000000001,
+            78.03333333333333,
+            101.96666666666665,
+            67.89999999999999,
+            70.63333333333334,
+            69.96666666666667,
+            69.8,
+            69.89999999999999
+          ],
+          "median_us": 70.36666666666666,
+          "p95_us": 92.39333333333332
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            427.76666666666665,
+            425.8333333333333,
+            428.3666666666666,
+            428.1666666666667,
+            424.40000000000003,
+            422.7,
+            426.7,
+            426.4666666666667,
+            486.43333333333334
+          ],
+          "median_us": 426.7,
+          "p95_us": 463.20666666666665
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 83.61809941634567,
+      "certified_parameter_per_second": 4.8095149529565e-07,
+      "positive_cells_per_second": 28422.548555187117,
+      "numerical_samples_per_second": 70307.00726505741,
+      "audit_sha256": "1eae10a3f85d7e15efb166ded6a34671392ac4ee97355a7e28058c8c791dd85c",
+      "measurement_sha256": "c1ae9c6f92486642a2ca9bcbe7a9e409775215cf39289340c4a3cf1866e0640d"
+    },
+    {
+      "id": "synthetic_halfturn",
+      "model": "synthetic",
+      "kind": "half_turn_endpoint_rotation",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 28,
+      "components": 28,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 0,
+      "accepted_cells": 0,
+      "unresolved_leaves": 1,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 80,
+          "parameter": [
+            0,
+            1
+          ],
+          "failure": 4,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 297338,
+      "work": {
+        "root_nodes": 74,
+        "endpoint_certificates": 31,
+        "enumerated_lifts": 28,
+        "pair_tests": 192,
+        "path_attempts": 1,
+        "path_nodes": 0,
+        "path_certificates": 0,
+        "cell_checks": 0,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1991.8,
+            2075.1,
+            2063.5333333333333,
+            2280,
+            2266.766666666667,
+            2185.4,
+            2140.5666666666666,
+            2027.5,
+            2047.5
+          ],
+          "median_us": 2075.1,
+          "p95_us": 2274.706666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            3822.0333333333333,
+            3555.7333333333336,
+            4221.933333333333,
+            4935.766666666666,
+            3702.633333333333,
+            3632.6666666666665,
+            3644.066666666667,
+            3557.3333333333335,
+            3427.8333333333335
+          ],
+          "median_us": 3644.066666666667,
+          "p95_us": 4650.233333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            15.766666666666666,
+            17.133333333333333,
+            38.666666666666664,
+            43.56666666666666,
+            15.833333333333334,
+            14.766666666666666,
+            14.833333333333334,
+            14.433333333333332,
+            14.166666666666666
+          ],
+          "median_us": 15.766666666666666,
+          "p95_us": 41.60666666666666
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            0.03333333333333333,
+            0.03333333333333333,
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0.03333333333333333,
+            0.03333333333333333
+          ],
+          "median_us": 0.03333333333333333,
+          "p95_us": 0.03333333333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            36.266666666666666,
+            33.03333333333333,
+            85.7,
+            82.23333333333333,
+            32,
+            26.766666666666666,
+            30.833333333333332,
+            26.366666666666664,
+            29.266666666666666
+          ],
+          "median_us": 32.0,
+          "p95_us": 84.31333333333333
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 274.41868974222933,
+      "certified_parameter_per_second": 0.0,
+      "positive_cells_per_second": null,
+      "numerical_samples_per_second": 31250.0,
+      "audit_sha256": "b1616064ceb05d38c06d7f667cfc966c8d39818d4bc373dac44104b87ce42963",
+      "measurement_sha256": "676a057d9bee011813300d55e2d0540a0dd2ca580c9baa5ba9f9d8a1f69a55bd"
+    },
+    {
+      "id": "synthetic_frames",
+      "model": "synthetic",
+      "kind": "nonidentity_base_tcp",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 8,
+      "components": 7,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 102054,
+      "work": {
+        "root_nodes": 32,
+        "endpoint_certificates": 8,
+        "enumerated_lifts": 8,
+        "pair_tests": 16,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            692.4333333333334,
+            697.8333333333334,
+            656.3333333333334,
+            685.8333333333334,
+            691.9,
+            727.8000000000001,
+            693.9333333333334,
+            688.9333333333334,
+            679.8666666666667
+          ],
+          "median_us": 691.9,
+          "p95_us": 715.8133333333334
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1037.3999999999999,
+            976.7666666666668,
+            970.1666666666666,
+            1174.8666666666666,
+            1051.5,
+            1080.8333333333333,
+            1063.2666666666667,
+            1011.4,
+            1109.8666666666666
+          ],
+          "median_us": 1051.5,
+          "p95_us": 1148.8666666666666
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            121,
+            118.10000000000001,
+            118.03333333333335,
+            115.46666666666665,
+            123.83333333333333,
+            121.03333333333335,
+            124.13333333333333,
+            120.93333333333334,
+            121.26666666666667
+          ],
+          "median_us": 121.0,
+          "p95_us": 124.01333333333332
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            35.03333333333333,
+            35.666666666666664,
+            34.4,
+            34.96666666666667,
+            35.9,
+            36.733333333333334,
+            36.1,
+            36.6,
+            35.199999999999996
+          ],
+          "median_us": 35.666666666666664,
+          "p95_us": 36.68
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            17.366666666666667,
+            16.166666666666668,
+            16.833333333333332,
+            15.733333333333334,
+            18.400000000000002,
+            16.533333333333335,
+            17.599999999999998,
+            16.533333333333335,
+            17.2
+          ],
+          "median_us": 16.833333333333332,
+          "p95_us": 18.080000000000002
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 951.0223490252021,
+      "certified_parameter_per_second": 8264.462809917355,
+      "positive_cells_per_second": 28037.383177570096,
+      "numerical_samples_per_second": 59405.94059405941,
+      "audit_sha256": "cbe83420493afb87a367cdf72b6835a6770153fd66fb7e6cbce9961c78bdebd5",
+      "measurement_sha256": "c206da80c2547c26b93966c4d6573bc8654959b3dd0b78033c836619f400799e"
+    },
+    {
+      "id": "synthetic_near_singular_2",
+      "model": "synthetic",
+      "kind": "rounded_near_singular_pose_proposal",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 8,
+      "components": 7,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 102934,
+      "work": {
+        "root_nodes": 36,
+        "endpoint_certificates": 8,
+        "enumerated_lifts": 8,
+        "pair_tests": 16,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            729.9666666666667,
+            777.8000000000001,
+            809.6,
+            758.4,
+            818.9666666666667,
+            780.2333333333332,
+            738.1666666666666,
+            738.8333333333334,
+            736.1666666666666
+          ],
+          "median_us": 758.4,
+          "p95_us": 815.22
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1115.7,
+            1173.3999999999999,
+            1166.7666666666667,
+            1117,
+            1171.2,
+            1120.2333333333333,
+            1115.7666666666667,
+            1174.1000000000001,
+            1124.3333333333333
+          ],
+          "median_us": 1124.3333333333333,
+          "p95_us": 1173.82
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            124.23333333333333,
+            120.93333333333334,
+            126.39999999999999,
+            122.26666666666667,
+            136.33333333333334,
+            125.26666666666667,
+            122.76666666666667,
+            159.86666666666667,
+            122.3
+          ],
+          "median_us": 124.23333333333333,
+          "p95_us": 150.45333333333332
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            37.666666666666664,
+            40.1,
+            38.800000000000004,
+            39.199999999999996,
+            39.63333333333333,
+            41.53333333333333,
+            38.266666666666666,
+            38.300000000000004,
+            37.699999999999996
+          ],
+          "median_us": 38.800000000000004,
+          "p95_us": 40.96
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.266666666666666,
+            14.233333333333334,
+            15.666666666666666,
+            14.633333333333333,
+            16.566666666666666,
+            14.666666666666666,
+            15.333333333333334,
+            14.366666666666667,
+            16.766666666666666
+          ],
+          "median_us": 15.266666666666666,
+          "p95_us": 16.686666666666667
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 889.4159501927069,
+      "certified_parameter_per_second": 8049.369466058492,
+      "positive_cells_per_second": 25773.195876288657,
+      "numerical_samples_per_second": 65502.18340611354,
+      "audit_sha256": "7969b5e47dcaa6d4ccef8ab604bce4a96ad5f678c50c774c11fadfc5e3d8b4a6",
+      "measurement_sha256": "0f0dc8f9d753da0cd4f6785e21129d143e78a145474cc760952691e4c46da970"
+    },
+    {
+      "id": "synthetic_near_singular_4",
+      "model": "synthetic",
+      "kind": "rounded_near_singular_pose_proposal",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 0,
+      "vertices": 0,
+      "components": 0,
+      "edges": 0,
+      "attempted_paths": 0,
+      "complete_paths": 0,
+      "retained_leaves": 0,
+      "positive_uniform_cells": 0,
+      "accepted_cells": 0,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 0.0,
+      "numerical_samples": 0,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 33862,
+      "work": {
+        "root_nodes": 64,
+        "endpoint_certificates": 8,
+        "enumerated_lifts": 0,
+        "pair_tests": 0,
+        "path_attempts": 0,
+        "path_nodes": 0,
+        "path_certificates": 0,
+        "cell_checks": 0,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            893.9,
+            856.3666666666667,
+            961.4333333333334,
+            920.7333333333332,
+            884.9666666666667,
+            952.5,
+            988.6,
+            882.6,
+            880
+          ],
+          "median_us": 893.9,
+          "p95_us": 977.7333333333333
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            930.8000000000001,
+            923.0666666666666,
+            1041.8999999999999,
+            966.7666666666668,
+            960.4333333333334,
+            992.3000000000001,
+            979.6,
+            1006.2333333333332,
+            990.7666666666668
+          ],
+          "median_us": 979.6,
+          "p95_us": 1027.6333333333332
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            0.06666666666666667,
+            0,
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0.03333333333333333,
+            0.03333333333333333
+          ],
+          "median_us": 0.03333333333333333,
+          "p95_us": 0.05333333333333332
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0,
+            0,
+            0.03333333333333333,
+            0.03333333333333333,
+            0,
+            0.03333333333333333
+          ],
+          "median_us": 0.03333333333333333,
+          "p95_us": 0.03333333333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            0.06666666666666667,
+            0,
+            0,
+            0,
+            0.03333333333333333,
+            0,
+            0,
+            0,
+            0.03333333333333333
+          ],
+          "median_us": 0.0,
+          "p95_us": 0.05333333333333332
+        }
+      ],
+      "path_completion_rate": null,
+      "queries_per_second": 1020.8248264597795,
+      "certified_parameter_per_second": null,
+      "positive_cells_per_second": null,
+      "numerical_samples_per_second": null,
+      "audit_sha256": "7f13819e8abb601ffa8d749f1f74e9988864a342bd5a36221a868ea73f187e5f",
+      "measurement_sha256": "44d48fb8aa4e9c59c6fa24d7206ee31a162610597a78ad5df14f8ca95e81c7d1"
+    },
+    {
+      "id": "synthetic_near_singular_6",
+      "model": "synthetic",
+      "kind": "rounded_near_singular_pose_proposal",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 0,
+      "vertices": 0,
+      "components": 0,
+      "edges": 0,
+      "attempted_paths": 0,
+      "complete_paths": 0,
+      "retained_leaves": 0,
+      "positive_uniform_cells": 0,
+      "accepted_cells": 0,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 0.0,
+      "numerical_samples": 0,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 1974738,
+      "work": {
+        "root_nodes": 16384,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 0,
+        "pair_tests": 0,
+        "path_attempts": 0,
+        "path_nodes": 0,
+        "path_certificates": 0,
+        "cell_checks": 0,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            89340.33333333333,
+            86057,
+            88501.03333333333,
+            85855.40000000001,
+            93637.40000000001,
+            86626.8,
+            88074.33333333333,
+            87067.86666666667,
+            91047.96666666667
+          ],
+          "median_us": 88074.33333333333,
+          "p95_us": 92601.62666666668
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            86304.83333333333,
+            88190.06666666667,
+            86404.7,
+            86616.86666666667,
+            88948.03333333333,
+            87037.66666666667,
+            87322.83333333333,
+            89823.43333333333,
+            89158.16666666667
+          ],
+          "median_us": 87322.83333333333,
+          "p95_us": 89557.32666666668
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            0.09999999999999999,
+            0,
+            0.06666666666666667,
+            0,
+            0.09999999999999999,
+            0,
+            0.06666666666666667,
+            0,
+            0.09999999999999999
+          ],
+          "median_us": 0.06666666666666667,
+          "p95_us": 0.09999999999999999
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0.03333333333333333,
+            0.03333333333333333,
+            0,
+            0.03333333333333333,
+            0,
+            0.03333333333333333
+          ],
+          "median_us": 0.03333333333333333,
+          "p95_us": 0.03333333333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            0.03333333333333333,
+            0.03333333333333333,
+            0.06666666666666667,
+            0,
+            0.03333333333333333,
+            0.03333333333333333,
+            0.06666666666666667,
+            0,
+            0.03333333333333333
+          ],
+          "median_us": 0.03333333333333333,
+          "p95_us": 0.06666666666666667
+        }
+      ],
+      "path_completion_rate": null,
+      "queries_per_second": 11.451758512950985,
+      "certified_parameter_per_second": null,
+      "positive_cells_per_second": null,
+      "numerical_samples_per_second": null,
+      "audit_sha256": "cf669fc74074f5214777cbd4e0d6990825a8a0612fe8cd84d5d35c640133a69e",
+      "measurement_sha256": "fa4d5a0c0affa913b9e1bf93e7cea27d59d28d513f902b92a2db6aee345e1008"
+    },
+    {
+      "id": "synthetic_exact_singular",
+      "model": "synthetic",
+      "kind": "exact_singular_zero_joint_witness",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 0,
+      "vertices": 8,
+      "components": 7,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 2050786,
+      "work": {
+        "root_nodes": 16384,
+        "endpoint_certificates": 20,
+        "enumerated_lifts": 0,
+        "pair_tests": 16,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            88260.33333333333,
+            91443.8,
+            89147.2,
+            86273.93333333333,
+            87557.8,
+            88105.66666666667,
+            88166.13333333335,
+            86742.93333333333,
+            86445.23333333334
+          ],
+          "median_us": 88105.66666666667,
+          "p95_us": 90525.16
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            88084.3,
+            86669.43333333333,
+            88834.7,
+            88235.86666666665,
+            87162.26666666666,
+            90308.96666666667,
+            88277.46666666667,
+            90487.66666666667,
+            87235.83333333333
+          ],
+          "median_us": 88235.86666666665,
+          "p95_us": 90416.18666666668
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            112.33333333333333,
+            108,
+            114.89999999999999,
+            111.23333333333333,
+            114.5,
+            113.39999999999999,
+            112.13333333333333,
+            108.16666666666667,
+            112.66666666666667
+          ],
+          "median_us": 112.33333333333333,
+          "p95_us": 114.74
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            33.4,
+            33.766666666666666,
+            34,
+            34.833333333333336,
+            33.96666666666667,
+            34.699999999999996,
+            33.06666666666667,
+            33.666666666666664,
+            33.233333333333334
+          ],
+          "median_us": 33.766666666666666,
+          "p95_us": 34.78
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.200000000000001,
+            13.166666666666666,
+            15.266666666666666,
+            13.533333333333333,
+            15.333333333333334,
+            13.466666666666667,
+            14.766666666666666,
+            13.366666666666667,
+            14.966666666666667
+          ],
+          "median_us": 14.766666666666666,
+          "p95_us": 15.306666666666667
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 11.33325979306979,
+      "certified_parameter_per_second": 8902.077151335312,
+      "positive_cells_per_second": 29615.004935834157,
+      "numerical_samples_per_second": 67720.09029345373,
+      "audit_sha256": "fbf8203009676fca7177ca73cf4416089f530061cb98bbafa9bb652124e2024c",
+      "measurement_sha256": "9e8ba0d38217f58d8db8d7bd4c4ee49bfbdf6dba18cbe445e84050433f30254e"
+    },
+    {
+      "id": "synthetic_interior_limit",
+      "model": "synthetic",
+      "kind": "legal_endpoints_with_interior_limit_violation",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 4,
+      "components": 4,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 24,
+      "positive_uniform_cells": 8,
+      "accepted_cells": 8,
+      "unresolved_leaves": 16,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 0,
+          "parameter": [
+            6.103515625e-05,
+            7.62939453125e-05
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            7.62939453125e-05,
+            9.1552734375e-05
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            9.1552734375e-05,
+            0.0001220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.0001220703125,
+            0.000244140625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.000244140625,
+            0.00048828125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.00048828125,
+            0.0009765625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.0009765625,
+            0.001953125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.001953125,
+            0.00390625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.00390625,
+            0.0078125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.0078125,
+            0.015625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.015625,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 0,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 6.103515624966693e-05,
+      "numerical_samples": 24,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 142958,
+      "work": {
+        "root_nodes": 32,
+        "endpoint_certificates": 10,
+        "enumerated_lifts": 4,
+        "pair_tests": 4,
+        "path_attempts": 1,
+        "path_nodes": 31,
+        "path_certificates": 78,
+        "cell_checks": 66,
+        "subdivisions": 23
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            712.6,
+            879.5333333333333,
+            720.8666666666667,
+            786.0333333333333,
+            1315.9666666666667,
+            886.6666666666666,
+            734.6666666666666,
+            711.0333333333333,
+            724.6666666666666
+          ],
+          "median_us": 734.6666666666666,
+          "p95_us": 1144.2466666666664
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            8110.599999999999,
+            8364.699999999999,
+            8099.3,
+            8776.233333333334,
+            7942.400000000001,
+            8057.133333333334,
+            8208.666666666666,
+            8075.866666666666,
+            7959.433333333333
+          ],
+          "median_us": 8099.3,
+          "p95_us": 8611.619999999999
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            7321.2,
+            7362.433333333333,
+            7070.8,
+            7019.766666666666,
+            6998.466666666667,
+            7041.3,
+            7208.033333333333,
+            7443.5,
+            7145.233333333334
+          ],
+          "median_us": 7145.233333333334,
+          "p95_us": 7411.073333333334
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            297.73333333333335,
+            286.1333333333333,
+            271.8333333333333,
+            273,
+            273.6666666666667,
+            368.8666666666666,
+            273.6333333333333,
+            289.8,
+            272.1666666666667
+          ],
+          "median_us": 273.6666666666667,
+          "p95_us": 340.4133333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            355.40000000000003,
+            360.8666666666666,
+            344.23333333333335,
+            341.40000000000003,
+            352.6333333333334,
+            354.76666666666665,
+            344.59999999999997,
+            381,
+            342.8
+          ],
+          "median_us": 352.6333333333334,
+          "p95_us": 372.94666666666666
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 123.46746015087723,
+      "certified_parameter_per_second": 0.008542080209603642,
+      "positive_cells_per_second": 29232.643118148597,
+      "numerical_samples_per_second": 68059.36288874183,
+      "audit_sha256": "c00a0f8d0789f72be90f00b1001813786dca218b5a1c9a476a58ac40e188032c",
+      "measurement_sha256": "6f4862dc5dfe70ce69400120e962cfe135f5a0024d8ac62b8b52a23099f8bfed"
+    },
+    {
+      "id": "crx_5ia_constant",
+      "model": "CRX-5iA",
+      "kind": "asset_nominal_constant",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 193490,
+      "work": {
+        "root_nodes": 48,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1196.0333333333333,
+            1274.5333333333333,
+            1242.8999999999999,
+            1276.3666666666666,
+            1222.4666666666667,
+            1242.6333333333334,
+            1192.2,
+            1216.9666666666667,
+            1164.3666666666666
+          ],
+          "median_us": 1222.4666666666667,
+          "p95_us": 1275.6333333333332
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1911.1333333333332,
+            2133.6,
+            1990.5,
+            1923.8333333333333,
+            1956.8333333333333,
+            2025.3999999999999,
+            1941.2,
+            1861.1333333333332,
+            1896.8666666666668
+          ],
+          "median_us": 1941.2,
+          "p95_us": 2090.3199999999997
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            120.06666666666666,
+            116.56666666666666,
+            122.93333333333334,
+            119.26666666666667,
+            123.93333333333334,
+            122.06666666666666,
+            120.06666666666666,
+            117.43333333333334,
+            117.53333333333335
+          ],
+          "median_us": 120.06666666666666,
+          "p95_us": 123.53333333333333
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            35.5,
+            36.199999999999996,
+            36.53333333333333,
+            37.13333333333333,
+            36.53333333333333,
+            37,
+            35.4,
+            36.13333333333333,
+            34.666666666666664
+          ],
+          "median_us": 36.199999999999996,
+          "p95_us": 37.08
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            17,
+            14.833333333333334,
+            16.666666666666668,
+            15.133333333333333,
+            16.833333333333332,
+            15.1,
+            15.933333333333332,
+            14.933333333333332,
+            15.333333333333334
+          ],
+          "median_us": 15.333333333333334,
+          "p95_us": 16.933333333333334
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 515.1452709664126,
+      "certified_parameter_per_second": 8328.70627429206,
+      "positive_cells_per_second": 27624.309392265197,
+      "numerical_samples_per_second": 65217.391304347824,
+      "audit_sha256": "933d961d6f5add482d486f0888a38077d0aff3db2b7519613d6db398bc190b23",
+      "measurement_sha256": "292f3edf647f663d10c2292241a0eef3cb530eaee59806c768f0c353155240cc"
+    },
+    {
+      "id": "crx_5ia_tiny",
+      "model": "CRX-5iA",
+      "kind": "asset_nominal_tiny",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 193490,
+      "work": {
+        "root_nodes": 48,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1144.8666666666666,
+            1154.1666666666667,
+            1131.1000000000001,
+            1185.2333333333333,
+            1135.0666666666666,
+            1144.7333333333333,
+            1181.8666666666666,
+            1142.9666666666667,
+            1181.7666666666667
+          ],
+          "median_us": 1144.8666666666666,
+          "p95_us": 1183.8866666666665
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1819.4666666666665,
+            1718.0333333333335,
+            1835.3,
+            1776.1000000000001,
+            1806.5333333333335,
+            1791.3,
+            1836.2,
+            1804.2,
+            1758.3999999999999
+          ],
+          "median_us": 1804.2,
+          "p95_us": 1835.84
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            109.93333333333334,
+            106.8,
+            116.10000000000001,
+            111.43333333333334,
+            115.03333333333335,
+            112.2,
+            113.83333333333333,
+            116.03333333333335,
+            114.16666666666667
+          ],
+          "median_us": 113.83333333333333,
+          "p95_us": 116.07333333333334
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            32.266666666666666,
+            34.63333333333333,
+            33.56666666666667,
+            34.56666666666667,
+            71.83333333333333,
+            34.53333333333333,
+            35.333333333333336,
+            34.266666666666666,
+            34.4
+          ],
+          "median_us": 34.53333333333333,
+          "p95_us": 57.23333333333332
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            14.766666666666666,
+            13.566666666666668,
+            15.033333333333333,
+            17.5,
+            16.033333333333335,
+            14.1,
+            15.133333333333333,
+            14.166666666666666,
+            15.200000000000001
+          ],
+          "median_us": 15.033333333333333,
+          "p95_us": 16.913333333333334
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 554.2622769094336,
+      "certified_parameter_per_second": 8784.773060029283,
+      "positive_cells_per_second": 28957.52895752896,
+      "numerical_samples_per_second": 66518.84700665188,
+      "audit_sha256": "a27551e6c0f293ed9e7da607bdd052c55344d2ee7c94c5012218ed8d82e56bab",
+      "measurement_sha256": "1b9299928392cebb1ff80b7070f425642526f0f4b7e2c75e363d6f3587a59931"
+    },
+    {
+      "id": "crx_5ia_moving",
+      "model": "CRX-5iA",
+      "kind": "asset_nominal_moving",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 16,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 513,
+      "positive_uniform_cells": 511,
+      "accepted_cells": 511,
+      "unresolved_leaves": 2,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 18,
+          "parameter": [
+            0.4990234375,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.4990234374999998,
+      "numerical_samples": 513,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 2511770,
+      "work": {
+        "root_nodes": 48,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1023,
+        "path_certificates": 2132,
+        "cell_checks": 2124,
+        "subdivisions": 512
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1253.2666666666667,
+            1241.6666666666667,
+            1216.6666666666667,
+            1230.5333333333333,
+            1175.0666666666666,
+            1195.7333333333333,
+            1171.3,
+            1296.9666666666667,
+            1219.2666666666667
+          ],
+          "median_us": 1219.2666666666667,
+          "p95_us": 1279.4866666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            217002.46666666667,
+            212267.80000000002,
+            208931.36666666667,
+            209513.1,
+            212721.53333333333,
+            212182.93333333335,
+            215219.13333333333,
+            214569.53333333333,
+            213407.63333333333
+          ],
+          "median_us": 212721.53333333333,
+          "p95_us": 216289.13333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            208742.13333333333,
+            216676.83333333334,
+            209349.06666666665,
+            212348.33333333334,
+            212550.1,
+            219451.19999999998,
+            209381.2333333333,
+            219331.30000000002,
+            206573.16666666666
+          ],
+          "median_us": 212348.33333333334,
+          "p95_us": 219403.24
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            18041.633333333335,
+            17828.866666666665,
+            18454.566666666666,
+            18220.100000000002,
+            18080.333333333332,
+            17835.833333333332,
+            17922.899999999998,
+            18302.266666666666,
+            17949.7
+          ],
+          "median_us": 18041.633333333335,
+          "p95_us": 18393.646666666667
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            7638.099999999999,
+            7502.400000000001,
+            7879.8,
+            7905.433333333333,
+            7709.533333333333,
+            8113.566666666667,
+            7829.033333333333,
+            7614.566666666667,
+            7607.033333333333
+          ],
+          "median_us": 7709.533333333333,
+          "p95_us": 8030.3133333333335
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 4.70098153360434,
+      "certified_parameter_per_second": 2.350022859452628,
+      "positive_cells_per_second": 28323.377964670603,
+      "numerical_samples_per_second": 66540.99253737797,
+      "audit_sha256": "2388b95fe543f9700ade13ef0c3616a0e3487d88dd9deaceb6d7d13067316e9f",
+      "measurement_sha256": "3d48b8fdb3ebd259d7e5c5359a0f82345af43a3b1c2ac8f3a89144f7e697ccc6"
+    },
+    {
+      "id": "crx_5ia_broad",
+      "model": "CRX-5iA",
+      "kind": "asset_nominal_broad",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 16,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 72,
+      "positive_uniform_cells": 56,
+      "accepted_cells": 56,
+      "unresolved_leaves": 16,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 18,
+          "parameter": [
+            5.340576171875e-05,
+            5.7220458984375e-05
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            5.7220458984375e-05,
+            6.103515625e-05
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            6.103515625e-05,
+            0.0001220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001220703125,
+            0.000244140625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000244140625,
+            0.00048828125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00048828125,
+            0.0009765625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0009765625,
+            0.001953125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.001953125,
+            0.00390625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00390625,
+            0.0078125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0078125,
+            0.015625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.015625,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 5.340576171841693e-05,
+      "numerical_samples": 72,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 471594,
+      "work": {
+        "root_nodes": 48,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 127,
+        "path_certificates": 277,
+        "cell_checks": 263,
+        "subdivisions": 71
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1217.1000000000001,
+            1228.8,
+            1166.3666666666666,
+            1168.0666666666666,
+            1164.3666666666666,
+            1227.1000000000001,
+            1180.4666666666667,
+            1231.9333333333334,
+            1152.5333333333333
+          ],
+          "median_us": 1180.4666666666667,
+          "p95_us": 1230.68
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            27525.833333333332,
+            28907.933333333334,
+            28461.399999999998,
+            28343.233333333334,
+            28326.033333333336,
+            28452.3,
+            28527.63333333333,
+            28396.8,
+            28182.399999999998
+          ],
+          "median_us": 28396.8,
+          "p95_us": 28755.81333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            26196.600000000002,
+            29510.933333333334,
+            26154.7,
+            26584.466666666664,
+            26713.766666666666,
+            26872,
+            26302.100000000002,
+            27568.066666666666,
+            26121.066666666666
+          ],
+          "median_us": 26584.466666666664,
+          "p95_us": 28733.786666666667
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            1928.7,
+            1984.8666666666668,
+            1933.3999999999999,
+            1909.2,
+            1914.2,
+            2093.2000000000003,
+            1911.9666666666665,
+            1908.2333333333333,
+            2093.266666666667
+          ],
+          "median_us": 1928.7,
+          "p95_us": 2093.2400000000002
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            1057.8333333333333,
+            1034.3999999999999,
+            1054.3999999999999,
+            1080.2333333333333,
+            1217.5333333333333,
+            1032.9333333333334,
+            1094.8333333333333,
+            1095.6666666666667,
+            1064.6333333333334
+          ],
+          "median_us": 1064.6333333333334,
+          "p95_us": 1168.7866666666666
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 35.21523551949515,
+      "certified_parameter_per_second": 0.0020089085249688516,
+      "positive_cells_per_second": 29035.101363612797,
+      "numerical_samples_per_second": 67628.91762422117,
+      "audit_sha256": "1296e318be63b7326b529d0484efdc50c15cef98c03bed10ca080cf2da14ebd5",
+      "measurement_sha256": "b711b408eaf07697928534bad27a4f490de9669e6436ea5eba2551f955779d6d"
+    },
+    {
+      "id": "crx_10ia_constant",
+      "model": "CRX-10iA",
+      "kind": "asset_nominal_constant",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191730,
+      "work": {
+        "root_nodes": 44,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1125.8333333333333,
+            1079.8333333333333,
+            1118.7333333333333,
+            1097.8333333333333,
+            1130,
+            1154.1000000000001,
+            1102.6333333333334,
+            1080.2666666666667,
+            1091.3999999999999
+          ],
+          "median_us": 1102.6333333333334,
+          "p95_us": 1144.46
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1791.5333333333335,
+            1698.0666666666666,
+            1753.3999999999999,
+            1753.0666666666666,
+            1789.0666666666666,
+            1786.5333333333335,
+            1833.3666666666668,
+            1844.5333333333335,
+            1783.8666666666668
+          ],
+          "median_us": 1786.5333333333335,
+          "p95_us": 1840.0666666666668
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            111.53333333333335,
+            148.93333333333334,
+            109.16666666666667,
+            105.76666666666667,
+            111.3,
+            109.93333333333334,
+            111.7,
+            108.06666666666666,
+            111.63333333333333
+          ],
+          "median_us": 111.3,
+          "p95_us": 134.04
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            32.766666666666666,
+            34.699999999999996,
+            32.5,
+            32.96666666666667,
+            34.6,
+            33.699999999999996,
+            33.1,
+            33.6,
+            33.199999999999996
+          ],
+          "median_us": 33.199999999999996,
+          "p95_us": 34.66
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.666666666666666,
+            14.299999999999999,
+            14.6,
+            13.533333333333333,
+            15.533333333333333,
+            13.933333333333332,
+            14.833333333333334,
+            13.866666666666667,
+            14.666666666666666
+          ],
+          "median_us": 14.6,
+          "p95_us": 15.613333333333333
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 559.7432644227181,
+      "certified_parameter_per_second": 8984.725965858042,
+      "positive_cells_per_second": 30120.481927710847,
+      "numerical_samples_per_second": 68493.1506849315,
+      "audit_sha256": "d517a4c334adccea792c22bbc8ac9cab1c33d6cd0dfd9ff3179c34b38839dcd5",
+      "measurement_sha256": "224489db31600731655755dc2edc2eb49981ce1c43372fe086654865c160c09d"
+    },
+    {
+      "id": "crx_10ia_tiny",
+      "model": "CRX-10iA",
+      "kind": "asset_nominal_tiny",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191730,
+      "work": {
+        "root_nodes": 44,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1181.8666666666666,
+            1128.2666666666667,
+            1118.6000000000001,
+            1153.7333333333333,
+            1117.4666666666667,
+            1146.7,
+            1120.3666666666666,
+            1144.1000000000001,
+            1091.6666666666667
+          ],
+          "median_us": 1128.2666666666667,
+          "p95_us": 1170.6133333333332
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1813.9333333333334,
+            1828.3666666666668,
+            1784.2666666666667,
+            1818.5666666666666,
+            1843.7666666666667,
+            1911.9666666666665,
+            1802.5666666666666,
+            1737.5666666666666,
+            1806.5333333333335
+          ],
+          "median_us": 1813.9333333333334,
+          "p95_us": 1884.6866666666665
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            115.3,
+            113.8,
+            112.33333333333333,
+            111.89999999999999,
+            176.36666666666667,
+            110.26666666666667,
+            116.8,
+            134.56666666666666,
+            116.63333333333333
+          ],
+          "median_us": 115.3,
+          "p95_us": 159.64666666666665
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            33.733333333333334,
+            34.733333333333334,
+            33.166666666666664,
+            33.766666666666666,
+            34.199999999999996,
+            33.733333333333334,
+            34.03333333333333,
+            34.43333333333333,
+            33.96666666666667
+          ],
+          "median_us": 33.96666666666667,
+          "p95_us": 34.61333333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            16.5,
+            14.133333333333333,
+            14.799999999999999,
+            13.733333333333334,
+            16.466666666666665,
+            14.433333333333332,
+            15.866666666666667,
+            14.166666666666666,
+            15.166666666666666
+          ],
+          "median_us": 14.799999999999999,
+          "p95_us": 16.486666666666665
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 551.2881767062369,
+      "certified_parameter_per_second": 8673.026886383348,
+      "positive_cells_per_second": 29440.62806673209,
+      "numerical_samples_per_second": 67567.56756756757,
+      "audit_sha256": "18998e36a5336cdab08f5819c511b320b05db8a1a85091893e032e29de818045",
+      "measurement_sha256": "7b23ec2c09420bed6e50c01df3d954033c893350792a295dd69e3e2b6fdf2cd1"
+    },
+    {
+      "id": "crx_10ia_moving",
+      "model": "CRX-10iA",
+      "kind": "asset_nominal_moving",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 16,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 513,
+      "positive_uniform_cells": 511,
+      "accepted_cells": 511,
+      "unresolved_leaves": 2,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 18,
+          "parameter": [
+            0.4990234375,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.4990234374999998,
+      "numerical_samples": 513,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 2510010,
+      "work": {
+        "root_nodes": 44,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1023,
+        "path_certificates": 2098,
+        "cell_checks": 2090,
+        "subdivisions": 512
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1203.3999999999999,
+            1208.6666666666667,
+            1223.5333333333333,
+            1222.4333333333334,
+            1194.3,
+            1223.0666666666666,
+            1249.0333333333333,
+            1173.2,
+            1811.6666666666667
+          ],
+          "median_us": 1222.4333333333334,
+          "p95_us": 1586.6133333333332
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            208257.6,
+            206472.30000000002,
+            206060.1,
+            205360,
+            209474.86666666667,
+            209893.86666666667,
+            203547.5,
+            224841.93333333335,
+            203320.2333333333
+          ],
+          "median_us": 206472.30000000002,
+          "p95_us": 218862.70666666667
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            207952.63333333333,
+            203805.06666666665,
+            210558.56666666665,
+            203924.36666666667,
+            204343.7333333333,
+            204585.53333333333,
+            201824.2333333333,
+            206566.46666666667,
+            203481.1
+          ],
+          "median_us": 204343.7333333333,
+          "p95_us": 209516.19333333333
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            18223.600000000002,
+            18616.899999999998,
+            18090.866666666665,
+            18361.100000000002,
+            18057.366666666665,
+            17793.433333333334,
+            17590.5,
+            18510.100000000002,
+            18183.166666666668
+          ],
+          "median_us": 18183.166666666668,
+          "p95_us": 18574.18
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            7620.3,
+            7699.533333333333,
+            7509.933333333333,
+            7808.400000000001,
+            7678.566666666667,
+            7603.133333333334,
+            7604.233333333334,
+            7414.900000000001,
+            7482.733333333334
+          ],
+          "median_us": 7604.233333333334,
+          "p95_us": 7764.8533333333335
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 4.8432646897428855,
+      "certified_parameter_per_second": 2.4420784986147517,
+      "positive_cells_per_second": 28102.915700418886,
+      "numerical_samples_per_second": 67462.42224725701,
+      "audit_sha256": "5ff31cfc0e1a4a986117a0b70bc87b704248180252e6304f085ef2f8cb6aee33",
+      "measurement_sha256": "f6a7ff5b43fed636f91a2eb272fe9e81276fbc152051415dba2f972eec29ece3"
+    },
+    {
+      "id": "crx_10ia_broad",
+      "model": "CRX-10iA",
+      "kind": "asset_nominal_broad",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 16,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 72,
+      "positive_uniform_cells": 56,
+      "accepted_cells": 56,
+      "unresolved_leaves": 16,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001068115234375,
+            0.000110626220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000110626220703125,
+            0.00011444091796875
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00011444091796875,
+            0.0001220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001220703125,
+            0.000244140625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000244140625,
+            0.00048828125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00048828125,
+            0.0009765625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0009765625,
+            0.001953125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.001953125,
+            0.00390625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00390625,
+            0.0078125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0078125,
+            0.015625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.015625,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.00010681152343716693,
+      "numerical_samples": 72,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 469834,
+      "work": {
+        "root_nodes": 44,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 127,
+        "path_certificates": 325,
+        "cell_checks": 311,
+        "subdivisions": 71
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1165.3999999999999,
+            1159.9666666666667,
+            1155.3999999999999,
+            1176.3666666666666,
+            1195.5666666666666,
+            1153.8999999999999,
+            1181.1333333333334,
+            1169.2,
+            1174.9666666666667
+          ],
+          "median_us": 1169.2,
+          "p95_us": 1189.7933333333333
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            31471.266666666666,
+            32295.2,
+            32459.266666666666,
+            33168,
+            32127.3,
+            32390.566666666666,
+            32053.63333333333,
+            31958.86666666667,
+            36570.666666666664
+          ],
+          "median_us": 32295.2,
+          "p95_us": 35209.6
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            30291.3,
+            30517.3,
+            30607.566666666666,
+            31584.333333333332,
+            31191.433333333334,
+            30762.766666666666,
+            30275.166666666668,
+            31643.5,
+            33218.9
+          ],
+          "median_us": 30762.766666666666,
+          "p95_us": 32588.74
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            1908.6333333333332,
+            1977.6666666666667,
+            1916.8666666666668,
+            1901.8,
+            1993.7,
+            1920.7333333333333,
+            1904.2666666666667,
+            2920.7000000000003,
+            1994.4666666666665
+          ],
+          "median_us": 1920.7333333333333,
+          "p95_us": 2550.2066666666665
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            1115,
+            1040.7,
+            1056.3666666666666,
+            1061.5666666666666,
+            1073.4666666666667,
+            1095.3,
+            1085.2666666666667,
+            1110.6666666666667,
+            1051.5
+          ],
+          "median_us": 1073.4666666666667,
+          "p95_us": 1113.2666666666667
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 30.964353835864152,
+      "certified_parameter_per_second": 0.003472103942877925,
+      "positive_cells_per_second": 29155.530873624655,
+      "numerical_samples_per_second": 67072.4133647994,
+      "audit_sha256": "bd8c44569c8c253ecae5f85326ea02fc1ecfe077560494f9144e9956e0e73f4e",
+      "measurement_sha256": "fd9fc277fd47275afd305b630bd709a430062ff5f038b451e2bc87ddbb6ce4f3"
+    },
+    {
+      "id": "crx_10ia_l_constant",
+      "model": "CRX-10iA-L",
+      "kind": "asset_nominal_constant",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191290,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1163.6333333333334,
+            1113.8999999999999,
+            1101.7666666666667,
+            1110.3333333333333,
+            1099.8,
+            1142.1666666666667,
+            1094.6000000000001,
+            1150.1000000000001,
+            1104.3666666666666
+          ],
+          "median_us": 1110.3333333333333,
+          "p95_us": 1158.22
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1787.2666666666667,
+            1879.6000000000001,
+            1809.3999999999999,
+            1869.7666666666667,
+            1823.6000000000001,
+            1777.2666666666667,
+            1805.3666666666668,
+            1751.7333333333333,
+            1768.8333333333333
+          ],
+          "median_us": 1805.3666666666668,
+          "p95_us": 1875.6666666666667
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            114.06666666666666,
+            111.89999999999999,
+            115.73333333333333,
+            111.16666666666667,
+            115.60000000000001,
+            111.36666666666667,
+            114.73333333333333,
+            110.56666666666666,
+            163.70000000000002
+          ],
+          "median_us": 114.06666666666666,
+          "p95_us": 144.51333333333332
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            34,
+            34.6,
+            33.93333333333333,
+            34.56666666666667,
+            34,
+            34.63333333333333,
+            33.96666666666667,
+            34.46666666666667,
+            35.4
+          ],
+          "median_us": 34.46666666666667,
+          "p95_us": 35.093333333333334
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.6,
+            14.133333333333333,
+            15.533333333333333,
+            14.1,
+            17.566666666666666,
+            14.133333333333333,
+            15.666666666666666,
+            14.200000000000001,
+            16.099999999999998
+          ],
+          "median_us": 15.533333333333333,
+          "p95_us": 16.979999999999997
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 553.9041007366924,
+      "certified_parameter_per_second": 8766.803039158387,
+      "positive_cells_per_second": 29013.539651837524,
+      "numerical_samples_per_second": 64377.68240343348,
+      "audit_sha256": "4390bffe25859ccc616be043bdfcad0cabc8c61c6286963a5a1b5643f8b084d0",
+      "measurement_sha256": "902d10e016c246da37b46d98c14af890ab7ae0870ab86a3f5062f6fec2008a80"
+    },
+    {
+      "id": "crx_10ia_l_tiny",
+      "model": "CRX-10iA-L",
+      "kind": "asset_nominal_tiny",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191290,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1123.5333333333333,
+            1164.2333333333333,
+            1116.6333333333334,
+            1169.0333333333333,
+            1125.1000000000001,
+            1117.6666666666667,
+            1138.6000000000001,
+            1090.8333333333333,
+            1140.5
+          ],
+          "median_us": 1125.1000000000001,
+          "p95_us": 1167.1133333333332
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1802.3,
+            1785.6000000000001,
+            1770.2333333333333,
+            1839.3666666666668,
+            1786.5333333333335,
+            1731.0666666666666,
+            1677.8333333333333,
+            1717.3,
+            1667.9333333333334
+          ],
+          "median_us": 1770.2333333333333,
+          "p95_us": 1824.54
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            116.3,
+            114.33333333333333,
+            115.56666666666666,
+            112.5,
+            118.76666666666667,
+            153.79999999999998,
+            111.66666666666667,
+            108.5,
+            112.33333333333333
+          ],
+          "median_us": 114.33333333333333,
+          "p95_us": 139.78666666666663
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            34.03333333333333,
+            34.46666666666667,
+            34.13333333333333,
+            34.46666666666667,
+            34.733333333333334,
+            35.46666666666667,
+            33.03333333333333,
+            33.666666666666664,
+            33.166666666666664
+          ],
+          "median_us": 34.13333333333333,
+          "p95_us": 35.17333333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.766666666666666,
+            14.266666666666666,
+            15.6,
+            14.266666666666666,
+            16.766666666666666,
+            14.566666666666668,
+            15.033333333333333,
+            14.033333333333333,
+            14.833333333333334
+          ],
+          "median_us": 14.833333333333334,
+          "p95_us": 16.366666666666667
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 564.8972828440695,
+      "certified_parameter_per_second": 8746.355685131195,
+      "positive_cells_per_second": 29296.875,
+      "numerical_samples_per_second": 67415.73033707865,
+      "audit_sha256": "34e9ba63d59311c0aed63c59f6ada9759c79249d98654df617a7be5781bad363",
+      "measurement_sha256": "5608dd8c12cd0d874c88695541b0381f576129e97ef6dcbf8a901ae5bf325fb9"
+    },
+    {
+      "id": "crx_10ia_l_moving",
+      "model": "CRX-10iA-L",
+      "kind": "asset_nominal_moving",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 509,
+      "positive_uniform_cells": 509,
+      "accepted_cells": 509,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 509,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 2509578,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1017,
+        "path_certificates": 2160,
+        "cell_checks": 2153,
+        "subdivisions": 508
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1154.9666666666667,
+            1138.5333333333333,
+            1132.4666666666667,
+            1139.1666666666667,
+            1108.5,
+            1204.7333333333333,
+            1137.1666666666667,
+            1158.2333333333333,
+            1122.6000000000001
+          ],
+          "median_us": 1138.5333333333333,
+          "p95_us": 1186.1333333333334
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            214525.9,
+            210475.7666666667,
+            209673.06666666665,
+            210014.96666666667,
+            209125.69999999998,
+            210970.93333333335,
+            211435.16666666666,
+            210037.63333333333,
+            211197.7333333333
+          ],
+          "median_us": 210475.7666666667,
+          "p95_us": 213289.60666666666
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            210981.93333333335,
+            209182.46666666667,
+            207696.83333333334,
+            213160.33333333334,
+            224001.5,
+            208270.1,
+            204950.06666666665,
+            207357.93333333335,
+            208167.5
+          ],
+          "median_us": 208270.1,
+          "p95_us": 219665.03333333333
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            18214.766666666666,
+            17841.333333333332,
+            17757,
+            17571.666666666668,
+            18124.033333333333,
+            18065.600000000002,
+            17330.2,
+            17596.033333333333,
+            17775.266666666666
+          ],
+          "median_us": 17775.266666666666,
+          "p95_us": 18178.47333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            7391.866666666666,
+            7432.766666666666,
+            7510.166666666667,
+            7519.900000000001,
+            7892.866666666666,
+            7392.666666666667,
+            7200.8,
+            9528.033333333333,
+            7382.533333333333
+          ],
+          "median_us": 7432.766666666666,
+          "p95_us": 8873.966666666665
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 4.751140788496158,
+      "certified_parameter_per_second": 4.80145733833133,
+      "positive_cells_per_second": 28635.294735381372,
+      "numerical_samples_per_second": 68480.55681374813,
+      "audit_sha256": "f45858686aed996d8601285219907138e34016da89857875665bc6998c8e851f",
+      "measurement_sha256": "ba2ec63f1662c1d9108a3f46d9194376ea6f6081e09493d0b071b6931e62a5b5"
+    },
+    {
+      "id": "crx_10ia_l_broad",
+      "model": "CRX-10iA-L",
+      "kind": "asset_nominal_broad",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 16,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 72,
+      "positive_uniform_cells": 56,
+      "accepted_cells": 56,
+      "unresolved_leaves": 16,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001068115234375,
+            0.000110626220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000110626220703125,
+            0.00011444091796875
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00011444091796875,
+            0.0001220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001220703125,
+            0.000244140625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000244140625,
+            0.00048828125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00048828125,
+            0.0009765625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0009765625,
+            0.001953125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.001953125,
+            0.00390625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00390625,
+            0.0078125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0078125,
+            0.015625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.015625,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.00010681152343716693,
+      "numerical_samples": 72,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 469394,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 127,
+        "path_certificates": 283,
+        "cell_checks": 270,
+        "subdivisions": 71
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1196.6666666666667,
+            1142.1333333333334,
+            1111.4666666666667,
+            1319.7666666666667,
+            1089.1666666666667,
+            1211.8999999999999,
+            1153.4666666666667,
+            1147.3333333333333,
+            1180.8333333333333
+          ],
+          "median_us": 1153.4666666666667,
+          "p95_us": 1276.62
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            27625.466666666664,
+            29178.2,
+            28134.399999999998,
+            29818.933333333334,
+            28093.433333333334,
+            28104.5,
+            28283.733333333334,
+            28465.86666666667,
+            28026.066666666666
+          ],
+          "median_us": 28134.399999999998,
+          "p95_us": 29562.64
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            26127.86666666667,
+            26317.899999999998,
+            28974.63333333333,
+            28789.8,
+            26493.466666666664,
+            28260.233333333334,
+            26387.266666666666,
+            27266.766666666666,
+            26534.63333333333
+          ],
+          "median_us": 26534.63333333333,
+          "p95_us": 28900.699999999997
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            1895.2666666666667,
+            1963.7,
+            2409.266666666667,
+            2051.366666666667,
+            2019.8,
+            1906.4333333333334,
+            1919.7666666666667,
+            1917.9333333333334,
+            1899.0666666666666
+          ],
+          "median_us": 1919.7666666666667,
+          "p95_us": 2266.1066666666666
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            1036.4666666666667,
+            1035.2666666666667,
+            1121.0333333333333,
+            1120.2333333333333,
+            1092.7,
+            1069.3999999999999,
+            1054.1000000000001,
+            1081.6666666666667,
+            1044.1000000000001
+          ],
+          "median_us": 1069.3999999999999,
+          "p95_us": 1120.7133333333334
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 35.543676069153776,
+      "certified_parameter_per_second": 0.004025362705991802,
+      "positive_cells_per_second": 29170.211657666732,
+      "numerical_samples_per_second": 67327.4733495418,
+      "audit_sha256": "fb41934b1ecdd2f93674479131a8de21bda0e4a4d189e4eb8341ce3fd7fe6210",
+      "measurement_sha256": "024519c6c5b21f5d7eb6aa7453b4e042ea523fd7a61b9a9d684bd467e2515ded"
+    },
+    {
+      "id": "crx_20ia_l_constant",
+      "model": "CRX-20iA-L",
+      "kind": "asset_nominal_constant",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191290,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1108.8666666666666,
+            1108.1000000000001,
+            1141.0333333333333,
+            1111.9333333333334,
+            1138.1000000000001,
+            1076,
+            1073.3333333333333,
+            1066.8666666666666,
+            1079.2
+          ],
+          "median_us": 1108.1000000000001,
+          "p95_us": 1139.8600000000001
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1768.4666666666665,
+            1743.7666666666667,
+            1733.2333333333333,
+            1794.4666666666665,
+            1754.7,
+            1819.3999999999999,
+            1781.8333333333333,
+            1758.2,
+            1758.3999999999999
+          ],
+          "median_us": 1758.3999999999999,
+          "p95_us": 1809.4266666666665
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            114.43333333333334,
+            148.63333333333333,
+            112.39999999999999,
+            112.13333333333333,
+            115.86666666666667,
+            112.73333333333333,
+            113.5,
+            108.03333333333335,
+            109
+          ],
+          "median_us": 112.73333333333333,
+          "p95_us": 135.52666666666664
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            33.833333333333336,
+            34.46666666666667,
+            33.13333333333333,
+            34.53333333333333,
+            34,
+            34.6,
+            32.6,
+            33.4,
+            32.43333333333333
+          ],
+          "median_us": 33.833333333333336,
+          "p95_us": 34.57333333333333
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.366666666666667,
+            14.233333333333334,
+            15.133333333333333,
+            14.1,
+            16.599999999999998,
+            14.1,
+            14.566666666666668,
+            13.566666666666668,
+            14.466666666666667
+          ],
+          "median_us": 14.466666666666667,
+          "p95_us": 16.106666666666666
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 568.6988171064604,
+      "certified_parameter_per_second": 8870.490833826138,
+      "positive_cells_per_second": 29556.650246305417,
+      "numerical_samples_per_second": 69124.42396313364,
+      "audit_sha256": "4390bffe25859ccc616be043bdfcad0cabc8c61c6286963a5a1b5643f8b084d0",
+      "measurement_sha256": "05b3a3433c8d687838bec77124e9e75cb829fcf04abfaa4a51c8e87424bdd23a"
+    },
+    {
+      "id": "crx_20ia_l_tiny",
+      "model": "CRX-20iA-L",
+      "kind": "asset_nominal_tiny",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191290,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1102.2666666666667,
+            1062.8999999999999,
+            1052.9333333333334,
+            1108.0333333333333,
+            1049.8,
+            1055.4333333333334,
+            1095.6000000000001,
+            1095.0666666666666,
+            1097.1000000000001
+          ],
+          "median_us": 1095.0666666666666,
+          "p95_us": 1105.7266666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1750.3333333333333,
+            1723.7333333333333,
+            1721.8333333333333,
+            1671.4333333333334,
+            1708.5333333333335,
+            1660.2333333333333,
+            1649.2,
+            1694.2,
+            1784
+          ],
+          "median_us": 1708.5333333333335,
+          "p95_us": 1770.5333333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            109.26666666666667,
+            106.86666666666667,
+            109.43333333333334,
+            109.39999999999999,
+            110.7,
+            151.4,
+            110.8,
+            107.10000000000001,
+            109.93333333333334
+          ],
+          "median_us": 109.43333333333334,
+          "p95_us": 135.16
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            32.199999999999996,
+            32.96666666666667,
+            32.333333333333336,
+            32.9,
+            32.53333333333333,
+            33,
+            34.699999999999996,
+            32.9,
+            33.36666666666667
+          ],
+          "median_us": 32.9,
+          "p95_us": 34.166666666666664
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            14.833333333333334,
+            13.6,
+            14.6,
+            13.633333333333333,
+            16,
+            13.666666666666666,
+            14.766666666666666,
+            13.700000000000001,
+            15.4
+          ],
+          "median_us": 14.6,
+          "p95_us": 15.76
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 585.2973310441704,
+      "certified_parameter_per_second": 9137.983551629606,
+      "positive_cells_per_second": 30395.136778115502,
+      "numerical_samples_per_second": 68493.1506849315,
+      "audit_sha256": "34e9ba63d59311c0aed63c59f6ada9759c79249d98654df617a7be5781bad363",
+      "measurement_sha256": "b84dbce3fea403e9a1dde68f19fee895c5d8ad9babb66ef4fc54a70c6c204a2c"
+    },
+    {
+      "id": "crx_20ia_l_moving",
+      "model": "CRX-20iA-L",
+      "kind": "asset_nominal_moving",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 509,
+      "positive_uniform_cells": 509,
+      "accepted_cells": 509,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 509,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 2509578,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1017,
+        "path_certificates": 2160,
+        "cell_checks": 2153,
+        "subdivisions": 508
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1184.3333333333333,
+            1170.2,
+            1136.3666666666666,
+            1283.8,
+            1106.6333333333334,
+            1202.3,
+            1117.2666666666667,
+            1163.1333333333334,
+            1190.6666666666667
+          ],
+          "median_us": 1170.2,
+          "p95_us": 1251.1999999999998
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            209801.03333333333,
+            207851,
+            209419.83333333334,
+            209721.16666666666,
+            214730.1,
+            214384.83333333334,
+            208488.86666666667,
+            212631.4,
+            210694.5
+          ],
+          "median_us": 209801.03333333333,
+          "p95_us": 214591.99333333335
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            206654.96666666667,
+            212575.1,
+            214749.13333333333,
+            206051.63333333333,
+            205530.63333333333,
+            211255.93333333335,
+            208057.13333333333,
+            205480.46666666667,
+            210602.33333333334
+          ],
+          "median_us": 208057.13333333333,
+          "p95_us": 213879.52
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            18002.833333333332,
+            18437.733333333334,
+            17534.966666666667,
+            17428.466666666667,
+            18247.366666666665,
+            17435.466666666667,
+            18327.766666666666,
+            16861.466666666667,
+            17835.933333333334
+          ],
+          "median_us": 17835.933333333334,
+          "p95_us": 18393.746666666666
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            7352.099999999999,
+            7416.666666666667,
+            7408.599999999999,
+            7552.533333333333,
+            7577.599999999999,
+            7384.3,
+            7428.833333333333,
+            7102.633333333334,
+            7898.666666666667
+          ],
+          "median_us": 7416.666666666667,
+          "p95_us": 7770.24
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 4.766420756427797,
+      "certified_parameter_per_second": 4.80637209586982,
+      "positive_cells_per_second": 28537.89540964121,
+      "numerical_samples_per_second": 68629.21348314607,
+      "audit_sha256": "f45858686aed996d8601285219907138e34016da89857875665bc6998c8e851f",
+      "measurement_sha256": "c2b5d14a0eec993e229f16aa457b57bca8ac0c18f000419804e8464be90b7906"
+    },
+    {
+      "id": "crx_20ia_l_broad",
+      "model": "CRX-20iA-L",
+      "kind": "asset_nominal_broad",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 16,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 72,
+      "positive_uniform_cells": 56,
+      "accepted_cells": 56,
+      "unresolved_leaves": 16,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001068115234375,
+            0.000110626220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000110626220703125,
+            0.00011444091796875
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00011444091796875,
+            0.0001220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001220703125,
+            0.000244140625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000244140625,
+            0.00048828125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00048828125,
+            0.0009765625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0009765625,
+            0.001953125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.001953125,
+            0.00390625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00390625,
+            0.0078125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0078125,
+            0.015625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.015625,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.00010681152343716693,
+      "numerical_samples": 72,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 469394,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 127,
+        "path_certificates": 283,
+        "cell_checks": 270,
+        "subdivisions": 71
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1160.3666666666666,
+            1149.9666666666667,
+            1151.1000000000001,
+            1131.5666666666666,
+            1111.3,
+            1173.3666666666666,
+            1116.1666666666667,
+            1134.1666666666667,
+            1115.8999999999999
+          ],
+          "median_us": 1134.1666666666667,
+          "p95_us": 1168.1666666666665
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            26854.066666666666,
+            28284,
+            28034.3,
+            28367.5,
+            28727.2,
+            28031.600000000002,
+            29055.433333333334,
+            28177.8,
+            28016.066666666666
+          ],
+          "median_us": 28177.8,
+          "p95_us": 28924.14
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            25116.966666666664,
+            26426,
+            26049.966666666664,
+            26596.566666666666,
+            27016.399999999998,
+            26428.933333333334,
+            26251.63333333333,
+            26335.033333333336,
+            26597.466666666664
+          ],
+          "median_us": 26426.0,
+          "p95_us": 26848.826666666664
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            2762.4,
+            1955.0333333333335,
+            1903.4666666666665,
+            1901.7666666666667,
+            1952.5333333333335,
+            1918.7333333333333,
+            1910.2333333333333,
+            1895.7666666666667,
+            1892.6666666666667
+          ],
+          "median_us": 1910.2333333333333,
+          "p95_us": 2439.4533333333334
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            1023.5666666666666,
+            1019.2333333333332,
+            1107.4333333333334,
+            1036.5333333333333,
+            1043.4333333333334,
+            1028.6333333333334,
+            1051.5,
+            1030.7666666666667,
+            1187.3333333333333
+          ],
+          "median_us": 1036.5333333333333,
+          "p95_us": 1155.3733333333332
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 35.488931002420344,
+      "certified_parameter_per_second": 0.004041910369982855,
+      "positive_cells_per_second": 29315.790392098697,
+      "numerical_samples_per_second": 69462.31026498585,
+      "audit_sha256": "fb41934b1ecdd2f93674479131a8de21bda0e4a4d189e4eb8341ce3fd7fe6210",
+      "measurement_sha256": "315345c2de5ee63052bd6453e2d39b2b1eff6ef93132ca976c4e51147579b0d9"
+    },
+    {
+      "id": "crx_25ia_constant",
+      "model": "CRX-25iA",
+      "kind": "asset_nominal_constant",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191290,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1107.8,
+            1056.3,
+            1055.1000000000001,
+            1097.9333333333334,
+            1060.5666666666666,
+            1059.5333333333333,
+            1091.8666666666666,
+            1059.1666666666667,
+            1088.5
+          ],
+          "median_us": 1060.5666666666666,
+          "p95_us": 1103.8533333333332
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1850.7,
+            1762.7,
+            1745.8333333333333,
+            1669.9333333333334,
+            1733.6000000000001,
+            1721.3999999999999,
+            1707.2333333333333,
+            1744.9666666666665,
+            1721.9333333333334
+          ],
+          "median_us": 1733.6000000000001,
+          "p95_us": 1815.5
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            114.13333333333333,
+            111.63333333333333,
+            109,
+            108.16666666666667,
+            110.03333333333335,
+            108.93333333333334,
+            110.8,
+            107.10000000000001,
+            108.96666666666665
+          ],
+          "median_us": 109.0,
+          "p95_us": 113.13333333333333
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            33.800000000000004,
+            34.5,
+            32.36666666666667,
+            33,
+            32.36666666666667,
+            32.93333333333333,
+            32.1,
+            32.96666666666667,
+            32.300000000000004
+          ],
+          "median_us": 32.93333333333333,
+          "p95_us": 34.22
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.466666666666667,
+            14.133333333333333,
+            14.433333333333332,
+            13.466666666666667,
+            15.833333333333334,
+            13.533333333333333,
+            14.5,
+            13.566666666666668,
+            14.666666666666666
+          ],
+          "median_us": 14.433333333333332,
+          "p95_us": 15.686666666666667
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 576.8343331795108,
+      "certified_parameter_per_second": 9174.311926605504,
+      "positive_cells_per_second": 30364.37246963563,
+      "numerical_samples_per_second": 69284.06466512702,
+      "audit_sha256": "bf2596a1a0376bb65284745d0ef434afa85b363c936a3c786c13afafec336f7f",
+      "measurement_sha256": "4b1f1a9ce23cb7e95ffdfadbba67131ca6414b6b8207cb55b991f3e1737a21a4"
+    },
+    {
+      "id": "crx_25ia_tiny",
+      "model": "CRX-25iA",
+      "kind": "asset_nominal_tiny",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191290,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1113.4333333333334,
+            1107.3666666666666,
+            1141.7333333333333,
+            1081.0666666666666,
+            1098.6000000000001,
+            1091.0333333333333,
+            1049.6333333333334,
+            1114.2666666666667,
+            1054.9666666666667
+          ],
+          "median_us": 1098.6000000000001,
+          "p95_us": 1130.7466666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1835.3333333333333,
+            1769.6333333333332,
+            1702.9333333333334,
+            1724.7,
+            1701.7666666666667,
+            1717.7333333333333,
+            1712.3999999999999,
+            1680.4666666666665,
+            1676.0333333333335
+          ],
+          "median_us": 1712.3999999999999,
+          "p95_us": 1809.0533333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            119.93333333333334,
+            151.63333333333333,
+            115.89999999999999,
+            106.93333333333334,
+            110.66666666666667,
+            109.23333333333333,
+            110.63333333333333,
+            106.63333333333333,
+            111.36666666666667
+          ],
+          "median_us": 110.66666666666667,
+          "p95_us": 138.95333333333332
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            34.5,
+            36.4,
+            32.53333333333333,
+            33.13333333333333,
+            32.53333333333333,
+            33.13333333333333,
+            32.43333333333333,
+            33.36666666666667,
+            32.300000000000004
+          ],
+          "median_us": 33.13333333333333,
+          "p95_us": 35.64
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.5,
+            14.066666666666668,
+            14.866666666666667,
+            13.533333333333333,
+            15.299999999999999,
+            13.566666666666668,
+            14.5,
+            13.533333333333333,
+            14.6
+          ],
+          "median_us": 14.5,
+          "p95_us": 15.42
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 583.975706610605,
+      "certified_parameter_per_second": 9036.144578313253,
+      "positive_cells_per_second": 30181.086519114688,
+      "numerical_samples_per_second": 68965.5172413793,
+      "audit_sha256": "48e25812abd965c9db3c308e8fcb756a1c40fe0f821cf7f4003b7c5d9cb89c3a",
+      "measurement_sha256": "a926b05e83c38cc791c041fd0538753dca0549f260d44a583024882bbfff902c"
+    },
+    {
+      "id": "crx_25ia_moving",
+      "model": "CRX-25iA",
+      "kind": "asset_nominal_moving",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 509,
+      "positive_uniform_cells": 509,
+      "accepted_cells": 509,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 509,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 2509578,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1017,
+        "path_certificates": 2096,
+        "cell_checks": 2089,
+        "subdivisions": 508
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1168.8666666666666,
+            1225.7333333333333,
+            1277.9333333333334,
+            1138.5333333333333,
+            1315.3999999999999,
+            1144.8,
+            1125.6000000000001,
+            1193.3,
+            1195.5
+          ],
+          "median_us": 1193.3,
+          "p95_us": 1300.4133333333332
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            205509.63333333333,
+            212550.86666666667,
+            202070.2666666667,
+            214084.4,
+            206355.80000000002,
+            203084.7666666667,
+            213355.36666666667,
+            197835.7666666667,
+            201831.33333333334
+          ],
+          "median_us": 205509.63333333333,
+          "p95_us": 213792.78666666665
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            202200.9,
+            200477.7666666667,
+            211171.80000000002,
+            205529.93333333335,
+            203490.93333333335,
+            203895.06666666665,
+            201314.4,
+            196793.83333333334,
+            205337.43333333335
+          ],
+          "median_us": 203490.93333333335,
+          "p95_us": 208915.05333333334
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            17725.033333333333,
+            17953.899999999998,
+            19044.600000000002,
+            18272.066666666666,
+            17555.733333333334,
+            17539.533333333333,
+            17576.766666666666,
+            20585.833333333332,
+            17483.7
+          ],
+          "median_us": 17725.033333333333,
+          "p95_us": 19969.34
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            7419.933333333333,
+            7569.933333333333,
+            8126.833333333333,
+            7630.466666666667,
+            7472.433333333333,
+            7414.099999999999,
+            7570.400000000001,
+            7524.099999999999,
+            7398.3
+          ],
+          "median_us": 7524.099999999999,
+          "p95_us": 7928.286666666667
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 4.865951944831783,
+      "certified_parameter_per_second": 4.914223860588056,
+      "positive_cells_per_second": 28716.448111992268,
+      "numerical_samples_per_second": 67649.2869579086,
+      "audit_sha256": "636fd2a6de1c33f3892923ccddcef000cfa6a25d7bb547444cb9d5e2991daa20",
+      "measurement_sha256": "53460491a6e2af1a171c42a4ae490740381e36ada8bc09cae12ae08e66a5ea41"
+    },
+    {
+      "id": "crx_25ia_broad",
+      "model": "CRX-25iA",
+      "kind": "asset_nominal_broad",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 16,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 72,
+      "positive_uniform_cells": 56,
+      "accepted_cells": 56,
+      "unresolved_leaves": 16,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001068115234375,
+            0.000110626220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000110626220703125,
+            0.00011444091796875
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00011444091796875,
+            0.0001220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001220703125,
+            0.000244140625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000244140625,
+            0.00048828125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00048828125,
+            0.0009765625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0009765625,
+            0.001953125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.001953125,
+            0.00390625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00390625,
+            0.0078125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0078125,
+            0.015625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.015625,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.00010681152343716693,
+      "numerical_samples": 72,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 469394,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 127,
+        "path_certificates": 275,
+        "cell_checks": 262,
+        "subdivisions": 71
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1135.8333333333333,
+            1139.7,
+            1109.8,
+            1125.0666666666666,
+            1207.1000000000001,
+            1254.8333333333333,
+            1134.3333333333333,
+            1161.8333333333333,
+            1213.9666666666667
+          ],
+          "median_us": 1139.7,
+          "p95_us": 1238.4866666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            25974,
+            27490.600000000002,
+            27310.63333333333,
+            27294.066666666666,
+            27193.399999999998,
+            27694.266666666666,
+            28863.8,
+            30284.166666666668,
+            27568.36666666667
+          ],
+          "median_us": 27490.600000000002,
+          "p95_us": 29716.02
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            24608.833333333332,
+            25175,
+            25450.5,
+            26117.266666666666,
+            25638.8,
+            26091,
+            25604.100000000002,
+            25939.033333333336,
+            25501.666666666668
+          ],
+          "median_us": 25604.100000000002,
+          "p95_us": 26106.76
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            1795.3,
+            1829.7,
+            1918.4666666666665,
+            1989.3666666666668,
+            1923.3333333333333,
+            1906.9666666666665,
+            1929.6333333333332,
+            1913.7666666666667,
+            1957.1000000000001
+          ],
+          "median_us": 1918.4666666666665,
+          "p95_us": 1976.46
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            1007.0666666666666,
+            1001.3000000000001,
+            1023.7666666666668,
+            1037.5333333333333,
+            1053.4666666666667,
+            1078.0333333333333,
+            1086.3333333333333,
+            1031.8999999999999,
+            1061.2333333333333
+          ],
+          "median_us": 1037.5333333333333,
+          "p95_us": 1083.0133333333333
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 36.37607036587051,
+      "certified_parameter_per_second": 0.004171657017320153,
+      "positive_cells_per_second": 29189.97810751642,
+      "numerical_samples_per_second": 69395.36079162115,
+      "audit_sha256": "f38118f2da5a0f8d398e4c4f98fc7e2733375c4027a8842a0fa34c8ff23005c5",
+      "measurement_sha256": "3c18dfdf4dd85a2f14a2f6c2f1f6a3758c61f8398c0161a988a9fe049488e17c"
+    },
+    {
+      "id": "crx_30ia_constant",
+      "model": "CRX-30iA",
+      "kind": "asset_nominal_constant",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191290,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1188.3666666666666,
+            1106.8333333333333,
+            1120.3,
+            1277.8333333333333,
+            1130,
+            1146.1333333333334,
+            1102.2666666666667,
+            1147.2333333333333,
+            1098
+          ],
+          "median_us": 1130.0,
+          "p95_us": 1242.0466666666666
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1823.4666666666665,
+            1839.2333333333333,
+            1822.1666666666667,
+            1784.1666666666667,
+            1825.6666666666667,
+            1764.6000000000001,
+            1796.2,
+            1804.3333333333333,
+            1732.2333333333333
+          ],
+          "median_us": 1804.3333333333333,
+          "p95_us": 1833.8066666666666
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            115.03333333333335,
+            112.83333333333333,
+            115.89999999999999,
+            115.36666666666667,
+            114.39999999999999,
+            112.06666666666666,
+            114.63333333333333,
+            111.10000000000001,
+            115.63333333333333
+          ],
+          "median_us": 114.63333333333333,
+          "p95_us": 115.79333333333332
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            34,
+            34.46666666666667,
+            33.96666666666667,
+            34.6,
+            33.833333333333336,
+            34.46666666666667,
+            33.733333333333334,
+            34.266666666666666,
+            33.766666666666666
+          ],
+          "median_us": 34.0,
+          "p95_us": 34.54666666666667
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            15.5,
+            14.133333333333333,
+            15.333333333333334,
+            14.1,
+            16.266666666666666,
+            14.1,
+            15.266666666666666,
+            14.166666666666666,
+            15.533333333333333
+          ],
+          "median_us": 15.266666666666666,
+          "p95_us": 15.973333333333333
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 554.2213190467394,
+      "certified_parameter_per_second": 8723.466123873219,
+      "positive_cells_per_second": 29411.764705882353,
+      "numerical_samples_per_second": 65502.18340611354,
+      "audit_sha256": "bf2596a1a0376bb65284745d0ef434afa85b363c936a3c786c13afafec336f7f",
+      "measurement_sha256": "7d6a9dfd1349d6b43cfaadc6609ae15d4bad08576bf8079ca331349a0c0a0203"
+    },
+    {
+      "id": "crx_30ia_tiny",
+      "model": "CRX-30iA",
+      "kind": "asset_nominal_tiny",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 1,
+      "positive_uniform_cells": 1,
+      "accepted_cells": 1,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 1,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 191290,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1,
+        "path_certificates": 1,
+        "cell_checks": 1,
+        "subdivisions": 0
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1161.3666666666666,
+            1124.5333333333333,
+            1182.7,
+            1079.7666666666667,
+            1057.4666666666667,
+            1064.2333333333333,
+            1051.8333333333333,
+            1102.0666666666666,
+            1053.3999999999999
+          ],
+          "median_us": 1079.7666666666667,
+          "p95_us": 1174.1666666666667
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            1687.2666666666667,
+            1786.2666666666667,
+            1773.6333333333332,
+            1867.8999999999999,
+            1712.2333333333333,
+            1760.3666666666668,
+            1718.1333333333332,
+            1734.8,
+            1707.3999999999999
+          ],
+          "median_us": 1734.8,
+          "p95_us": 1835.2466666666664
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            110.26666666666667,
+            110.53333333333335,
+            116.73333333333333,
+            113.16666666666667,
+            111.10000000000001,
+            106.7,
+            110.10000000000001,
+            107.56666666666666,
+            146.33333333333334
+          ],
+          "median_us": 110.53333333333335,
+          "p95_us": 134.49333333333334
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            32.666666666666664,
+            33.6,
+            34.63333333333333,
+            34.56666666666667,
+            32.56666666666667,
+            33.233333333333334,
+            32.43333333333333,
+            34.5,
+            32.733333333333334
+          ],
+          "median_us": 33.233333333333334,
+          "p95_us": 34.60666666666667
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            14.700000000000001,
+            14.966666666666667,
+            16.033333333333335,
+            14.066666666666668,
+            15.966666666666667,
+            13.566666666666668,
+            14.833333333333334,
+            13.633333333333333,
+            15.133333333333333
+          ],
+          "median_us": 14.833333333333334,
+          "p95_us": 16.006666666666668
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 576.435323956652,
+      "certified_parameter_per_second": 9047.04463208685,
+      "positive_cells_per_second": 30090.27081243731,
+      "numerical_samples_per_second": 67415.73033707865,
+      "audit_sha256": "48e25812abd965c9db3c308e8fcb756a1c40fe0f821cf7f4003b7c5d9cb89c3a",
+      "measurement_sha256": "b39c7c141f9d6eaa92373beeb9d5c71dccfcdf91b3af38df40b8145e52f3d82f"
+    },
+    {
+      "id": "crx_30ia_moving",
+      "model": "CRX-30iA",
+      "kind": "asset_nominal_moving",
+      "status": 2,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 15,
+      "edges": 1,
+      "attempted_paths": 1,
+      "complete_paths": 1,
+      "retained_leaves": 509,
+      "positive_uniform_cells": 509,
+      "accepted_cells": 509,
+      "unresolved_leaves": 0,
+      "uncovered_parameter_intervals": [],
+      "covered_parameter_measure_lower": 1.0,
+      "numerical_samples": 509,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 2509578,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 1017,
+        "path_certificates": 2096,
+        "cell_checks": 2089,
+        "subdivisions": 508
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1491.5,
+            1155.7,
+            1117.4333333333334,
+            1151.4666666666667,
+            1129.7666666666667,
+            1146.1666666666667,
+            1205.5666666666666,
+            1161.9666666666667,
+            1106.5666666666666
+          ],
+          "median_us": 1151.4666666666667,
+          "p95_us": 1377.1266666666666
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            216996.1,
+            208054.53333333333,
+            201323.2333333333,
+            204815.53333333333,
+            202694.2666666667,
+            203261.43333333335,
+            201603.16666666666,
+            202014.56666666665,
+            207110.4
+          ],
+          "median_us": 203261.43333333335,
+          "p95_us": 213419.47333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            202504.66666666666,
+            203211.30000000002,
+            203407.63333333333,
+            206001.43333333335,
+            200291.46666666667,
+            200391.66666666666,
+            205977.93333333335,
+            203702.7333333333,
+            200507.96666666667
+          ],
+          "median_us": 203211.30000000002,
+          "p95_us": 205992.03333333335
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            17584.066666666666,
+            17553.766666666666,
+            17378.066666666666,
+            17877.266666666666,
+            17909.466666666667,
+            17936.8,
+            18328.2,
+            17848.466666666667,
+            17579.966666666667
+          ],
+          "median_us": 17848.466666666667,
+          "p95_us": 18171.64
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            7425.900000000001,
+            7746.3,
+            7407.099999999999,
+            7321.733333333334,
+            8846.733333333334,
+            7790.266666666666,
+            7514.599999999999,
+            7296.466666666667,
+            7463.933333333333
+          ],
+          "median_us": 7463.933333333333,
+          "p95_us": 8424.146666666666
+        }
+      ],
+      "path_completion_rate": 1.0,
+      "queries_per_second": 4.9197724506846106,
+      "certified_parameter_per_second": 4.920986185315481,
+      "positive_cells_per_second": 28517.855875574744,
+      "numerical_samples_per_second": 68194.6069543315,
+      "audit_sha256": "636fd2a6de1c33f3892923ccddcef000cfa6a25d7bb547444cb9d5e2991daa20",
+      "measurement_sha256": "76bafdcde85d33394b542446e7360224ce90f7c1390188395d575b747d16f59a"
+    },
+    {
+      "id": "crx_30ia_broad",
+      "model": "CRX-30iA",
+      "kind": "asset_nominal_broad",
+      "status": 1,
+      "tasks": 2,
+      "complete_endpoint_covers": 2,
+      "vertices": 16,
+      "components": 16,
+      "edges": 0,
+      "attempted_paths": 1,
+      "complete_paths": 0,
+      "retained_leaves": 72,
+      "positive_uniform_cells": 56,
+      "accepted_cells": 56,
+      "unresolved_leaves": 16,
+      "uncovered_parameter_intervals": [
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001068115234375,
+            0.000110626220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000110626220703125,
+            0.00011444091796875
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00011444091796875,
+            0.0001220703125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0001220703125,
+            0.000244140625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.000244140625,
+            0.00048828125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00048828125,
+            0.0009765625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0009765625,
+            0.001953125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.001953125,
+            0.00390625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.00390625,
+            0.0078125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0078125,
+            0.015625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.015625,
+            0.03125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.03125,
+            0.0625
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.0625,
+            0.125
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.125,
+            0.25
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.25,
+            0.5
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        },
+        {
+          "pair": 18,
+          "parameter": [
+            0.5,
+            1
+          ],
+          "failure": 5,
+          "cell_failure": 0
+        }
+      ],
+      "covered_parameter_measure_lower": 0.00010681152343716693,
+      "numerical_samples": 72,
+      "numerical_sample_failures": 0,
+      "retained_payload_bytes": 469394,
+      "work": {
+        "root_nodes": 40,
+        "endpoint_certificates": 16,
+        "enumerated_lifts": 16,
+        "pair_tests": 64,
+        "path_attempts": 1,
+        "path_nodes": 127,
+        "path_certificates": 275,
+        "cell_checks": 262,
+        "subdivisions": 71
+      },
+      "timings": [
+        {
+          "stage": "standalone_endpoint_preprocessing",
+          "round_microseconds": [
+            1092.1333333333334,
+            1149.7,
+            1115.5,
+            1145.2333333333333,
+            1115.2,
+            1132.3333333333333,
+            1129.4666666666667,
+            1139.7666666666667,
+            1110.7333333333333
+          ],
+          "median_us": 1129.4666666666667,
+          "p95_us": 1147.9133333333334
+        },
+        {
+          "stage": "whole_graph",
+          "round_microseconds": [
+            26076.7,
+            28198.100000000002,
+            27189.533333333336,
+            27284.399999999998,
+            30448.5,
+            27592.333333333332,
+            27219.2,
+            27456.100000000002,
+            28768.433333333334
+          ],
+          "median_us": 27456.100000000002,
+          "p95_us": 29776.47333333333
+        },
+        {
+          "stage": "frozen_path_replay",
+          "round_microseconds": [
+            25753.333333333332,
+            25808.433333333334,
+            26168.899999999998,
+            25761.066666666666,
+            26493.7,
+            26082.399999999998,
+            26032.533333333336,
+            27110.466666666664,
+            25669.466666666664
+          ],
+          "median_us": 26032.533333333336,
+          "p95_us": 26863.76
+        },
+        {
+          "stage": "uniform_cells_with_sealed_point_witnesses",
+          "round_microseconds": [
+            2008.2666666666667,
+            1927.7,
+            1959,
+            1987.4666666666665,
+            2041.5333333333335,
+            1925.7333333333333,
+            2068.0666666666666,
+            1940.5,
+            2028.8333333333333
+          ],
+          "median_us": 1987.4666666666665,
+          "p95_us": 2057.4533333333334
+        },
+        {
+          "stage": "numerical_tracking_at_frozen_leaf_midpoints",
+          "round_microseconds": [
+            1072.0333333333333,
+            1033.8333333333333,
+            1113.2666666666667,
+            1037.4333333333334,
+            1046.8333333333333,
+            1039.3,
+            1058.7666666666667,
+            1040.7666666666667,
+            1027.3333333333333
+          ],
+          "median_us": 1040.7666666666667,
+          "p95_us": 1096.7733333333333
+        }
+      ],
+      "path_completion_rate": 0.0,
+      "queries_per_second": 36.42177876683141,
+      "certified_parameter_per_second": 0.004103001504674929,
+      "positive_cells_per_second": 28176.573192003223,
+      "numerical_samples_per_second": 69179.77132242257,
+      "audit_sha256": "f38118f2da5a0f8d398e4c4f98fc7e2733375c4027a8842a0fa34c8ff23005c5",
+      "measurement_sha256": "a6eb8dedcc7629fa695b43760113afeea56420759cf14eaf9b963ba9ea5e9550"
+    }
+  ],
+  "ordinary": {
+    "existing": {
+      "pairs": 8626,
+      "ordered_solution_and_best_rows": 185672,
+      "all_counts_equal": true,
+      "all_command_and_best_bits_equal": true,
+      "all_counter_fields_equal": true,
+      "modes": {
+        "no_seed": {
+          "parent_us": {
+            "min": 7.4,
+            "median": 18.4875,
+            "p95": 91.30749999999996,
+            "max": 254.9
+          },
+          "candidate_us": {
+            "min": 7.4125,
+            "median": 18.55,
+            "p95": 91.76249999999997,
+            "max": 252.2125
+          },
+          "paired_candidate_parent_ratio": {
+            "min": 0.9159700835899692,
+            "median": 1.0014705882352941,
+            "p95": 1.0250824365492037,
+            "max": 1.1831588962892483
+          },
+          "strict_solves": 3929,
+          "witness_hits": 3726,
+          "position_mm": {
+            "p50": 5.890652120957211e-13,
+            "p95": 3.7669632103707074e-07,
+            "p99": 1.9708045149724488e-06,
+            "max": 9.269555152625119e-05
+          },
+          "angle_deg": {
+            "p50": 5.308649829167162e-14,
+            "p95": 6.482145875910263e-08,
+            "p99": 4.3660054533485684e-07,
+            "max": 3.273111379763059e-06
+          }
+        },
+        "nearby_seed": {
+          "parent_us": {
+            "min": 7.6,
+            "median": 18.4875,
+            "p95": 92.02499999999998,
+            "max": 247.2875
+          },
+          "candidate_us": {
+            "min": 7.5625,
+            "median": 18.5625,
+            "p95": 91.75749999999998,
+            "max": 258.0125
+          },
+          "paired_candidate_parent_ratio": {
+            "min": 0.8925610183346958,
+            "median": 1.0022590361445782,
+            "p95": 1.0271160559839758,
+            "max": 1.1647704185290533
+          },
+          "strict_solves": 3929,
+          "witness_hits": 3726,
+          "position_mm": {
+            "p50": 5.881645985986914e-13,
+            "p95": 3.755515942217368e-07,
+            "p99": 1.993291534147583e-06,
+            "max": 9.269555152625119e-05
+          },
+          "angle_deg": {
+            "p50": 5.30252852036002e-14,
+            "p95": 6.457945107251643e-08,
+            "p99": 4.367177770165616e-07,
+            "max": 3.273111379763059e-06
+          }
+        }
+      }
+    },
+    "stress": {
+      "pairs": 6048,
+      "ordered_solution_and_best_rows": 151826,
+      "all_counts_equal": true,
+      "all_command_and_best_bits_equal": true,
+      "all_counter_fields_equal": true,
+      "modes": {
+        "no_seed": {
+          "parent_us": {
+            "min": 10.9375,
+            "median": 20.275,
+            "p95": 113.61312499999998,
+            "max": 287.7375
+          },
+          "candidate_us": {
+            "min": 11.0625,
+            "median": 20.393749999999997,
+            "p95": 114.26812499999997,
+            "max": 288.7
+          },
+          "paired_candidate_parent_ratio": {
+            "min": 0.9322845417236664,
+            "median": 1.0018778364430023,
+            "p95": 1.0218569808036149,
+            "max": 1.0573206373149806
+          },
+          "strict_solves": 3024,
+          "witness_hits": 2994,
+          "position_mm": {
+            "p50": 9.327345129248635e-13,
+            "p95": 1.505148091874483e-07,
+            "p99": 1.5101789240424615e-06,
+            "max": 9.12435050289334e-05
+          },
+          "angle_deg": {
+            "p50": 5.534091600643032e-14,
+            "p95": 1.2383712963557018e-07,
+            "p99": 4.86210762716072e-07,
+            "max": 0.0003090352266566096
+          }
+        },
+        "nearby_seed": {
+          "parent_us": {
+            "min": 11.1,
+            "median": 20.35,
+            "p95": 113.73187499999999,
+            "max": 285.125
+          },
+          "candidate_us": {
+            "min": 11.1125,
+            "median": 20.475,
+            "p95": 115.04124999999998,
+            "max": 290.8
+          },
+          "paired_candidate_parent_ratio": {
+            "min": 0.9318948078219823,
+            "median": 1.0027166532838958,
+            "p95": 1.0244887966067822,
+            "max": 1.0633455013957482
+          },
+          "strict_solves": 3024,
+          "witness_hits": 2994,
+          "position_mm": {
+            "p50": 9.374856803373542e-13,
+            "p95": 1.5154343908018898e-07,
+            "p99": 1.5101789238489418e-06,
+            "max": 9.12435050289334e-05
+          },
+          "angle_deg": {
+            "p50": 5.530249558610615e-14,
+            "p95": 1.23625535638667e-07,
+            "p99": 4.862249067357602e-07,
+            "max": 0.0003090352266566096
+          }
+        }
+      }
+    }
+  },
+  "independent_audit": {
+    "cases": 42,
+    "distinct_points": 2801,
+    "cells": 3738,
+    "links": 3573,
+    "complete_paths": 114,
+    "components": 618,
+    "command_lifts": 692,
+    "complete_endpoint_covers": 74
+  }
+}
