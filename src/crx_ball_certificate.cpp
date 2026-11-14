@@ -418,19 +418,62 @@ auto TryReuse(const Certificate &previous, const exact::Problem &problem)
   }
   const auto &old = previous.Values();
   const auto &identity = problem.Data().identity;
-  if (old.identity.schema != identity.schema) {
+  if (!exact::SameModel(old.identity, identity))
     return Failed(Failure::IdentityMismatch);
-  }
-  constexpr std::size_t kPoseWords = 4 + 3 + 9; // q, position, matrix.
-  constexpr std::size_t kTargetBegin = exact::kIdentityWords - 3 * kPoseWords;
-  constexpr std::size_t kTargetEnd = kTargetBegin + kPoseWords;
-  for (std::size_t i = 0; i < identity.words.size(); ++i) {
-    if ((i < kTargetBegin || i >= kTargetEnd) &&
-        old.identity.words.at(i) != identity.words.at(i)) {
-      return Failed(Failure::IdentityMismatch);
-    }
-  }
   return Certify(problem, old.centre,
                  {old.uniqueness_radius, &old.preconditioner, old.aspect_sign});
+}
+
+auto EncloseResidual(const exact::Problem &problem, const Certificate &witness,
+                     const exact::Pose &targets, ResidualBounds &output)
+    -> Failure {
+  if (!interval::EnvironmentSupported())
+    return Failure::UnsupportedEnvironment;
+  if (!problem.IsReady() || !witness.IsValid() || !Valid(targets.rotation) ||
+      !Valid(targets.translation))
+    return Failure::InvalidInput;
+  if (!witness.Matches(problem))
+    return Failure::IdentityMismatch;
+  const auto &bounds = witness.Values();
+  Kinematics kinematics;
+  const auto evaluated = EvaluateCentre(problem, bounds.centre, kinematics);
+  if (evaluated != Failure::None)
+    return evaluated;
+  const Matrix3 rotation =
+      kinematics.anchor.rotation.transpose() * targets.rotation;
+  const Vector3 translation =
+      kinematics.anchor.rotation.transpose() *
+      (targets.translation - kinematics.anchor.translation);
+  const Interval trace = rotation.trace();
+  if (!trace.IsValid())
+    return Failure::ArithmeticUnavailable;
+  if (trace.lo < 1)
+    return Failure::TargetLogDomain;
+  Eigen::Matrix<Interval, kSpace, kSpace + 1> defect;
+  defect.block<kSpace, kSpace>(0, 0) = rotation - Matrix3::Identity();
+  defect.col(kSpace) = translation;
+  const auto norm = RowSum(defect);
+  const auto inverse = Enclose(bounds.preconditioner);
+  const auto inverse_norm = RowSum(inverse);
+  if (!norm.IsValid() || !inverse_norm.IsValid())
+    return Failure::ArithmeticUnavailable;
+  const Interval coarse =
+      Interval{3} * interval::Pi() * Interval{bounds.beta} * Interval{norm.hi};
+  const Interval series =
+      LogResidual(rotation, translation, inverse, inverse_norm.hi, norm.hi) /
+      (Interval{1} - Interval{bounds.inverse_residual});
+  const bool use_series =
+      series.IsValid() && coarse.IsValid() && series.hi < coarse.hi;
+  const auto eta = use_series ? series : coarse;
+  if (!coarse.IsValid() || !eta.IsValid())
+    return Failure::ArithmeticUnavailable;
+  ResidualBounds result;
+  result.eta = eta.hi;
+  result.coarse_eta = coarse.hi;
+  result.pose_defect = norm.hi;
+  result.used_log_series = use_series;
+  result.relative_trace = trace;
+  output = result;
+  return Failure::None;
 }
 } // namespace crx::ball

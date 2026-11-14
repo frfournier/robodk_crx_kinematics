@@ -291,6 +291,72 @@ auto Prepare(const Input &input, FrameConvention convention, Problem &output)
   return Status::Ready;
 }
 
+auto SameModel(const Identity &first, const Identity &second) -> bool {
+  if (first.schema != second.schema)
+    return false;
+  constexpr std::size_t kPoseWords = 4 + 3 + 9;
+  constexpr std::size_t kTargetBegin = kIdentityWords - 3 * kPoseWords;
+  constexpr std::size_t kTargetEnd = kTargetBegin + kPoseWords;
+  for (std::size_t i = 0; i < first.words.size(); ++i)
+    if ((i < kTargetBegin || i >= kTargetEnd) &&
+        first.words.at(i) != second.words.at(i))
+      return false;
+  return true;
+}
+
+auto EncloseTargets(const Input &source, FrameConvention convention,
+                    const std::array<Interval, 4> &quaternions,
+                    const std::array<Interval, 3> &positions, Pose &output)
+    -> Status {
+  if (!interval::EnvironmentSupported())
+    return Status::UnsupportedEnvironment;
+  if (!Validate(source) || (convention != FrameConvention::BasePose &&
+                            convention != FrameConvention::ReferenceMap))
+    return Status::InvalidInput;
+  if (!std::all_of(quaternions.begin(), quaternions.end(),
+                   [](Interval value) { return value.IsValid(); }) ||
+      !std::all_of(positions.begin(), positions.end(),
+                   [](Interval value) { return value.IsValid(); }))
+    return Status::InvalidInput;
+  double scale_value = 0;
+  for (const double length : source.lengths)
+    scale_value = std::max(scale_value, std::abs(length));
+  const Interval scale{scale_value};
+  const Quaternion base = ScaledQuaternion(source.base);
+  const Quaternion tool = ScaledQuaternion(source.tool);
+  const Quaternion left =
+      convention == FrameConvention::BasePose ? Conjugate(base) : base;
+  const Matrix3 base_rotation = Rotation(base);
+  Pose result;
+  result.rotation =
+      Rotation(Product(Product(left, quaternions), Conjugate(tool)));
+  // Check the target's own denominator as well: a zero target quaternion
+  // cannot become valid through uncertain quaternion products.
+  if (!Valid(Rotation(quaternions)) || !Valid(result.rotation) ||
+      !Valid(base_rotation))
+    return Status::ArithmeticFailure;
+  Vector3 normalized_position, normalized_tool, normalized_base;
+  for (Eigen::Index i = 0; i < kSpaceDimension; ++i) {
+    const auto index = static_cast<std::size_t>(i);
+    normalized_position(i) = positions.at(index) / scale;
+    normalized_tool(i) = Interval{source.tool.position.at(index)} / scale;
+    normalized_base(i) = Interval{source.base.position.at(index)} / scale;
+  }
+  if (convention == FrameConvention::BasePose) {
+    result.translation =
+        base_rotation.transpose() * (normalized_position - normalized_base) -
+        result.rotation * normalized_tool;
+    result.translation.z() -= Interval{source.base_height} / scale;
+  } else {
+    result.translation = base_rotation * normalized_position + normalized_base -
+                         result.rotation * normalized_tool;
+  }
+  if (!Valid(result.translation))
+    return Status::ArithmeticFailure;
+  output = result;
+  return Status::Ready;
+}
+
 namespace {
 auto NominalInput(const CrxModelData &model, const PoseIsoRT &target,
                   const Eigen::Quaterniond &target_quaternion, Input &input)

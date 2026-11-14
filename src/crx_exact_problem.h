@@ -73,6 +73,10 @@ struct Identity {
   }
 };
 
+// Exact model/frame/bound provenance equality, excluding only the raw target
+// pose words. This does not establish equality or feasibility of targets.
+auto SameModel(const Identity &first, const Identity &second) -> bool;
+
 struct Lengths {
   Interval a, b, c, r;
 };
@@ -124,6 +128,18 @@ struct Polynomials {
 // regularity or coverage certificate. All failures leave output unchanged.
 auto Prepare(const Input &input, Problem &output) -> Status;
 auto Prepare(const Input &input, FrameConvention convention, Problem &output)
+    -> Status;
+
+// Transform an enclosed family of raw target quaternions/positions into the
+// same normalized canonical frame as Prepare. Each member must use a nonzero
+// homogeneous quaternion; a denominator enclosure containing zero is a failure.
+// This constructs bounds only, never a target-path/root certificate. Inputs may
+// be scaled by one common nonzero quaternion scalar without changing rotations.
+// Failure leaves output unchanged. The source's target is only validated model
+// provenance; the supplied enclosures define the target family.
+auto EncloseTargets(const Input &source, FrameConvention convention,
+                    const std::array<Interval, 4> &quaternions,
+                    const std::array<Interval, 3> &positions, Pose &output)
     -> Status;
 
 // Adapter for the existing nominal model. It accepts only its explicit

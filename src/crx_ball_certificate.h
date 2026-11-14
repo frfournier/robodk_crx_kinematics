@@ -123,4 +123,22 @@ auto Certify(const exact::Problem &problem, const Centre &centre,
 // inequalities, including the new rho<=old R reserve. Failure is inconclusive.
 auto TryReuse(const Certificate &previous, const exact::Problem &problem)
     -> Attempt;
+
+struct ResidualBounds {
+  double eta = 0;
+  double coarse_eta = 0;
+  double pose_defect = 0;
+  bool used_log_series = false;
+  Interval relative_trace;
+};
+
+// Reuse a sealed point certificate's inverse/domain/region witness to bound
+// ||A^-1 Log(F(centre)^-1 T)|| uniformly for an enclosed family of targets.
+// This returns theorem bounds only, never seals a certificate for that family.
+// A typed path caller must establish structural target continuity/nonzero
+// quaternion denominators, radius inequalities and command-limit admission.
+// Failure leaves output unchanged; no caller-supplied inverse bound is trusted.
+auto EncloseResidual(const exact::Problem &problem, const Certificate &witness,
+                     const exact::Pose &targets, ResidualBounds &output)
+    -> Failure;
 } // namespace crx::ball
