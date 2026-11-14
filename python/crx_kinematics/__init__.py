@@ -11,6 +11,10 @@ from ._native import (
 )
 from ._solver import Coverage, CrxSolver, FibreIdentificationResult, IKResult, IKStatus
 from ._certificates import BallCertificate, CertificateFailure
+from ._calibrated import (
+    CalibratedAttempt, CalibratedBallCertificate, CalibratedFrame, CalibratedGeometry,
+    CalibratedIdentity, CalibratedOptions, CalibratedResult, CalibratedSolver, CalibratedStatus,
+)
 from ._catalogues import (Admission, CatalogueOptions, CatalogueResult, CatalogueSummary,
     CertifiedCommand, CommandFailure, CommandProfile, CommandRange, PhaseCertificate,
     PhaseFailure, QueryPreparation, Ranking, RootChart, RootKind, RootLeaf, RootReason, RootStatus,
@@ -24,6 +28,15 @@ __all__ = [
     "FibreRecovery", "FibreStrata", "NearStratum", "RecoverySource", "RecoveryStatus",
     "BallCertificate",
     "CertificateFailure",
+    "CalibratedAttempt",
+    "CalibratedBallCertificate",
+    "CalibratedFrame",
+    "CalibratedGeometry",
+    "CalibratedIdentity",
+    "CalibratedOptions",
+    "CalibratedResult",
+    "CalibratedSolver",
+    "CalibratedStatus",
     "ClosedSolverError",
     "ConfigurationError",
     "Coverage",

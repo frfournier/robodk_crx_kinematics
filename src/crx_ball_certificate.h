@@ -60,8 +60,7 @@ struct Request {
   int expected_aspect = 0;
 };
 
-struct Data {
-  exact::Identity identity;
+struct Bounds {
   Centre centre{};
   PointMatrix6 preconditioner = PointMatrix6::Zero();
   double existence_radius = 0;
@@ -78,8 +77,27 @@ struct Data {
   double anchor_position_norm = 0;
   Interval target_relative_trace;
   Interval closed_form_determinant;
-  int aspect_sign = 0; // Body Jacobian in canonical coordinates, not commands.
+  // Local body-Jacobian sign in the evaluated joint increments. Nominal
+  // callers use canonical coordinates; calibrated callers cannot infer
+  // a global aspect from this sign.
+  int aspect_sign = 0;
 };
+
+struct Data : Bounds {
+  exact::Identity identity;
+};
+
+namespace detail {
+// Internal theorem checks only, not a sealed certificate. The typed caller
+// supplies enclosures of one exact six-revolute PoE, its rebased unit screws
+// and target, then binds the successful bounds to its own raw problem identity.
+// An unavailable closed-form determinant omits only that optional cross-check;
+// the verified inverse residual and represented inverse still prove a local
+// sign. Failure leaves output unchanged.
+auto CheckKinematics(const exact::Pose &target, const Centre &centre,
+                     const Kinematics &kinematics, Request request,
+                     Bounds &output) -> Failure;
+} // namespace detail
 
 struct Attempt;
 
