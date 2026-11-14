@@ -15,12 +15,12 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests"))
 from crx_asset_reference import derive_model, forward_model
-from fixtures.generate_discovery_cases import make_corpus
+from fixtures.benchmark_models import benchmark_models
 from fixtures.generate_solver_cases import CHALLENGES
 
 
 def corpus():
-    originals, _ = make_corpus(0, 0, 0)
+    originals, _ = benchmark_models(0)
     assets = json.loads((ROOT / "tests/fixtures/crx_asset_frames.json").read_text())["assets"]
     rng = np.random.default_rng(2026101301)
     models, references, cases = [], [], []

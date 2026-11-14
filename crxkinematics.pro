@@ -41,6 +41,8 @@ SOURCES += \
     $$PWD/src/crx_robodk_adapter.cpp
 
 HEADERS += \
+    $$PWD/src/crx_coordinates.h \
+    $$PWD/src/crx_discovery_counters.h \
     $$PWD/src/crx_numerics.h \
     $$PWD/src/crx_command_lifts.h \
     $$PWD/src/crx_canonical.h \

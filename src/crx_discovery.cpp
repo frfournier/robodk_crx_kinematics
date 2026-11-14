@@ -6,6 +6,7 @@
  */
 
 #include "crx_discovery.h"
+#include "crx_discovery_counters.h"
 #include "crx_numerics.h"
 
 #include "crx_canonical.h"
@@ -147,6 +148,7 @@ struct ElbowResidual {
 // that stratum; the existing signed evaluators remain the fallback.
 auto EvaluateCramerResidual(const WristCircle &circle, double angle,
                             ElbowResidual &output) -> bool {
+  CRXKIN_COUNT_DISCOVERY(cramer_evaluations);
   if (!std::isfinite(angle)) {
     return false;
   }
@@ -177,6 +179,7 @@ auto EvaluateCramerResidual(const WristCircle &circle, double angle,
   const double ddelta = dx.dot(un) + x.dot(dun);
   if (!std::isfinite(delta) ||
       !(std::abs(delta) >= numerics::kCramerGuard * x_squared)) {
+    CRXKIN_COUNT_DISCOVERY(cramer_guard_rejections);
     return false;
   }
   const Vec3 elbow = (k * un + m * nx) / delta;
@@ -451,10 +454,12 @@ auto RefineElbowBranch(const RecoveryProblem &problem,
 
 auto RefineCramer(const RecoveryProblem &problem, const PolishWindow &window,
                   double &angle) -> JointRecovery {
+  CRXKIN_COUNT_DISCOVERY(cramer_runs);
   const auto &circle = problem.circle;
   const auto [initial_angle, budget, radius] = window;
   ElbowResidual residual;
   if (!EvaluateCramerResidual(circle, angle, residual)) {
+    CRXKIN_COUNT_DISCOVERY(cramer_initial_rejections);
     return {RecoveryStatus::NeedsRefinement};
   }
   for (int iteration = 0; iteration < budget; ++iteration) {
@@ -487,8 +492,14 @@ auto RefineCramer(const RecoveryProblem &problem, const PolishWindow &window,
   // Recover once after scalar convergence. Full FK and pose tolerances remain
   // authoritative, and ill-conditioned nominations still follow both signed
   // branches below before this result can be considered complete.
-  return RecoverPreparedJointCandidates(circle, problem.target, angle,
-                                        problem.tolerance);
+  const auto recovered = RecoverPreparedJointCandidates(
+      circle, problem.target, angle, problem.tolerance);
+  if (recovered.status == RecoveryStatus::Candidates) {
+    CRXKIN_COUNT_DISCOVERY(cramer_successes);
+  } else {
+    CRXKIN_COUNT_DISCOVERY(cramer_recovery_failures);
+  }
+  return recovered;
 }
 
 auto PolishAndRecover(const RecoveryProblem &problem, double initial_angle,

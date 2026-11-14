@@ -112,6 +112,55 @@ certify exhaustive root discovery. It requires a native DLL exporting the
 additive ABI 1 identification function; older ABI 1 DLLs continue to support
 the existing methods, while `identify()` raises `NotImplementedError`.
 
+`aspect_signs` uses the canonical Jacobian determinant, evaluated after mapping
+the command vector into canonical radians. With reference senses
+`s = (1,1,-1,-1,-1,-1)`, actual senses `sigma`, DH encoder offsets `theta0`,
+and reference offsets `t = (0,-pi/2,0,0,0,0)`, each coordinate obeys
+`q[i] = s[i]*sigma[i]*u[i] + s[i]*(theta0[i]-t[i])`.
+Offsets equivalent modulo whole turns are represented by the principal angle
+of the stored encoder rotation; admitted encoder roundoff near the reference
+offset snaps to zero. Large encoder zeros use sine/cosine argument reduction
+before subtracting the reference angle, avoiding accumulated binary64 period
+error and loss of the reference shift.
+The inverse is `u[i] = s[i]*sigma[i]*(q[i]-offset[i])`.
+Commands are already coupled at this boundary. If a caller starts with
+decoupled coordinates, its coupling map composes before this map; applying
+coupling again inside the solver would change the model.
+
+For the body or geometric Jacobian,
+`det(J_command) = det(J_canonical) * product(sigma)`: the reference sense
+product is one and fixed rigid base/tool adjoints have determinant one.
+Controller `[REAR,LOWERARM,FLIP]` triples are noninjective and need not
+distinguish all IK solutions. Base-flip partners have equal aspect signs.
+On positive nominal geometry, away from singularities and modulo whole turns,
+the sign describes the regular aspect; it is not a global branch identifier
+for arbitrary signed or calibrated models. Current regularity is numerical:
+`abs(det) > 1e-10*max(1,abs(a),abs(b),abs(r))**3`.
+Here `a` is the upper-arm length, `b` the signed forearm length, and `r`
+the wrist offset, in millimetres.
+No local existence/uniqueness certificate is attached.
+
+Wrist addresses are local to the particular target and wrist-circle basis.
+Crossing the reference-angle seam or a fold can change arcs/ranks. At the
+shoulder-side wall `sin(q[1])=0`, the flip bit is undefined and the address
+remains invalid. These labels keep their numerical ambiguity guards.
+
+`FibreIdentificationResult.coverage` is a `Coverage` enum. The additive
+`crx_v1_identify2` endpoint currently returns `NOT_ATTEMPTED` for every outcome.
+Coverage describes the internal nominal phase catalogue before limits, turn
+expansion or output capacity. It is independent of `truncated`, command
+admissibility and nearest-command claims. Only a later certified catalogue
+implementation may report `COMPLETE`; an empty numerical search proves no
+infeasibility. Older DLLs with only `crx_v1_identify` keep working, with
+conservative `NOT_ATTEMPTED` coverage.
+
+The extension uses a separate 16-byte `crx_v1_fibre_metadata` record:
+`uint32 struct_size=16`, `uint32 version=1`, `int32 coverage`,
+`uint32 reserved=0`. Supported size/version pairs are explicit; unknown
+sizes, versions or nonzero reserved fields return invalid argument without
+writing array outputs or extension bytes. Existing result structs stay
+16 bytes and all existing symbols retain their signatures.
+
 With a seed and capacity one, IK may return a strictly validated nearby
 solution before enumerating other branches. It is not guaranteed globally
 closest. Larger requests rank discovered solutions by squared command travel
@@ -119,6 +168,8 @@ from the seed; without a seed, ordering is lexicographic. There is no implicit
 current-joint state. `truncated=False` does not certify complete discovery.
 Solutions whose six joint values round to the same three-decimal-place degree
 values are returned once; returned values retain full solver precision.
+At equal travel, duplicate representatives prefer an exact command-box endpoint
+after preserving an exact seed; this does not admit an out-of-limit command.
 
 Approximate seed fallback is preserved with `status=APPROXIMATE_SEED`.
 Native strict flange tolerances are 0.0001 mm and 0.001 degree; approximate

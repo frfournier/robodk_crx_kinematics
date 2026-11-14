@@ -20,6 +20,7 @@
 
 #include "crx_canonical.h"
 #include "crx_command_lifts.h"
+#include "crx_coordinates.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
 #include "crx_joint_trig.h"
@@ -39,6 +40,7 @@ struct PreparedCrxModel {
   PoseIsoRT base_transform = PoseIsoRT::Identity();
   PoseIsoRT tool_transform = PoseIsoRT::Identity();
   canonical::Lengths lengths{};
+  CanonicalCommandMap coordinates{};
   double base_height = 0.0;
   Vec6 lower_limits_rad = Vec6::Zero();
   Vec6 upper_limits_rad = Vec6::Zero();
@@ -79,17 +81,34 @@ auto PrepareCrxModel(const CrxModelData &model, PreparedCrxModel &output)
     if (row.is_prismatic ||
         AngleDiffAbs(row.alpha_rad, kAlpha.at(i)) >
             numerics::kRightAngleSnapToleranceRad ||
-        AngleDiffAbs(row.theta0_rad, kTheta.at(i)) >
-            numerics::kRightAngleSnapToleranceRad ||
-        std::abs(model.joint_senses.at(i) - kSenses.at(i)) >
-            numerics::kUnitTolerance ||
         (i != 2 && std::abs(row.a) > length_tol) ||
         ((i == 1 || i == 2) && std::abs(row.d) > length_tol)) {
       return ModelStatus::UnsupportedModel;
     }
+    // theta_i = theta0_i + sigma_i*u_i = theta_ref_i + sense_ref_i*q_i.
+    // A sense encodes a sign; remove the admitted input roundoff.
+    const auto axis = static_cast<Eigen::Index>(i);
+    output.coordinates.diagonal[axis] =
+        std::copysign(1.0, model.joint_senses.at(i)) * kSenses.at(i);
+    const double direct_difference = row.theta0_rad - kTheta.at(i);
+    if (std::abs(direct_difference) <= numerics::kRightAngleSnapToleranceRad) {
+      output.coordinates.offset[axis] = 0.0;
+    } else {
+      // Reduce the stored rotation before subtracting the reference offset.
+      // A remainder by binary64 2*pi accumulates its period error for large
+      // encoder zeros; subtracting pi/2 first can also lose that entire shift.
+      const double principal =
+          std::atan2(std::sin(row.theta0_rad), std::cos(row.theta0_rad));
+      const double difference =
+          std::remainder(principal - kTheta.at(i), kTwoPi);
+      output.coordinates.offset[axis] =
+          std::abs(difference) <= numerics::kRightAngleSnapToleranceRad
+              ? 0.0
+              : difference * kSenses.at(i);
+    }
   }
   const auto &rows = model.dh_rows;
-  if (rows[2].a <= 0 || rows[0].d <= 0 || rows[3].d <= 0 ||
+  if (rows[2].a <= 0 || rows[0].d <= 0 || rows[3].d == 0 ||
       rows[4].d > -numerics::kDhLengthToleranceMm || rows[5].d <= 0) {
     return ModelStatus::UnsupportedModel;
   }
@@ -178,9 +197,9 @@ auto SolveFKCore(const Vec6 &command_rad, PoseIsoRT &pose_out,
   }
 
   static_assert(JointTrig::kCount == kDofCount);
-  const JointTrig::Values angles{command_rad[0],  command_rad[1] - kHalfPi,
-                                 -command_rad[2], -command_rad[3],
-                                 -command_rad[4], -command_rad[5]};
+  const Vec6 q = model.coordinates.FromCommand(command_rad);
+  const JointTrig::Values angles{q[0],  q[1] - kHalfPi, -q[2],
+                                 -q[3], -q[4],          -q[5]};
   constexpr std::array<double, kDofCount> kSine{0, -1, 0, -1, 1, -1};
   constexpr std::array<double, kDofCount> kCosine{1, 0, 1, 0, 0, 0};
   const std::array<double, kDofCount> a{0, 0, model.lengths.a, 0, 0, 0};
@@ -444,6 +463,10 @@ auto CorrectConstrainedCandidates(const std::vector<Vec6> &geometric_solutions,
       canonical::PreparationStatus::Ready) {
     return constrained;
   }
+  Vec6 canonical_lower, canonical_upper;
+  model.coordinates.CanonicalBounds(model.lower_limits_rad,
+                                    model.upper_limits_rad, canonical_lower,
+                                    canonical_upper);
   for (const Vec6 &command : geometric_solutions) {
     canonical::JointCandidate candidate;
     candidate.joints = command;
@@ -457,15 +480,15 @@ auto CorrectConstrainedCandidates(const std::vector<Vec6> &geometric_solutions,
         numerics::kPolishMaxStepRad) {
       continue;
     }
-    candidate.joints = clamped;
+    candidate.joints = model.coordinates.FromCommand(clamped);
     if (canonical::PolishPreparedJointCandidate(
             circle, target_pose_06, tolerance, numerics::kPolishIterations,
-            candidate, &model.lower_limits_rad, &model.upper_limits_rad)) {
-      constrained.push_back(candidate.joints);
+            candidate, &canonical_lower, &canonical_upper)) {
+      constrained.push_back(model.coordinates.ToCommand(candidate.joints));
       canonical::JointCandidate partner;
       if (canonical::RecoverBaseFlip(circle, target_pose_06, tolerance,
                                      candidate, partner)) {
-        constrained.push_back(partner.joints);
+        constrained.push_back(model.coordinates.ToCommand(partner.joints));
       }
     }
   }
@@ -503,12 +526,13 @@ auto TryNearbySolution(const PreparedCrxModel &fk,
     return result;
   }
   const auto nearby = canonical::DiscoverNearbyJointCandidates(
-      lengths, canonical_pose, tolerance, command_seed);
+      lengths, canonical_pose, tolerance,
+      model.coordinates.FromCommand(command_seed));
   if (nearby.status != canonical::RecoveryStatus::Candidates) {
     return result;
   }
   for (std::size_t i = 0; i < nearby.count; ++i) {
-    Vec6 command = nearby.candidates[i].joints;
+    Vec6 command = model.coordinates.ToCommand(nearby.candidates[i].joints);
     // The bounded neighborhood spans less than half a turn: only the lift
     // nearest the seed can belong to it. Other turns need no enumeration.
     command +=
@@ -868,7 +892,8 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
     if (discovered.status == canonical::RecoveryStatus::Candidates) {
       geometric_solutions.reserve(discovered.count);
       for (std::size_t i = 0; i < discovered.count; ++i) {
-        const Vec6 &command = discovered.candidates[i].joints;
+        const Vec6 command =
+            fk.coordinates.ToCommand(discovered.candidates[i].joints);
         if (!IsFkRoundtripValid(command, target_pose, target_quaternion, fk)) {
           outcome.status = IkStatus::Unresolved;
           return outcome;
@@ -907,8 +932,12 @@ auto SolveIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   if (model.upper_limits_rad[2] - model.lower_limits_rad[2] < kTwoPi ||
       model.upper_limits_rad[5] - model.lower_limits_rad[5] < kTwoPi) {
     canonical::DiscoveryOptions options;
-    options.lower_limits = &model.lower_limits_rad;
-    options.upper_limits = &model.upper_limits_rad;
+    Vec6 canonical_lower, canonical_upper;
+    fk.coordinates.CanonicalBounds(model.lower_limits_rad,
+                                   model.upper_limits_rad, canonical_lower,
+                                   canonical_upper);
+    options.lower_limits = &canonical_lower;
+    options.upper_limits = &canonical_upper;
     const auto discovered = canonical::DiscoverJointCandidates(
         lengths, target_pose_06, tolerance, options);
     if (discovered.pruned_nominations == 0 &&
@@ -969,7 +998,8 @@ auto IdentifyIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
   geometric_solutions.reserve(discovered.count);
   wrist_angles.reserve(discovered.count);
   for (std::size_t i = 0; i < discovered.count; ++i) {
-    const Vec6 &candidate = discovered.candidates[i].joints;
+    const Vec6 candidate =
+        fk.coordinates.ToCommand(discovered.candidates[i].joints);
     if (!IsFkRoundtripValid(candidate, target_pose, target_quaternion, fk)) {
       result.status = IkStatus::Unresolved;
       return result;
@@ -1018,7 +1048,7 @@ auto IdentifyIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
       result.status = IkStatus::Unresolved;
       return result;
     }
-    const Vec6 &q = geometric_solutions[source];
+    const Vec6 q = fk.coordinates.FromCommand(geometric_solutions[source]);
     const double determinant = OrthoDeterminant(fk.lengths, q);
     if (!std::isfinite(determinant)) {
       result.solutions.clear();
@@ -1041,9 +1071,15 @@ auto IdentifyIkIsometry(const CrxModelData &model, const PoseIsoRT &target_pose,
       result.status = IkStatus::Unresolved;
       return result;
     }
+    // f' = 2*b*Delta*det(Jcanonical). Compare signs separately so the
+    // consistency check cannot overflow or underflow by multiplying factors.
+    const bool derivative_delta_negative =
+        std::signbit(residual_derivative) != std::signbit(denominator);
+    const bool expected_determinant_negative =
+        derivative_delta_negative != std::signbit(fk.lengths.b);
     if (regular && std::abs(denominator) > 1e-8 &&
         std::abs(residual_derivative) > 1e-8 &&
-        ((residual_derivative * denominator > 0) != (determinant > 0))) {
+        expected_determinant_negative != std::signbit(determinant)) {
       result.solutions.clear();
       result.status = IkStatus::Unresolved;
       return result;

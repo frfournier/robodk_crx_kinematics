@@ -87,9 +87,9 @@ inline constexpr double kJointPhaseToleranceRad = 1e-10;
 // Numerical tolerance for matching wrapped joint phases and solver postures.
 // Output commands use their three-decimal degree representation instead.
 inline constexpr double kCommandDedupToleranceRad = angle_conv::DegToRad(1e-4);
-// The Cramer elbow solve is used only away from the singular determinant
-// stratum. The margin is based on the discovery calibration in
-// notes/crx-newton-refinement.md.
+// Use the Cramer elbow solve when |delta| >= kCramerGuard * |O4|^2.
+// This conditioning margin selects a refinement path; strict FK validation
+// still decides whether to accept the recovered configuration.
 inline constexpr double kCramerGuard = 1e-3;
 // N1017: stable counts at 1e-10..1e-8. Lower settings alter chart/handoff
 // decisions; retain the conservative lower edge, with strict FK still final.
