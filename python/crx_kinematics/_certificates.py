@@ -113,11 +113,8 @@ def _readonly(values, shape=None):
     return result
 
 
-def read_certificate(library, handle):
-    # Caller retains raw-handle ownership until this function succeeds.
-    record = BallRecord()
-    record.struct_size, record.version = ct.sizeof(record), 1
-    check(library.certificate_read(handle, ct.byref(record)))
+def decode_ball_record(record):
+    """Validate and own a snapshot, without creating a native reuse handle."""
     if (record.struct_size != ct.sizeof(record) or record.version != 1 or record.reserved != 0
             or record.identity_schema not in (1, 2) or record.aspect_sign not in (-1, 1)
             or record.reused not in (0, 1) or record.used_log_series not in (0, 1)):
@@ -149,10 +146,17 @@ def read_certificate(library, handle):
         reuse_failure = CertificateFailure(record.reuse_failure)
     except ValueError as exc:
         raise NativeError("Native certificate returned an unknown reuse outcome") from exc
-    return BallCertificate(**arrays, **scalars, aspect_sign=record.aspect_sign,
+    return dict(**arrays, **scalars, aspect_sign=record.aspect_sign,
                            identity_schema=record.identity_schema, reused=bool(record.reused),
-                           used_log_series=bool(record.used_log_series), reuse_failure=reuse_failure,
-                           _owner=_CertificateOwner(library, handle))
+                           used_log_series=bool(record.used_log_series), reuse_failure=reuse_failure)
+
+
+def read_certificate(library, handle):
+    # Caller retains raw-handle ownership until this function succeeds.
+    record = BallRecord()
+    record.struct_size, record.version = ct.sizeof(record), 1
+    check(library.certificate_read(handle, ct.byref(record)))
+    return BallCertificate(**decode_ball_record(record), _owner=_CertificateOwner(library, handle))
 
 
 def destroy_pending(library, handles):

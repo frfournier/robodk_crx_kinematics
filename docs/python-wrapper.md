@@ -149,8 +149,8 @@ remains invalid. These labels keep their numerical ambiguity guards.
 `crx_v1_identify2` endpoint currently returns `NOT_ATTEMPTED` for every outcome.
 Coverage describes the internal nominal phase catalogue before limits, turn
 expansion or output capacity. It is independent of `truncated`, command
-admissibility and nearest-command claims. Only a later certified catalogue
-implementation may report `COMPLETE`; an empty numerical search proves no
+admissibility and nearest-command claims. The opt-in `catalogue()` query below
+may report `COMPLETE`; an empty numerical search proves no
 infeasibility. Older DLLs with only `crx_v1_identify` keep working, with
 conservative `NOT_ATTEMPTED` coverage.
 
@@ -184,6 +184,88 @@ An empty search is not proof of unreachability. Configuration can be undefined
 at an arm singularity without invalidating a solution. Standalone
 `configuration()` raises `ConfigurationError` in that case.
 
+## Verified nominal catalogues and command ranking
+
+```python
+from crx_kinematics import CatalogueOptions, CommandProfile, CrxSolver, Ranking
+
+with CrxSolver("CRX-10iA", dll_path="build/Release/crx_kinematics.dll") as robot:
+    start = [20., 30., 40., 50., 60., 70.]
+    target = robot.fk(start)
+    query = robot.catalogue(target, seed=start, max_solutions=1)
+
+try:
+    print(query.coverage, query.summary.admission_complete)
+    if query.summary.ranking == Ranking.UNIQUE:
+        command = query.commands[0]
+        print(command.radians)  # six [lo,hi] enclosures of the exact command
+    print(query.numerical_solutions)  # separate, explicitly numerical fallback
+    chart = query.chart(0)
+    leaf = query.leaf(0, 0)  # root cover domains and Bernstein witnesses
+finally:
+    query.close()
+```
+
+This opt-in path defines an exact quaternion-rigid nominal target from the raw
+target/reference/tool inputs. Complete phase coverage requires an exhaustive
+simple-wrist-root cover and the matching number of disjoint local existence
+balls. Unresolved strata, arithmetic and work exhaustion stay inconclusive.
+The C++ implementation and its additional radius/ordering arguments have not
+been formally verified. Existing `ik()`/`identify()` behavior remains unchanged.
+
+`catalogue()` retains the original model degree-limit inputs, including custom
+limits, before any rounded conversion. `joint_limits=` can instead supply an
+explicit `(2,6)` box for this query. `seed=` is six command degrees; `weights=`
+is six positive finite squared-travel weights, defaulting to ones. Mathematical
+pi/180 defines proof conversions; original binary64 provenance is available in
+`query.summary.raw_words` as lower/upper/seed/weight groups of six. The exact
+target/model identity and frame schema are in `input_words`/`identity_schema`.
+
+Default `CommandProfile.CALLBACK` uses the already-coupled command coordinates
+of FK/IK. `CommandProfile.DECOUPLED_USER` explicitly uses
+`user[2]=callback[2]-callback[1]` and requires a limit rectangle in that user
+convention. A callback limit rectangle cannot simply be relabelled as a
+decoupled rectangle. The seed and weights use the selected convention too.
+
+Each exact command is enclosed by a `CertifiedCommand.radians` box. Admission
+is `YES`, `NO`, or `UNDECIDED`; retained rows are Yes or Undecided. Boundary
+uncertainty is never clamped into Yes. `Ranking.UNIQUE` requires one Yes row's
+upper weighted cost to be strictly below every potential competitor's lower
+cost. `POSSIBLE_MINIMIZERS` contains all possible nearest lifts and does not
+prove equal exact costs. A distant undecided boundary row can be excluded by
+its certified lower travel bound. Without a guaranteed admissible candidate,
+or with unavailable competitors/costs, nearest selection remains inconclusive.
+
+`summary.nominal_infeasible` means the nominal exact pose has a complete
+zero-root exclusion cover. `summary.command_infeasible` also requires fully
+resolved command admission. Complete phases alone prove neither complete
+command admission nor an exhaustive returned prefix. An approximate numerical
+seed may coexist with exact nominal pose exclusion; its separate numerical
+status is never upgraded to a proof.
+
+`max_solutions` is 0..512. It limits the materialized command/fallback prefix
+after proof enumeration; zero requests proof work without numerical fallback.
+`command(i)` can audit every potential command up to `summary.command_count`.
+`phase(i)`, `command_range(i)`, `chart(i)` and `leaf(chart,i)` return owned
+read-only snapshots. Phase snapshots carry canonical centres and radii;
+rounding a command-box midpoint does not make it an exact FK solution.
+
+The native audit cache owns all proofs and survives solver closure. `close()`
+releases only that cache; materialized arrays remain readable. Lazy reads after
+query closure raise an error. Concurrent cache reads and closure are serialized.
+`CatalogueOptions` sets bounded root/ball/pair/lift work;
+`CatalogueOptions(enabled=False)` runs the same numerical fallback with
+`NOT_ATTEMPTED` coverage and no proof work. Older ABI-1 DLLs lacking the query
+exports also return numerical fallback with `NOT_ATTEMPTED` coverage and
+`raw_provenance_available=False`, rather than reconstructing original degree
+inputs from rounded getters.
+
+The additive C declarations are in `include/crx_catalogue_api.h`. Options,
+summary, command, range, chart and leaf layouts negotiate exact size/version
+pairs and zero reserved fields. Query errors return NULL ownership; failed
+record reads leave outputs unchanged. Root charts expose both original and
+opposite fixed-degree polynomial slots and the full leaf witnesses.
+
 ## NumPy memory and errors
 
 Inputs must have exactly the documented shapes. Real integer/floating arrays
@@ -209,7 +291,8 @@ supported, with garbage collection as a cleanup fallback.
 
 The additive C API in `include/crx_python_api.h` uses row-major matrices and
 six-value IK rows. RoboDK retains column-major poses and twelve-value IK records.
-DLLs without ABI 1 are rejected; no deployment or legacy fallback occurs.
+DLLs without ABI 1 are rejected. Optional additive exports fall back as described
+above; no deployment occurs.
 
 ## Distribution and testing
 
