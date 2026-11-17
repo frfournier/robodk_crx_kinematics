@@ -172,6 +172,9 @@ _crxkin_strict_enclosure_target(crx_phase_catalogue)
 add_library(crx_command_certificate STATIC src/crx_command_certificate.cpp)
 target_link_libraries(crx_command_certificate PUBLIC crx_phase_catalogue)
 _crxkin_strict_enclosure_target(crx_command_certificate)
+add_library(crx_path_certificate STATIC src/crx_path_certificate.cpp)
+target_link_libraries(crx_path_certificate PUBLIC crx_command_certificate)
+_crxkin_strict_enclosure_target(crx_path_certificate)
 
 set(_CRXKIN_EIGEN_LICENSE "${_CRXKIN_EIGEN_SOURCE_DIR}/LICENSE")
 set(_CRXKIN_EIGEN_LEGAL_FILES
@@ -208,6 +211,24 @@ set(CRXKIN_CANONICAL_SOURCES
   "${CMAKE_SOURCE_DIR}/src/crx_joint_recovery.cpp"
   "${CMAKE_SOURCE_DIR}/src/crx_polynomial_roots.cpp"
 )
+
+add_library(crx_path_nomination STATIC src/crx_path_nomination.cpp
+  src/crx_catalogue_discovery.cpp ${CRXKIN_CANONICAL_SOURCES} src/crx_math_compat.cpp)
+target_link_libraries(crx_path_nomination PUBLIC crx_path_certificate)
+add_library(crx_path_tracking STATIC src/crx_path_tracking.cpp)
+target_link_libraries(crx_path_tracking PUBLIC crx_path_nomination)
+_crxkin_strict_enclosure_target(crx_path_tracking)
+add_library(crx_path_report STATIC src/crx_path_report.cpp)
+target_link_libraries(crx_path_report PUBLIC crx_path_tracking)
+add_library(crx_branch_graph STATIC src/crx_branch_graph.cpp)
+target_link_libraries(crx_branch_graph PUBLIC crx_path_tracking)
+_crxkin_strict_enclosure_target(crx_branch_graph)
+add_library(crx_branch_report STATIC src/crx_branch_report.cpp)
+target_link_libraries(crx_branch_report PUBLIC crx_branch_graph crx_path_report)
+add_library(crx_path_request STATIC src/crx_path_request.cpp)
+target_link_libraries(crx_path_request PUBLIC crx_branch_graph)
+add_executable(crx_path_tool src/crx_path_tool.cpp)
+target_link_libraries(crx_path_tool PRIVATE crx_branch_report crx_path_request)
 
 set(CRXKIN_CPP_SOURCES
   ${CRXKIN_CANONICAL_SOURCES}
@@ -249,13 +270,16 @@ target_include_directories(crx_kinematics PRIVATE
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen crx_ball_certificate crx_command_certificate)
 
-# The Python C boundary catches allocation/solver exceptions. Explicit Clang
+# The Python C boundary and standalone I/O tools catch exceptions. Explicit Clang
 # flags also reach clang-tidy, whose clang-cl driver can lose /EHsc while
 # translating the compilation database to its analysis invocation.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32)
   set_source_files_properties("${CMAKE_SOURCE_DIR}/src/crx_python_api.cpp"
     "${CMAKE_SOURCE_DIR}/src/crx_catalogue_api.cpp"
     "${CMAKE_SOURCE_DIR}/scripts/benchmark_counters.cpp"
+    "${CMAKE_SOURCE_DIR}/src/crx_path_request.cpp"
+    "${CMAKE_SOURCE_DIR}/src/crx_path_tool.cpp"
+    "${CMAKE_SOURCE_DIR}/scripts/benchmark_paths.cpp"
     PROPERTIES COMPILE_OPTIONS "-Xclang;-fexceptions;-Xclang;-fcxx-exceptions")
 endif()
 
@@ -307,31 +331,33 @@ set_property(SOURCE
 # Keep the notice, exact Eigen header source, and licensing files beside every
 # binary. The vendored tree may contain local changes, so an upstream URL alone
 # is not sufficient corresponding-source access.
-add_custom_command(TARGET crx_kinematics POST_BUILD
+add_custom_target(crx_runtime_licenses
   COMMAND ${CMAKE_COMMAND} -E make_directory
-          "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen"
+          "${_OUT_DIR}/licenses/Eigen"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${_CRXKIN_PROJECT_LICENSE}"
-          "$<TARGET_FILE_DIR:crx_kinematics>/LICENSE"
+          "${_OUT_DIR}/LICENSE"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${_CRXKIN_THIRD_PARTY_NOTICES}"
-          "$<TARGET_FILE_DIR:crx_kinematics>/THIRD_PARTY_NOTICES.md"
+          "${_OUT_DIR}/THIRD_PARTY_NOTICES.md"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${_CRXKIN_EIGEN_LICENSE}"
-          "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen/LICENSE"
+          "${_OUT_DIR}/licenses/Eigen/LICENSE"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.APACHE"
           "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.BSD"
           "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.MINPACK"
           "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.MPL2"
           "${_CRXKIN_EIGEN_SOURCE_DIR}/COPYING.README"
-          "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen"
+          "${_OUT_DIR}/licenses/Eigen"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           "${_CRXKIN_EIGEN_SOURCE_DIR}/Eigen"
-          "$<TARGET_FILE_DIR:crx_kinematics>/licenses/Eigen/source/Eigen"
+          "${_OUT_DIR}/licenses/Eigen/source/Eigen"
   COMMENT "Copying project and third-party licenses and notices"
   VERBATIM
 )
+add_dependencies(crx_kinematics crx_runtime_licenses)
+add_dependencies(crx_path_tool crx_runtime_licenses)
 
 if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
   target_compile_options(crx_kinematics PRIVATE /W4 /permissive-)
@@ -388,6 +414,19 @@ endif()
 # Tests and verification utility
 # ------------------------------------------------------------------------------
 if(BUILD_TESTING)
+  add_executable(crx_path_tracking_tests tests/test_crx_path_tracking.cpp)
+  target_link_libraries(crx_path_tracking_tests PRIVATE crx_path_report)
+  _crxkin_strict_enclosure_target(crx_path_tracking_tests)
+  add_test(NAME crx.path-tracking COMMAND crx_path_tracking_tests)
+  add_executable(crx_branch_graph_tests tests/test_crx_branch_graph.cpp)
+  target_link_libraries(crx_branch_graph_tests PRIVATE crx_branch_graph)
+  _crxkin_strict_enclosure_target(crx_branch_graph_tests)
+  add_test(NAME crx.branch-graph COMMAND crx_branch_graph_tests)
+  add_executable(crx_path_tests tests/test_crx_path_certificate.cpp
+    src/crx_catalogue_discovery.cpp ${CRXKIN_CANONICAL_SOURCES} src/crx_math_compat.cpp)
+  target_link_libraries(crx_path_tests PRIVATE crx_path_certificate)
+  _crxkin_strict_enclosure_target(crx_path_tests)
+  add_test(NAME crx.path-certificate COMMAND crx_path_tests)
   add_executable(crx_command_certificate_tests tests/test_crx_command_certificate.cpp
     src/crx_catalogue_discovery.cpp ${CRXKIN_CANONICAL_SOURCES} src/crx_math_compat.cpp)
   target_link_libraries(crx_command_certificate_tests PRIVATE crx_command_certificate)
@@ -455,6 +494,9 @@ if(BUILD_TESTING)
   target_compile_definitions(crx_solver_counters PRIVATE CRXKIN_DISCOVERY_COUNTERS)
   # Opt-in native timing harnesses; no benchmark exports enter the C ABI.
   if(WIN32)
+    add_executable(crx_path_benchmark EXCLUDE_FROM_ALL scripts/benchmark_paths.cpp)
+    target_link_libraries(crx_path_benchmark PRIVATE crx_branch_report crx_path_request)
+    add_dependencies(crx_path_benchmark crx_runtime_licenses)
     # Stage-only command access compiles the shipped implementation strictly in
     # a separate opt-in object. It adds no timing hooks or exports to the DLL.
     add_library(crx_catalogue_benchmark_commands STATIC EXCLUDE_FROM_ALL
@@ -531,8 +573,11 @@ if(BUILD_TESTING)
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
     set_tests_properties(crx.python-regression PROPERTIES
-      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>;CRXKIN_INTERVAL_PROBE_PATH=$<TARGET_FILE:crx_interval_tests>;CRXKIN_EXACT_PROBE_PATH=$<TARGET_FILE:crx_exact_tests>;CRXKIN_BALL_PROBE_PATH=$<TARGET_FILE:crx_ball_tests>;CRXKIN_COVER_PROBE_PATH=$<TARGET_FILE:crx_root_certificate_tests>;CRXKIN_CATALOGUE_PROBE_PATH=$<TARGET_FILE:crx_phase_catalogue_tests>;CRXKIN_COMMAND_CERTIFICATE_PROBE_PATH=$<TARGET_FILE:crx_command_certificate_tests>"
+      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>;CRXKIN_INTERVAL_PROBE_PATH=$<TARGET_FILE:crx_interval_tests>;CRXKIN_EXACT_PROBE_PATH=$<TARGET_FILE:crx_exact_tests>;CRXKIN_BALL_PROBE_PATH=$<TARGET_FILE:crx_ball_tests>;CRXKIN_COVER_PROBE_PATH=$<TARGET_FILE:crx_root_certificate_tests>;CRXKIN_CATALOGUE_PROBE_PATH=$<TARGET_FILE:crx_phase_catalogue_tests>;CRXKIN_COMMAND_CERTIFICATE_PROBE_PATH=$<TARGET_FILE:crx_command_certificate_tests>;CRXKIN_PATH_PROBE_PATH=$<TARGET_FILE:crx_path_tests>"
     )
+    set_property(TEST crx.python-regression APPEND PROPERTY ENVIRONMENT
+      "CRXKIN_PATH_TRACKING_PROBE_PATH=$<TARGET_FILE:crx_path_tracking_tests>"
+      "CRXKIN_PATH_BACKEND=$<TARGET_FILE:crx_path_tool>")
     add_test(
       NAME crx.solver-reliability
       COMMAND "${CRXKIN_UV_EXECUTABLE}" run --locked pytest
@@ -547,7 +592,7 @@ if(BUILD_TESTING)
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
               --output-on-failure
       DEPENDS crx_kinematics crx_canonical_tests crx_command_lift_tests crx_interval_tests crx_exact_tests crx_ball_tests
-              crx_solver_tests crx_root_certificate_tests crx_phase_catalogue_tests crx_command_certificate_tests
+              crx_solver_tests crx_root_certificate_tests crx_phase_catalogue_tests crx_command_certificate_tests crx_path_tests crx_path_tracking_tests crx_branch_graph_tests crx_path_tool
       COMMENT "Running CMake/CTest regression checks"
       USES_TERMINAL
       VERBATIM
