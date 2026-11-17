@@ -43,6 +43,14 @@ class FibreMetadata(ct.Structure):
         "status", "count", "truncated", "used_singular_representatives",
     )]
 
+class FibreExtension(ct.Structure):
+    _fields_ = [
+        ("struct_size", ct.c_uint32),
+        ("version", ct.c_uint32),
+        ("coverage", ct.c_int32),
+        ("reserved", ct.c_uint32),
+    ]
+
 
 def _array_type(dtype, shape, *, output=False):
     flags = ("C_CONTIGUOUS", "ALIGNED", "WRITEABLE") if output else (
@@ -160,6 +168,25 @@ class NativeLibrary:
             ]
             identify.restype = ct.c_int32
             self.identify = identify
+        try:
+            identify2 = self.lib.crx_v1_identify2
+        except AttributeError:
+            self.identify2 = None
+        else:
+            identify2.argtypes = [
+                ct.c_void_p, pose, ct.c_int32, solutions,
+                ndpointer(dtype=np.int32, ndim=1,
+                          flags=("C_CONTIGUOUS", "ALIGNED", "WRITEABLE")),
+                ndpointer(dtype=np.int32, ndim=1,
+                          flags=("C_CONTIGUOUS", "ALIGNED", "WRITEABLE")),
+                ndpointer(dtype=np.int32, ndim=2,
+                          flags=("C_CONTIGUOUS", "ALIGNED", "WRITEABLE")),
+                ndpointer(dtype=np.int32, ndim=1,
+                          flags=("C_CONTIGUOUS", "ALIGNED", "WRITEABLE")),
+                ct.POINTER(FibreMetadata), ct.POINTER(FibreExtension),
+            ]
+            identify2.restype = ct.c_int32
+            self.identify2 = identify2
 
     def close_directory(self) -> None:
         if self.directory is not None:

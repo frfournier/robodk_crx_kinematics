@@ -139,10 +139,24 @@ uv run --locked python tests/fixtures/generate_accuracy_stress.py --check
 under `scripts/benchmark_*.py`; they do not add timing work to normal tests.
 Fixture and asset changes must be called out explicitly.
 
-Detailed numerical rationale, fixture provenance, benchmark commands and past
-results are preserved in [validation history](../notes/testing-validation-history.md).
-That archive records results at the time of each investigation; this guide
-is the entry point for running and maintaining the current suite.
+The frozen 4,313-case solver and 3,024-case accuracy corpora use the historical
+command boxes declared in `fixtures/benchmark_models.py`. Those experiment
+inputs predate the approved asset-limit refresh; they are separate from current
+catalogue defaults. Keep their JSON and hashes unchanged. Regeneration checks
+allow the existing bounded math-library roundoff, while current asset-bridge
+and wrapper tests continue to use the approved capture's current limits.
+
+`crx_solver_counters` is an opt-in, untimed native diagnostic target. It reads
+the same `input.txt` as `crx_solver_benchmark` and writes one CSV record per
+target and seed mode. Its Cramer runs count refinement invocations; evaluations
+include backtracking trials; guard rejections count failed determinant gates.
+Initial rejections, successful FK recoveries and recovery failures partition
+runs. They are event counts, not counts of distinct targets. Record source,
+input and executable hashes separately from uninstrumented DLL timing.
+
+Keep fixture provenance with the recorded fixture metadata. Benchmark reports
+must record the measured revisions, input and binary hashes, exact commands,
+and validation results so that each comparison can be reproduced independently.
 
 ## External baseline comparisons
 

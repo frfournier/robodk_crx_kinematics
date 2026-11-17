@@ -7,9 +7,40 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import benchmark_solvers as benchmark
+import benchmark_accuracy as accuracy
+
+
+@pytest.mark.parametrize("corruption", [None, "missing", "duplicate", "partition", "count"])
+def test_counter_evidence_requires_matched_inputs_and_outcomes(tmp_path, corruption):
+    records = [
+        dict(case=0, mode=mode, count=2, cramer_runs=5, cramer_evaluations=12,
+             cramer_guard_rejections=3, cramer_initial_rejections=1,
+             cramer_successes=3, cramer_recovery_failures=1)
+        for mode in benchmark.MODES
+    ]
+    frame = pd.DataFrame([dict(case=0, mode=mode, path="candidate", count=2)
+                          for mode in benchmark.MODES])
+    if corruption == "missing":
+        records.pop()
+    elif corruption == "duplicate":
+        records.append(dict(records[0]))
+    elif corruption == "partition":
+        records[0]["cramer_runs"] += 1
+    elif corruption == "count":
+        records[0]["count"] += 1
+    path = tmp_path / "counters.csv"
+    pd.DataFrame(records).to_csv(path, index=False)
+    if corruption is None:
+        totals = accuracy.validate_counters(path, frame, "candidate")
+        assert totals["cramer_runs"] == 10
+        assert totals["cramer_successes"] == 6
+    else:
+        with pytest.raises(AssertionError):
+            accuracy.validate_counters(path, frame, "candidate")
 
 
 def test_comparison_reports_coverage_and_validates_each_artifact(tmp_path, monkeypatch):

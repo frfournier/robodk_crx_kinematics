@@ -12,25 +12,25 @@ from crx_test_support import _call_joints_config, _to_c_array, _to_fk_api_joints
 
 @pytest.mark.parametrize("column", [0, 2], ids=["alpha", "theta_offset"])
 @pytest.mark.parametrize("tilt", [-9.9e-6, -1e-8, -1e-14, 1e-14, 1e-8, 9.9e-6])
-def test_dh_snapping_is_roundoff_only(kinematics_lib, crx_10ia, column, tilt):
+def test_dh_axis_snapping_and_encoder_offsets(kinematics_lib, crx_10ia, column, tilt):
     witness = [20., -40., 45., 30., -50., -60.]
     crx_10ia.data[11][column] += tilt
     target, _ = reference_fk(crx_10ia, witness)
     command = _to_c_array(_to_fk_api_joints_deg(witness))
     actual = (ctypes.c_double * 16)()
     status = kinematics_lib.SolveFK(command, actual, ctypes.byref(crx_10ia))
-    if abs(tilt) > 1e-10:
+    if column == 0 and abs(tilt) > 1e-10:
         assert status == -1
     else:
         assert status == 1
-        # CRX signature recognition admits encoding roundoff only.
+        # Axis snapping admits roundoff only; encoder offsets are mapped exactly.
         np.testing.assert_allclose(np.array(actual).reshape(4, 4, order="F"),
                                    target, atol=2e-10, rtol=0)
     best = (ctypes.c_double * 6)(*([12345.] * 6))
     alternatives = (ctypes.c_double * 12)(*([12345.] * 12))
     count = kinematics_lib.SolveIK(_to_c_array(target.ravel(order="F")), best,
                                 alternatives, 1, command, ctypes.byref(crx_10ia))
-    if abs(tilt) > 1e-10:
+    if column == 0 and abs(tilt) > 1e-10:
         assert count == -1
         assert list(best) == [12345.] * 6
         assert list(alternatives) == [12345.] * 12

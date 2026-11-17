@@ -18,6 +18,7 @@ from numpy.typing import ArrayLike, NDArray
 from ._native import (
     ClosedSolverError,
     FibreMetadata,
+    FibreExtension,
     IKMetadata,
     NativeError,
     NativeLibrary,
@@ -49,6 +50,15 @@ class IKStatus(IntEnum):
     UNRESOLVED = 8
     NUMERICAL_RANGE_FAILURE = 9
     WORK_LIMIT = 10
+
+
+class Coverage(IntEnum):
+    """Internal phase-catalogue coverage, separate from output truncation."""
+
+    NOT_ATTEMPTED = 0
+    COMPLETE = 1
+    INCONCLUSIVE = 2
+    CONTINUOUS_FIBRE = 3
 
 
 @dataclass(frozen=True)
@@ -83,7 +93,7 @@ class IKResult:
 class FibreIdentificationResult:
     """Discovered pose-fibre solutions with numerical identification labels.
 
-    ``aspect_signs`` is the Jacobian determinant sign for regular solutions
+    ``aspect_signs`` is the canonical Jacobian determinant sign for regular solutions
     and zero for singular solutions. ``regular`` records that distinction
     directly. ``wrist_addresses`` has columns ``(arc, zero_based_root_rank,
     base_flip_bit)``. Arcs follow increasing wrist-circle angle in ``[-pi, pi)``;
@@ -92,6 +102,11 @@ class FibreIdentificationResult:
     ``[-1, -1, -1]`` and have ``wrist_address_valid=False``. Address validity
     means the numerical root assignment was unambiguous; it is not a formal
     completeness certificate.
+
+    Addresses are target-local and may change at seams or folds; the shoulder
+    bit is undefined where sin(q[1]) vanishes. Controller configuration triples
+    need not distinguish solutions. Coverage concerns the internal phase
+    catalogue before limits, turn expansion and output truncation.
     """
 
     solutions: FloatArray
@@ -102,6 +117,7 @@ class FibreIdentificationResult:
     status: IKStatus
     truncated: bool
     used_singular_representatives: bool
+    coverage: Coverage = Coverage.NOT_ATTEMPTED
 
     @property
     def success(self) -> bool:
@@ -410,7 +426,7 @@ class CrxSolver:
             raise ValueError("Flange target exceeds the float64 numerical range")
         with self._lock:
             self._require_open()
-            if self._library.identify is None:
+            if self._library.identify is None and self._library.identify2 is None:
                 raise NotImplementedError(
                     "This native DLL does not export fibre identification; "
                     "load a 0.5.0 or newer DLL."
@@ -421,10 +437,23 @@ class CrxSolver:
             addresses = np.empty((capacity, 3), dtype=np.int32)
             address_valid_i = np.empty(capacity, dtype=np.int32)
             metadata = FibreMetadata()
-            check(self._library.identify(
+            arguments = (
                 self._handle, flange_target, capacity, solutions, signs,
                 regular_i, addresses, address_valid_i, ct.byref(metadata),
-            ))
+            )
+            coverage = Coverage.NOT_ATTEMPTED
+            if self._library.identify2 is not None:
+                extension = FibreExtension(ct.sizeof(FibreExtension), 1, 0, 0)
+                check(self._library.identify2(*arguments, ct.byref(extension)))
+                if (extension.struct_size != ct.sizeof(FibreExtension)
+                        or extension.version != 1 or extension.reserved != 0):
+                    raise NativeError("Native identification changed the metadata layout")
+                try:
+                    coverage = Coverage(extension.coverage)
+                except ValueError as exc:
+                    raise NativeError("Native API returned unknown coverage") from exc
+            else:
+                check(self._library.identify(*arguments))
             if not 0 <= metadata.count <= capacity:
                 raise NativeError("Native API returned an invalid identification count")
             try:
@@ -463,4 +492,5 @@ class CrxSolver:
                 solutions, signs, regular, addresses, address_valid, status,
                 bool(metadata.truncated),
                 bool(metadata.used_singular_representatives),
+                coverage,
             )

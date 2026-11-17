@@ -6,6 +6,7 @@
  */
 
 #include "crx_canonical.h"
+#include "crx_coordinates.h"
 #include "crx_discovery.h"
 #include "crx_joint_recovery.h"
 #include "crx_joint_trig.h"
@@ -295,6 +296,146 @@ void CheckCrxForwardGeometry() {
   }
 }
 
+auto IndependentDhPose(const crx::CrxModelData &model, const Vec6 &command)
+    -> crx::PoseIsoRT {
+  crx::PoseIsoRT pose = model.base_transform;
+  for (std::size_t i = 0; i < model.dh_rows.size(); ++i) {
+    const auto &row = model.dh_rows.at(i);
+    const double motion =
+        model.joint_senses.at(i) * command[static_cast<Eigen::Index>(i)];
+    pose = pose * Eigen::Translation3d(row.a, 0, 0) *
+           Eigen::AngleAxisd(row.alpha_rad, crx::Vec3::UnitX()) *
+           Eigen::Translation3d(0, 0, row.d) *
+           Eigen::AngleAxisd(row.theta0_rad, crx::Vec3::UnitZ()) *
+           Eigen::AngleAxisd(motion, crx::Vec3::UnitZ());
+  }
+  return pose * model.tool_transform;
+}
+
+auto DifferentiatedDeterminant(const crx::CrxModelData &model,
+                               const Vec6 &command) -> double {
+  constexpr double step = 1e-5;
+  const auto centre = IndependentDhPose(model, command);
+  Eigen::Matrix<double, 6, 6> jacobian;
+  for (int axis = 0; axis < crx::kDofCount; ++axis) {
+    Vec6 plus = command, minus = command;
+    plus[axis] += step;
+    minus[axis] -= step;
+    const auto forward = IndependentDhPose(model, plus);
+    const auto backward = IndependentDhPose(model, minus);
+    jacobian.block<3, 1>(0, axis) =
+        (forward.translation() - backward.translation()) / (2 * step);
+    const crx::Mat3 angular = (forward.linear() - backward.linear()) *
+                              centre.linear().transpose() / (2 * step);
+    jacobian.block<3, 1>(3, axis) << angular(2, 1), angular(0, 2),
+        angular(1, 0);
+  }
+  return jacobian.determinant();
+}
+
+void CheckCanonicalCoordinates() {
+  const auto nominal = SixteenSolutionModel();
+  const auto target = SixteenSolutionTarget();
+  const auto reference = crx::IdentifyIkIsometry(nominal, target, 64);
+  Require(reference.solutions.size() == 16, "canonical reference has 16 roots");
+  for (const double signed_link : {0.6, -0.6}) {
+    for (const double scale : {0.001, 1.0, 1000.0}) {
+      auto model = nominal;
+      model.dh_rows[3].d = signed_link;
+      for (auto &row : model.dh_rows) {
+        row.a *= scale;
+        row.d *= scale;
+      }
+      model.base_transform.translation().z() *= scale;
+      crx::CanonicalCommandMap map;
+      // Mixed senses, nonzero offsets and whole-turn offset equivalence.
+      for (int axis = 0; axis < crx::kDofCount; ++axis) {
+        const auto i = static_cast<std::size_t>(axis);
+        map.diagonal[axis] = axis % 2 == 0 ? -1.0 : 1.0;
+        map.offset[axis] = 0.07 * static_cast<double>(axis + 1);
+        model.joint_senses.at(i) *= map.diagonal[axis];
+        model.dh_rows.at(i).theta0_rad +=
+            nominal.joint_senses.at(i) * map.offset[axis] + 2 * kPi;
+      }
+      // The desired command box is the inverse image of the canonical box.
+      model.lower_limits_rad =
+          map.ToCommand(nominal.lower_limits_rad)
+              .cwiseMin(map.ToCommand(nominal.upper_limits_rad));
+      model.upper_limits_rad =
+          map.ToCommand(nominal.lower_limits_rad)
+              .cwiseMax(map.ToCommand(nominal.upper_limits_rad));
+      model.base_transform.linear() =
+          Eigen::AngleAxisd(0.31, crx::Vec3::UnitX()).toRotationMatrix();
+      model.tool_transform.translation() << 0.03 * scale, -0.02 * scale,
+          0.01 * scale;
+      const auto canonical = reference.solutions.front().joints;
+      Vec6 command = map.ToCommand(canonical);
+      Require(map.FromCommand(command).isApprox(canonical, 1e-13),
+              "affine command map and inverse agree");
+      // Signed b uses a separate target from the same independent chain.
+      const auto desired = IndependentDhPose(model, command);
+      Require((Target(model, command).matrix() - desired.matrix()).norm() <
+                  1e-10 * std::max(1.0, scale),
+              "mixed-sense offset FK agrees with independent DH products");
+      const auto identified = crx::IdentifyIkIsometry(model, desired, 64);
+      Require(identified.status == IkStatus::StrictCandidates &&
+                  !identified.solutions.empty(),
+              "signed and mixed-sense identification succeeds");
+      for (const auto &solution : identified.solutions) {
+        const auto actual = IndependentDhPose(model, solution.joints);
+        Require((actual.matrix() - desired.matrix()).norm() <
+                    1e-7 * std::max(1.0, scale),
+                "mapped identification commands pass independent FK");
+        if (solution.regular) {
+          const auto determinant =
+              DifferentiatedDeterminant(model, solution.joints);
+          const double map_sign = map.diagonal.prod();
+          Require(
+              (determinant * map_sign > 0 ? 1 : -1) == solution.aspect_sign,
+              "canonical aspect agrees with differentiated command Jacobian");
+        }
+      }
+      const auto strict = crx::SolveIkIsometry(model, desired, &command, 1);
+      Require(strict.status == IkStatus::StrictSeed &&
+                  strict.solutions.front().isApprox(command, 1e-12),
+              "mapped strict seed preserves command coordinates");
+      Vec6 nearby = command + Vec6::Constant(1e-5);
+      const auto local = crx::SolveIkIsometry(model, desired, &nearby, 1);
+      Require(!local.solutions.empty(),
+              "nearby discovery consumes canonical seed coordinates");
+      const auto full = crx::SolveIkIsometry(model, desired, nullptr, 64);
+      Require(full.status == IkStatus::StrictCandidates &&
+                  !full.solutions.empty(),
+              "unseeded discovery returns mapped command lifts");
+      model.lower_limits_rad = command - Vec6::Constant(0.01);
+      model.upper_limits_rad = command + Vec6::Constant(0.01);
+      const auto limited = crx::SolveIkIsometry(model, desired, nullptr, 64);
+      Require(limited.status == IkStatus::StrictCandidates &&
+                  limited.solutions.size() == 1,
+              "mapped narrow limits retain the independent witness");
+    }
+  }
+}
+
+void CheckLargeEncoderOffsets() {
+  Vec6 command;
+  command << 0.4, -0.7, 0.1, 0.6, -0.9, -1.2;
+  for (const double offset : {-1e20, -1e12, 1e12, 1e20}) {
+    for (std::size_t axis = 0; axis < crx::kDofCount; ++axis) {
+      auto model = Model();
+      model.dh_rows.at(axis).theta0_rad = offset;
+      const auto expected = IndependentDhPose(model, command);
+      Require((Target(model, command).matrix() - expected.matrix()).norm() <
+                  1e-9,
+              "large encoder zeros retain their actual periodic rotation");
+      const auto seeded = crx::SolveIkIsometry(model, expected, &command, 1);
+      Require(seeded.status == IkStatus::StrictSeed &&
+                  seeded.solutions.front().isApprox(command, 1e-12),
+              "large encoder offsets preserve strict command seeds");
+    }
+  }
+}
+
 void CheckUnsupportedModels() {
   const Vec6 command = Vec6::Constant(.3);
   const auto target = Target(Model(), command);
@@ -320,13 +461,7 @@ void CheckUnsupportedModels() {
     model.dh_rows[axis].is_prismatic = true;
     rejected(model);
     model = Model();
-    model.joint_senses[axis] *= -1;
-    rejected(model);
-    model = Model();
     model.dh_rows[axis].alpha_rad += 1e-8;
-    rejected(model);
-    model = Model();
-    model.dh_rows[axis].theta0_rad += 1e-8;
     rejected(model);
     model = Model();
     model.dh_rows[axis].a = axis == 2 ? -1 : 1;
@@ -538,6 +673,8 @@ auto main() -> int {
   CheckFibreIdentification();
   CheckJointTrig();
   CheckCrxForwardGeometry();
+  CheckCanonicalCoordinates();
+  CheckLargeEncoderOffsets();
   CheckUnsupportedModels();
   CheckMappings();
   CheckBaseBranchCoverage();
