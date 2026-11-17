@@ -209,6 +209,40 @@ auto CopyIdentifiedSolutions(const crx::FibreResult &identified,
       static_cast<std::int32_t>(identified.used_singular_representatives)};
   return true;
 }
+
+auto IdentifyWithMetadata(const crx_v1_handle *handle, const double *pose,
+                          std::int32_t capacity, double *solutions,
+                          std::int32_t *aspect_signs, std::int32_t *regular,
+                          std::int32_t *wrist_addresses,
+                          std::int32_t *address_valid,
+                          crx_v1_fibre_result *result,
+                          crx_v1_fibre_metadata *metadata) -> std::int32_t {
+  if (result == nullptr) {
+    return CRX_INVALID_ARGUMENT;
+  }
+  *result = {CRX_INVALID_INPUT, 0, 0, 0};
+  return Guard([&]() -> std::int32_t {
+    if (handle == nullptr || pose == nullptr || solutions == nullptr ||
+        aspect_signs == nullptr || regular == nullptr ||
+        wrist_addresses == nullptr || address_valid == nullptr ||
+        capacity <= 0) {
+      return CRX_INVALID_ARGUMENT;
+    }
+    crx::PoseIsoRT target;
+    target.matrix() = Eigen::Map<const PoseRow>(pose);
+    const auto identified =
+        crx::IdentifyIkIsometry(handle->model, target, capacity);
+    if (!CopyIdentifiedSolutions(identified, capacity, solutions, aspect_signs,
+                                 regular, wrist_addresses, address_valid,
+                                 result)) {
+      return CRX_INTERNAL_ERROR;
+    }
+    if (metadata != nullptr) {
+      metadata->coverage = static_cast<std::int32_t>(identified.coverage);
+    }
+    return CRX_OK;
+  });
+}
 } // namespace
 
 extern "C" {
@@ -387,27 +421,27 @@ std::int32_t crx_v1_identify(const crx_v1_handle *handle, const double *pose,
                              std::int32_t *wrist_addresses,
                              std::int32_t *address_valid,
                              crx_v1_fibre_result *result) {
-  if (result == nullptr) {
+  return IdentifyWithMetadata(handle, pose, capacity, solutions, aspect_signs,
+                              regular, wrist_addresses, address_valid, result,
+                              nullptr);
+}
+
+std::int32_t crx_v1_identify2(const crx_v1_handle *handle, const double *pose,
+                              std::int32_t capacity, double *solutions,
+                              std::int32_t *aspect_signs, std::int32_t *regular,
+                              std::int32_t *wrist_addresses,
+                              std::int32_t *address_valid,
+                              crx_v1_fibre_result *result,
+                              crx_v1_fibre_metadata *metadata) {
+  if (result != nullptr) {
+    *result = {CRX_INVALID_INPUT, 0, 0, 0};
+  }
+  if (metadata == nullptr || metadata->struct_size != sizeof(*metadata) ||
+      metadata->version != 1 || metadata->reserved != 0) {
     return CRX_INVALID_ARGUMENT;
   }
-  *result = {CRX_INVALID_INPUT, 0, 0, 0};
-  return Guard([&]() -> std::int32_t {
-    if (handle == nullptr || pose == nullptr || solutions == nullptr ||
-        aspect_signs == nullptr || regular == nullptr ||
-        wrist_addresses == nullptr || address_valid == nullptr ||
-        capacity <= 0) {
-      return CRX_INVALID_ARGUMENT;
-    }
-    crx::PoseIsoRT target;
-    target.matrix() = Eigen::Map<const PoseRow>(pose);
-    const auto identified =
-        crx::IdentifyIkIsometry(handle->model, target, capacity);
-    if (!CopyIdentifiedSolutions(identified, capacity, solutions, aspect_signs,
-                                 regular, wrist_addresses, address_valid,
-                                 result)) {
-      return CRX_INTERNAL_ERROR;
-    }
-    return CRX_OK;
-  });
+  return IdentifyWithMetadata(handle, pose, capacity, solutions, aspect_signs,
+                              regular, wrist_addresses, address_valid, result,
+                              metadata);
 }
 } // extern "C"

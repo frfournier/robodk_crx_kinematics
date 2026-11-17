@@ -410,11 +410,29 @@ void CommandDeduplication() {
       const auto boundary = crx::SelectCommandLifts(
           postures, turn_lower, turn_upper, nullptr, 8, Accept,
           crx::numerics::kCommandLiftBudget, mode);
-      Require(boundary.commands.size() == 3 && boundary.valid_lifts == 6,
+      // The shifted phase admits two lifts: its lower turn is outside the
+      // command box by 0.4*tolerance, far beyond roundoff. The exact phase
+      // admits three. Output rounding merges the five admitted lifts to three
+      // commands; it must not turn the sixth, inadmissible lift into a valid
+      // one.
+      Require(boundary.commands.size() == 3 && boundary.valid_lifts == 5,
               "rounded duplicates merge while both boundary turns survive");
       Require(boundary.commands.front().command_rad[5] == -kTau &&
                   boundary.commands.back().command_rad[5] == kTau,
               "both exact boundary turns survive deduplication");
+      for (const int capacity : {1, 2, 3}) {
+        const auto prefix = crx::SelectCommandLifts(
+            postures, turn_lower, turn_upper, nullptr, capacity, Accept,
+            crx::numerics::kCommandLiftBudget, mode);
+        Require(prefix.commands.size() == static_cast<std::size_t>(capacity),
+                "boundary duplicate prefix count");
+        for (std::size_t i = 0; i < prefix.commands.size(); ++i) {
+          Require(
+              prefix.commands.at(i).command_rad ==
+                  boundary.commands.at(i).command_rad,
+              "boundary duplicate prefixes match exhaustive representatives");
+        }
+      }
     }
     Vec6 outside = zero;
     outside[0] = .4 * tolerance;
@@ -460,6 +478,60 @@ void ControllerPrecisionIdentity() {
   Require(selected.commands.size() == 1 && selected.truncated,
           "truncation counts distinct controller-formatted commands");
 }
+
+void DuplicateRepresentativeReordering() {
+  Vec6 lower = Vec6::Constant(-1), upper = Vec6::Constant(1);
+  upper[0] = 1e-6;
+  Vec6 near = Vec6::Zero(), boundary = near, competitor = near;
+  near[0] = upper[0] - 1e-8;
+  boundary[0] = upper[0];
+  competitor[0] = upper[0] - 0.5e-8;
+  near[1] = boundary[1] = 0.2;
+  competitor[1] = 0.4;
+  for (const auto mode : {crx::CommandSelectionMode::Exhaustive,
+                          crx::CommandSelectionMode::RankedPrefix}) {
+    const auto selected = crx::SelectCommandLifts(
+        {near, competitor, boundary}, lower, upper, nullptr, 1, Accept,
+        crx::numerics::kCommandLiftBudget, mode);
+    Require(
+        selected.commands.size() == 1 && selected.truncated &&
+            selected.commands.front().command_rad == competitor,
+        "a later preferred duplicate cannot hide an evicted prefix identity");
+  }
+}
+
+void LargeTurnRoundedAliases() {
+  const double centre = 1e12 * kTau;
+  constexpr double phase = 0.114;
+  const double endpoint = centre + phase;
+  const double previous =
+      std::nextafter(endpoint, -std::numeric_limits<double>::infinity());
+  Vec6 lower = Vec6::Constant(-1), upper = Vec6::Constant(1);
+  lower[0] = endpoint - 0.1;
+  upper[0] = endpoint;
+  Vec6 near = Vec6::Zero(), boundary = near, competitor = near;
+  near[0] = phase - (endpoint - previous);
+  boundary[0] = phase;
+  competitor[0] = near[0];
+  near[1] = boundary[1] = 0.2;
+  competitor[1] = 0.4;
+  const std::vector<Vec6> phases{near, competitor, boundary};
+  const auto full =
+      crx::SelectCommandLifts(phases, lower, upper, nullptr, 8, Accept);
+  Require(
+      full.commands.size() == 2,
+      "large command conversion merges the adjacent-radian representatives");
+  for (const auto mode : {crx::CommandSelectionMode::Exhaustive,
+                          crx::CommandSelectionMode::RankedPrefix}) {
+    const auto selected =
+        crx::SelectCommandLifts(phases, lower, upper, nullptr, 1, Accept,
+                                crx::numerics::kCommandLiftBudget, mode);
+    Require(selected.commands.size() == 1 &&
+                selected.commands.front().command_rad ==
+                    full.commands.front().command_rad,
+            "large-turn rounding preserves the exact full-catalogue prefix");
+  }
+}
 } // namespace
 
 auto main() -> int {
@@ -472,6 +544,8 @@ auto main() -> int {
   RankedPrefixReference();
   CommandDeduplication();
   ControllerPrecisionIdentity();
+  DuplicateRepresentativeReordering();
+  LargeTurnRoundedAliases();
   std::puts(
       "Command lift reference, capacity, boundary and failure checks passed");
 }

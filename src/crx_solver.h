@@ -29,6 +29,11 @@ enum class IkStatus {
   WorkLimit
 };
 
+// Coverage describes the internal phase catalogue before command limits,
+// turn expansion or returned-prefix truncation. Numerical discovery alone
+// never upgrades this field.
+enum class Coverage { NotAttempted, Complete, Inconclusive, ContinuousFibre };
+
 // Numerical outcomes only: neither candidates nor an empty search certify
 // completeness/infeasibility. Failures contain no solutions. Truncation is a
 // successful ranked prefix, distinct from exhausted discovery/selection work.
@@ -42,6 +47,7 @@ struct IkResult {
   // representative.
   bool used_singular_representatives = false;
   std::vector<Vec6> solutions;
+  Coverage coverage = Coverage::NotAttempted;
 };
 
 struct FibreSolution {
@@ -57,6 +63,7 @@ struct FibreResult {
   bool truncated = false;
   bool used_singular_representatives = false;
   std::vector<FibreSolution> solutions;
+  Coverage coverage = Coverage::NotAttempted;
 };
 
 auto SolveFkIsometry(const CrxModelData &model, const Vec6 &command_rad,

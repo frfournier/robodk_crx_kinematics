@@ -13,6 +13,7 @@ from crx_reference import discovery_joints, missing_postures, reference_fk, xyzw
 from crx_test_support import (
     RobotT,
     _call_ik,
+    _call_command_ik,
     _set_row,
     _to_c_array,
     _to_fk_api_joints_deg,
@@ -125,21 +126,38 @@ def test_transformed_base_tool_and_restricted_limits(kinematics_lib, crx_10ia):
 
 
 @pytest.mark.parametrize("axis", range(6))
-def test_non_asset_senses_are_explicitly_unsupported(kinematics_lib, crx_10ia, axis):
+def test_mixed_senses_use_command_coordinates(kinematics_lib, crx_10ia, axis):
     crx_10ia.data[3][4 + axis] *= -1
-    witness = discovery_joints(1)
-    target, _ = reference_fk(crx_10ia, witness)
-    pose = target.ravel(order="F").tolist()
+    witness = np.array([25., -35., 35., 15., 25., 40.])
+    independent = {
+        "dh": np.array([crx_10ia.data[10 + joint][:4] for joint in range(6)]),
+        "motion_map": np.diag(crx_10ia.data[3][4:10]),
+        "base": xyzwpr(crx_10ia.data[9][:6]),
+        "tool": xyzwpr(crx_10ia.data[28][:6]),
+    }
+    expected_frames, target = forward_model(independent, witness)
     for seed in (None, witness):
-        assert _call_ik(kinematics_lib, crx_10ia, pose, approx=seed)[0] == -1
-    command = _to_c_array(_to_fk_api_joints_deg(witness))
-    output = (ctypes.c_double * 16)(*([12345.] * 16))
-    frames = (ctypes.c_double * (7 * 16))(*([12345.] * (7 * 16)))
-    config = (ctypes.c_double * 3)(*([12345.] * 3))
+        count, _, solutions = _call_command_ik(
+            kinematics_lib, crx_10ia, target.ravel(order="F"), seed, 64)
+        assert count > 0
+        for solution in solutions:
+            _, actual = forward_model(independent, solution)
+            np.testing.assert_allclose(actual[:3, 3], target[:3, 3],
+                                       atol=1.0001e-4, rtol=0)
+            np.testing.assert_allclose(actual[:3, :3], target[:3, :3],
+                                       atol=2e-5, rtol=0)
+    command = _to_c_array(witness)
+    output = (ctypes.c_double * 16)()
+    frames = (ctypes.c_double * (7 * 16))()
+    config = (ctypes.c_double * 3)()
     robot = ctypes.byref(crx_10ia)
-    assert kinematics_lib.SolveFK(command, output, robot) == -1
-    assert kinematics_lib.SolveFK_CAD(command, output, frames, 7, robot) == -1
-    assert kinematics_lib.Joints2Config(command, config, robot) == -1
-    assert list(output) == [12345.] * 16
-    assert list(frames) == [12345.] * (7 * 16)
-    assert list(config) == [12345.] * 3
+    assert kinematics_lib.SolveFK(command, output, robot) == 1
+    assert kinematics_lib.SolveFK_CAD(command, output, frames, 7, robot) == 1
+    np.testing.assert_allclose(np.array(output).reshape(4, 4, order="F"),
+                               target, atol=1e-9, rtol=0)
+    actual_frames = np.array(frames).reshape(7, 16)
+    for actual, expected in zip(actual_frames, expected_frames, strict=True):
+        np.testing.assert_allclose(actual.reshape(4, 4, order="F"),
+                                   expected, atol=1e-9, rtol=0)
+    assert kinematics_lib.Joints2Config(command, config, robot) == 1
+    assert all(value in (0., 1.) for value in config)

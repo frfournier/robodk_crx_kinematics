@@ -8,8 +8,8 @@
 
 #include "crx_types.h"
 
-// Canonical geometry kernel for appendix G2/G4 in
-// notes/crx-implementation-review.md. Not a robot-model adapter or IK solver.
+// Canonical orthogonal-axis geometry and direct half-angle polynomial kernels.
+// Model adaptation and complete IK solving are handled by their callers.
 namespace crx::canonical {
 
 struct Lengths {

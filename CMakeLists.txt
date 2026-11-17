@@ -354,6 +354,15 @@ if(BUILD_TESTING)
   target_include_directories(crx_command_lift_tests PRIVATE src)
   target_link_libraries(crx_command_lift_tests PRIVATE Eigen3::Eigen)
   add_test(NAME crx.command-lifts COMMAND crx_command_lift_tests)
+  # Separate instrumented executable. Never time it or export its counters.
+  add_executable(crx_solver_counters EXCLUDE_FROM_ALL
+    scripts/benchmark_counters.cpp
+    ${CRXKIN_CANONICAL_SOURCES}
+    src/crx_command_lifts.cpp src/crx_solver.cpp src/crx_robodk_adapter.cpp
+    src/crx_math_helpers.cpp src/crx_math_compat.cpp src/crx_joint_trig.cpp)
+  target_include_directories(crx_solver_counters PRIVATE include src)
+  target_link_libraries(crx_solver_counters PRIVATE Eigen3::Eigen)
+  target_compile_definitions(crx_solver_counters PRIVATE CRXKIN_DISCOVERY_COUNTERS)
   # Opt-in native timing harnesses; no benchmark exports enter the C ABI.
   if(WIN32)
     add_executable(crx_discovery_benchmark EXCLUDE_FROM_ALL
