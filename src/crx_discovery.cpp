@@ -149,46 +149,17 @@ struct ElbowResidual {
 auto EvaluateCramerResidual(const WristCircle &circle, double angle,
                             ElbowResidual &output) -> bool {
   CRXKIN_COUNT_DISCOVERY(cramer_evaluations);
-  if (!std::isfinite(angle)) {
-    return false;
-  }
-  const Vec3 u = circle.v * std::cos(angle) + circle.w * std::sin(angle);
-  const Vec3 du = -circle.v * std::sin(angle) + circle.w * std::cos(angle);
-  const Vec3 x = circle.p + circle.lengths.r * u;
-  const Vec3 dx = circle.lengths.r * du;
-  const Vec3 n = Vec3::UnitZ().cross(x);
-  const Vec3 dn = Vec3::UnitZ().cross(dx);
-  const double x_squared = x.squaredNorm();
-  if (!std::isfinite(x_squared) ||
-      x_squared <=
-          numerics::kDirectionTolerance * numerics::kDirectionTolerance) {
-    return false;
-  }
-  const double a_squared = circle.lengths.a * circle.lengths.a;
-  const double arm_difference = (circle.lengths.a - circle.lengths.b) *
-                                (circle.lengths.a + circle.lengths.b);
-  const double k = (arm_difference + x_squared) / 2;
-  const double dk = x.dot(dx);
-  const double m = x.dot(u);
-  const double dm = dx.dot(u) + x.dot(du);
-  const Vec3 un = u.cross(n);
-  const Vec3 dun = du.cross(n) + u.cross(dn);
-  const Vec3 nx = n.cross(x);
-  const Vec3 dnx = dn.cross(x) + n.cross(dx);
-  const double delta = x.dot(un);
-  const double ddelta = dx.dot(un) + x.dot(dun);
-  if (!std::isfinite(delta) ||
-      !(std::abs(delta) >= numerics::kCramerGuard * x_squared)) {
+  CramerEvaluation evaluation;
+  const auto status = EvaluateCramerElbowResidual(circle, angle, evaluation);
+  if (status == CramerStatus::GuardRejected) {
     CRXKIN_COUNT_DISCOVERY(cramer_guard_rejections);
+  }
+  if (status != CramerStatus::Ready) {
     return false;
   }
-  const Vec3 elbow = (k * un + m * nx) / delta;
-  const Vec3 delbow =
-      (dk * un + k * dun + dm * nx + m * dnx - elbow * ddelta) / delta;
-  output = {elbow.squaredNorm() - a_squared, 2 * elbow.dot(delbow), elbow,
+  output = {evaluation.value, evaluation.derivative, evaluation.elbow,
             Vec3::Zero()};
-  return elbow.allFinite() && delbow.allFinite() &&
-         std::isfinite(output.value) && std::isfinite(output.derivative);
+  return true;
 }
 
 // Alternate elimination order: intersect the two arm spheres with the wrist
@@ -640,36 +611,40 @@ struct GeometricPhases {
   std::size_t count = 0;
 };
 
+void AppendCircleCrossings(GeometricPhases &result, double cosine, double sine,
+                           double rhs) {
+  // Solve A*cos(theta)+B*sin(theta)=C on the unit circle. Scale before
+  // forming the discriminant. Zero amplitude has no isolated crossing.
+  const double scale = std::max(std::abs(cosine), std::abs(sine));
+  if (numerics::IsRepresentedZero(scale)) {
+    return;
+  }
+  const double a = cosine / scale;
+  const double b = sine / scale;
+  const double norm = std::hypot(a, b);
+  if (std::abs(rhs) > (scale * norm) + numerics::kElementaryRoundoff) {
+    return;
+  }
+  const double along = std::clamp((rhs / scale) / norm, -1.0, 1.0);
+  const double across =
+      std::sqrt((1.0 - std::abs(along)) * (1.0 + std::abs(along)));
+  const double ax = a / norm;
+  const double ay = b / norm;
+  result.values.at(result.count++) = {(along * ax) - (across * ay),
+                                      (along * ay) + (across * ax)};
+  if (across > 0) {
+    result.values.at(result.count++) = {(along * ax) + (across * ay),
+                                        (along * ay) - (across * ax)};
+  }
+}
+
 // These are analytic crossings, not an angular scan. They restore exact
 // geometric boundary/multiple roots that are poorly conditioned after the
 // degree-eight elimination: u.z=0, x.u=0, and the two arm-shell boundaries.
 auto BoundaryPhases(const WristCircle &circle) -> GeometricPhases {
   GeometricPhases result;
   const auto append = [&](double cosine, double sine, double rhs) {
-    // Solve A*cos(theta)+B*sin(theta)=C directly on the unit circle.
-    // Scale before forming the discriminant, so small coefficients do not
-    // underflow when squared. A=B=0 has no isolated crossing to nominate.
-    const double scale = std::max(std::abs(cosine), std::abs(sine));
-    if (numerics::IsRepresentedZero(scale)) {
-      return;
-    }
-    const double a = cosine / scale;
-    const double b = sine / scale;
-    const double norm = std::hypot(a, b);
-    if (std::abs(rhs) > (scale * norm) + numerics::kElementaryRoundoff) {
-      return;
-    }
-    const double along = std::clamp((rhs / scale) / norm, -1.0, 1.0);
-    const double across =
-        std::sqrt((1.0 - std::abs(along)) * (1.0 + std::abs(along)));
-    const double ax = a / norm;
-    const double ay = b / norm;
-    result.values[result.count++] = {(along * ax) - (across * ay),
-                                     (along * ay) + (across * ax)};
-    if (across > 0) {
-      result.values[result.count++] = {(along * ax) + (across * ay),
-                                       (along * ay) - (across * ax)};
-    }
+    AppendCircleCrossings(result, cosine, sine, rhs);
   };
   append(circle.v.z(), circle.w.z(), 0);
   const double pv = circle.p.dot(circle.v);
@@ -683,6 +658,55 @@ auto BoundaryPhases(const WristCircle &circle) -> GeometricPhases {
                (circle.lengths.r * circle.lengths.r));
   }
   return result;
+}
+
+// Exact-zero vertical dispatch only. Small nonzero vertical-plane components
+// retain the general route. These floating candidates still require full FK;
+// the factorization does not upgrade numerical discovery to a certificate.
+auto DiscoverVertical(const RecoveryProblem &problem, JointDiscovery &output)
+    -> bool {
+  const auto &circle = problem.circle;
+  const auto &rotation = problem.target.linear();
+  const auto &data = circle.residual;
+  if (rotation(0, 2) != 0 || rotation(1, 2) != 0 || circle.v.z() != 0 ||
+      circle.w.z() != 0 || !data.unit_basis ||
+      numerics::IsRepresentedZero(circle.lengths.r) ||
+      (numerics::IsRepresentedZero(data.p_v) &&
+       numerics::IsRepresentedZero(data.p_w))) {
+    return false;
+  }
+  const double twice_r = 2 * circle.lengths.r;
+  const double center = data.arm_difference - data.p_squared_plus_r_squared;
+  const double height = 2 * circle.lengths.b * data.height;
+  const std::array<double, 3> right_sides{-circle.lengths.r,
+                                          (center - height) / twice_r,
+                                          (center + height) / twice_r};
+  GeometricPhases phases;
+  for (const double rhs : right_sides) {
+    if (!std::isfinite(rhs)) {
+      return false;
+    }
+    AppendCircleCrossings(phases, data.p_v, data.p_w, rhs);
+  }
+  // Three linear phase equations nominate at most six phases. Existing
+  // incidence recovery retains both planar elbows and both base branches,
+  // including coincident V+/V- phases at zero centre height.
+  for (std::size_t i = 0; i < phases.count; ++i) {
+    const auto recovered = RecoverPreparedJointCandidates(
+        circle, problem.target, phases.values.at(i), problem.tolerance);
+    // Keep the general search whenever a nominated phase is unresolved or
+    // rejected. In particular, a shell-incompatible T phase is not an
+    // exclusion of nearby FK-admissible configurations.
+    if (recovered.status != RecoveryStatus::Candidates ||
+        recovered.used_singular_representatives ||
+        !AppendUnique(recovered, output)) {
+      return false;
+    }
+  }
+  output.status = output.count > 0 ? RecoveryStatus::Candidates
+                                   : RecoveryStatus::NoCandidate;
+  output.used_vertical_closed_form = true;
+  return true;
 }
 
 struct RootNomination {
@@ -900,6 +924,7 @@ auto ImproveDiscoveryAccuracy(const RecoveryProblem &problem,
     precise.used_singular_representatives =
         result.used_singular_representatives;
     precise.pruned_nominations = result.pruned_nominations;
+    precise.used_vertical_closed_form = result.used_vertical_closed_form;
     for (std::size_t i = 0; i < result.count; ++i) {
       auto candidate = result.candidates[i];
       if (needs_accuracy(candidate)) {
@@ -1032,6 +1057,9 @@ auto DiscoverJointCandidates(const Lengths &lengths, const PoseIsoRT &target,
   JointRefiner refiner(circle, target, tolerance,
                        options.max_polish_iterations);
   const RecoveryProblem problem{target, circle, tolerance, refiner};
+  if (options.use_vertical_closed_form && DiscoverVertical(problem, result)) {
+    return ImproveDiscoveryAccuracy(problem, options, result);
+  }
   const double closest_wrist = ClosestWristAngle(circle);
   const double first_chart =
       NearFoldedArm(circle, closest_wrist) ? closest_wrist : 0.0;

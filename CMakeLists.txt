@@ -205,11 +205,14 @@ target_include_directories(crx_kinematics PRIVATE
 
 target_link_libraries(crx_kinematics PRIVATE Eigen3::Eigen)
 
-# The Python C boundary catches allocation/solver exceptions. Explicit Clang
+# The Python C boundary and opt-in harnesses catch exceptions. Explicit Clang
 # flags also reach clang-tidy, whose clang-cl driver can lose /EHsc while
 # translating the compilation database to its analysis invocation.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32)
-  set_source_files_properties("${CMAKE_SOURCE_DIR}/src/crx_python_api.cpp"
+  set_source_files_properties(
+    "${CMAKE_SOURCE_DIR}/src/crx_python_api.cpp"
+    "${CMAKE_SOURCE_DIR}/scripts/benchmark_counters.cpp"
+    "${CMAKE_SOURCE_DIR}/scripts/benchmark_residuals.cpp"
     PROPERTIES COMPILE_OPTIONS "-Xclang;-fexceptions;-Xclang;-fcxx-exceptions")
 endif()
 
@@ -365,6 +368,11 @@ if(BUILD_TESTING)
   target_compile_definitions(crx_solver_counters PRIVATE CRXKIN_DISCOVERY_COUNTERS)
   # Opt-in native timing harnesses; no benchmark exports enter the C ABI.
   if(WIN32)
+    add_executable(crx_residual_benchmark EXCLUDE_FROM_ALL
+      scripts/benchmark_residuals.cpp
+      src/crx_canonical.cpp src/crx_math_compat.cpp)
+    target_include_directories(crx_residual_benchmark PRIVATE src)
+    target_link_libraries(crx_residual_benchmark PRIVATE Eigen3::Eigen)
     add_executable(crx_discovery_benchmark EXCLUDE_FROM_ALL
       scripts/benchmark_discovery.cpp
       ${CRXKIN_CANONICAL_SOURCES}

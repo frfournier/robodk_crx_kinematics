@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -30,6 +31,12 @@ using crx::PoseIsoRT;
 using crx::Vec3;
 using namespace crx::canonical;
 constexpr double kPi = 3.14159265358979323846;
+constexpr std::array<Lengths, 6> kCapturedLengths{{{410, 430, 145, 130},
+                                                   {540, 540, 160, 150},
+                                                   {710, 540, 160, 150},
+                                                   {710, 540, 160, 150},
+                                                   {950, 750, 180, 185},
+                                                   {950, 750, 180, 185}}};
 
 void Require(bool condition, const char *message) {
   if (!condition) {
@@ -180,6 +187,255 @@ void TestResidualsAndCanonicalWitnesses() {
     Near(EvaluateResidual(circle, root_angle), 0,
          "canonical FK incidence witness");
     CheckCharts(circle);
+  }
+}
+
+struct ResidualOracle {
+  double value = 0;
+  double derivative = 0;
+  double derivative_term_scale = 0;
+  Vec3 elbow = Vec3::Zero();
+};
+
+auto ComplexStepResidual(const WristCircle &circle, double angle,
+                         bool divide_by_determinant = false) -> ResidualOracle {
+  // Differentiate the independent cross-product geometry with a complex
+  // step. Products are bilinear: Eigen's conjugating complex dot/cross
+  // operations are inappropriate for an analytic complex-step extension.
+  using Complex = std::complex<double>;
+  using Vector = Eigen::Matrix<Complex, 3, 1>;
+  constexpr double kStep = 1e-24;
+  const Complex phase{angle, kStep};
+  const Vector axis = circle.v.cast<Complex>() * std::cos(phase) +
+                      circle.w.cast<Complex>() * std::sin(phase);
+  const Vector x = circle.p.cast<Complex>() + circle.lengths.r * axis;
+  const auto cross = [](const Vector &left, const Vector &right) -> Vector {
+    return {left.y() * right.z() - left.z() * right.y(),
+            left.z() * right.x() - left.x() * right.z(),
+            left.x() * right.y() - left.y() * right.x()};
+  };
+  const Vector n = cross(Vector(0, 0, 1), x);
+  const auto product = [](const Vector &left, const Vector &right) {
+    return left.cwiseProduct(right).sum();
+  };
+  const double a2 = circle.lengths.a * circle.lengths.a;
+  const double b2 = circle.lengths.b * circle.lengths.b;
+  const Complex k = (a2 + product(x, x) - b2) / 2.0;
+  const Complex determinant = product(x, cross(axis, n));
+  const Vector numerator = k * cross(axis, n) + product(x, axis) * cross(n, x);
+  Complex residual =
+      product(numerator, numerator) - a2 * determinant * determinant;
+  double term_scale =
+      2 * a2 * std::abs(determinant.real() * determinant.imag() / kStep);
+  for (Eigen::Index i = 0; i < 3; ++i) {
+    term_scale +=
+        2 * std::abs(numerator[i].real() * numerator[i].imag() / kStep);
+  }
+  Vec3 elbow = Vec3::Zero();
+  if (divide_by_determinant) {
+    const Vector quotient = numerator / determinant;
+    residual = product(quotient, quotient) - a2;
+    term_scale = 0;
+    for (Eigen::Index i = 0; i < 3; ++i) {
+      elbow[i] = quotient[i].real();
+      term_scale +=
+          2 * std::abs(quotient[i].real() * quotient[i].imag() / kStep);
+    }
+  }
+  return {residual.real(), residual.imag() / kStep, term_scale, elbow};
+}
+
+void TestBivariateResiduals() {
+  std::size_t scalar_count = 0;
+  std::size_t fallback_count = 0;
+  for (const auto &asset : kCapturedLengths) {
+    for (const double scale : {1e-100, 1.0, 1e100}) {
+      for (const double sign : {-1.0, 1.0}) {
+        const Lengths lengths{asset.a * scale, sign * asset.b * scale,
+                              asset.c * scale, sign * asset.r * scale};
+        for (int sample = 0; sample < 32; ++sample) {
+          const double angle = static_cast<double>(sample) / 7 - 2;
+          auto target = Rotation(Vec3::UnitZ(), angle / 3) *
+                        Rotation(Vec3::UnitY(), angle / 5) *
+                        Rotation(Vec3::UnitX(), angle / 7);
+          target.translation() =
+              scale * Vec3(300 * std::sin(angle), 400 * std::cos(angle),
+                           200 + 100 * angle);
+          const auto circle = Prepare(lengths, target);
+          const auto result = EvaluateResidualPair(circle, angle);
+          scalar_count += !result.used_geometric_fallback;
+          fallback_count += result.used_geometric_fallback;
+          const double expected_value = EvaluateResidual(circle, angle);
+          const auto derivative_oracle = ComplexStepResidual(circle, angle);
+          const double expected_derivative = derivative_oracle.derivative;
+          // Relative agreement for values separated from zero; the absolute
+          // branch budgets roundoff in dimensionless normalized geometry.
+          const auto agrees = [](double actual, double expected) {
+            const double tolerance = std::abs(expected) > 1e-6
+                                         ? 1e-13 * std::abs(expected)
+                                         : 256 * crx::numerics::kEpsilon;
+            return std::isfinite(actual) && std::isfinite(expected) &&
+                   std::abs(actual - expected) <= tolerance;
+          };
+          Require(agrees(result.value, expected_value),
+                  "bivariate value agrees with cross-product geometry");
+          // A derivative close to zero relative to its contributing terms is
+          // cancellation-conditioned, even when its absolute value is 1e-5.
+          // Budget absolute agreement by 64 eps times those terms; otherwise
+          // require the specified 1e-13 relative agreement.
+          const double derivative_tolerance =
+              std::abs(expected_derivative) >
+                      0.125 * derivative_oracle.derivative_term_scale
+                  ? 1e-13 * std::abs(expected_derivative)
+                  : 64 * crx::numerics::kEpsilon *
+                        derivative_oracle.derivative_term_scale;
+          const bool derivative_agrees =
+              std::isfinite(result.derivative) &&
+              std::isfinite(expected_derivative) &&
+              std::abs(result.derivative - expected_derivative) <=
+                  derivative_tolerance;
+          if (!derivative_agrees) {
+            std::fprintf(
+                stderr,
+                "derivative mismatch: sample=%d a=%.17g b=%.17g "
+                "scale=%.17g fallback=%d actual=%.17g expected=%.17g\n",
+                sample, asset.a, lengths.b, scale,
+                static_cast<int>(result.used_geometric_fallback),
+                result.derivative, expected_derivative);
+          }
+          Require(derivative_agrees,
+                  "bivariate derivative agrees with complex-step oracle");
+        }
+      }
+    }
+  }
+  Require(scalar_count > 0 && fallback_count > 0,
+          "both residual evaluation routes exercised");
+  for (const double epsilon : {1e-3, 1e-6, 1e-9, 1e-12, 1e-16}) {
+    for (const bool folded : {false, true}) {
+      PoseIsoRT target = PoseIsoRT::Identity();
+      // Exactly orthonormal phase basis v=ez, w=ex.
+      target.linear() << 0, 1, 0, 0, 0, 1, 1, 0, 0;
+      target.translation() = Vec3(epsilon, epsilon, folded ? -0.25 : 0.75);
+      const auto circle = Prepare({1, 1, 0, 0.25}, target);
+      const auto result = EvaluateResidualPair(circle, 0);
+      const double squared = epsilon * epsilon;
+      const double expected_value =
+          folded ? 2 * squared * squared * (squared - 2)
+                 : squared * (2 * squared - 1) * (2 * squared - 1) / 2;
+      const double expected_derivative =
+          folded ? epsilon * squared * (3 * squared - 4) / 2
+                 : epsilon * (12 * squared * squared + 24 * squared + 1) / 8;
+      Require(result.used_geometric_fallback,
+              "near-axis cancellation retains geometric evaluation");
+      Require(result.value != 0 && result.derivative != 0,
+              "nonzero near-axis residual and derivative are retained");
+      Near(result.value / expected_value, 1,
+           "near-axis residual relative accuracy", 1e-13);
+      Near(result.derivative / expected_derivative, 1,
+           "near-axis derivative relative accuracy", 1e-13);
+    }
+  }
+  auto roundoff = PoseIsoRT::Identity();
+  roundoff.linear()(0, 0) += 16 * crx::numerics::kEpsilon;
+  const auto circle = Prepare({1, 1, 0, 0.25}, roundoff);
+  Require(EvaluateResidualPair(circle, 0.3).used_geometric_fallback,
+          "admitted nonunit phase basis keeps geometric residual");
+  const auto invalid =
+      EvaluateResidualPair(circle, std::numeric_limits<double>::quiet_NaN());
+  Require(!std::isfinite(invalid.value) && !std::isfinite(invalid.derivative),
+          "nonfinite phase cannot manufacture a root");
+}
+
+void TestCompactCramerResiduals() {
+  std::size_t ready_count = 0;
+  std::size_t rejected_count = 0;
+  for (const auto &asset : kCapturedLengths) {
+    for (const double scale : {1e-100, 1.0, 1e100}) {
+      for (const double sign : {-1.0, 1.0}) {
+        const Lengths lengths{asset.a * scale, sign * asset.b * scale,
+                              asset.c * scale, sign * asset.r * scale};
+        for (int sample = 0; sample < 64; ++sample) {
+          const double angle = static_cast<double>(sample) / 11 - 3;
+          auto target = Rotation(Vec3::UnitZ(), angle / 3) *
+                        Rotation(Vec3::UnitY(), angle / 5) *
+                        Rotation(Vec3::UnitX(), angle / 7);
+          target.translation() =
+              scale * Vec3(300 * std::sin(angle), 400 * std::cos(angle),
+                           200 + 100 * angle);
+          const auto circle = Prepare(lengths, target);
+          const Vec3 u =
+              circle.v * std::cos(angle) + circle.w * std::sin(angle);
+          const Vec3 x = circle.p + circle.lengths.r * u;
+          const double determinant = x.dot(u.cross(Vec3::UnitZ().cross(x)));
+          CramerEvaluation actual;
+          actual.value = 123;
+          const auto status =
+              EvaluateCramerElbowResidual(circle, angle, actual);
+          if (std::abs(determinant) <
+              crx::numerics::kCramerGuard * x.squaredNorm()) {
+            Require(status == CramerStatus::GuardRejected &&
+                        actual.value == 123,
+                    "Cramer guard preserves the original chart and output");
+            ++rejected_count;
+            continue;
+          }
+          Require(status == CramerStatus::Ready,
+                  "well-conditioned compact Cramer evaluation succeeds");
+          ++ready_count;
+          const auto oracle = ComplexStepResidual(circle, angle, true);
+          // Division amplifies errors by the chart's conditioning ratio.
+          // This is an independent numerical check, not a certified bound.
+          const double roundoff = 128 * crx::numerics::kEpsilon *
+                                  (1 + x.squaredNorm() / std::abs(determinant));
+          Require(std::abs(actual.value - oracle.value) <=
+                      roundoff * std::max(1.0, std::abs(oracle.value)),
+                  "compact Cramer quotient agrees with cross-product oracle");
+          Require(std::abs(actual.derivative - oracle.derivative) <=
+                      roundoff * std::max(1.0, oracle.derivative_term_scale),
+                  "compact Cramer derivative agrees with complex-step oracle");
+          Require((actual.elbow - oracle.elbow).cwiseAbs().maxCoeff() <=
+                      roundoff *
+                          std::max(1.0, oracle.elbow.cwiseAbs().maxCoeff()),
+                  "compact Cramer elbow agrees with geometric witness");
+        }
+      }
+    }
+  }
+  auto target = PoseIsoRT::Identity();
+  target.translation() = Vec3(1, 0, 0);
+  const auto circle = Prepare({1, 1, 0, 0.25}, target);
+  CramerEvaluation untouched;
+  untouched.value = 123;
+  Require(EvaluateCramerElbowResidual(circle, 0, untouched) ==
+                  CramerStatus::GuardRejected &&
+              untouched.value == 123,
+          "vertical exceptional chart is retained for incidence recovery");
+  ++rejected_count;
+  Require(ready_count > 0 && rejected_count > 0,
+          "Cramer accepted and rejected charts exercised");
+  Require(EvaluateCramerElbowResidual(
+              circle, std::numeric_limits<double>::quiet_NaN(), untouched) ==
+                  CramerStatus::NumericalRangeFailure &&
+              untouched.value == 123,
+          "nonfinite Cramer phase leaves output unchanged");
+  target.translation() = Vec3(-0.25, 0, 0);
+  const auto coincident = Prepare({1, 1, 0, 0.25}, target);
+  Require(EvaluateCramerElbowResidual(coincident, 0, untouched) ==
+                  CramerStatus::NumericalRangeFailure &&
+              untouched.value == 123,
+          "zero wrist point cannot enter the Cramer chart");
+  const double guard = crx::numerics::kCramerGuard;
+  const double boundary = 2 * guard / (1 + std::sqrt(1 - 4 * guard * guard));
+  for (const double sign : {-1.0, 1.0}) {
+    for (const double fraction : {1 - 1e-8, 1 + 1e-8}) {
+      target.translation() = Vec3(0.75, 0, sign * fraction * boundary);
+      const auto near_guard = Prepare({1, 1, 0, 0.25}, target);
+      const auto status = EvaluateCramerElbowResidual(near_guard, 0, untouched);
+      Require(status == (fraction < 1 ? CramerStatus::GuardRejected
+                                      : CramerStatus::Ready),
+              "both signed Cramer conditioning boundaries preserve dispatch");
+    }
   }
 }
 
@@ -406,6 +662,8 @@ private:
 auto main(int argc, char **argv) -> int {
   if (argc > 1) {
     if (std::strcmp(argv[1], "--discover") == 0 ||
+        std::strcmp(argv[1], "--discover-vertical") == 0 ||
+        std::strcmp(argv[1], "--discover-general") == 0 ||
         std::strcmp(argv[1], "--diagnose-discovery") == 0) {
       return RunDiscoveryProbe(argc, argv);
     }
@@ -425,6 +683,8 @@ auto main(int argc, char **argv) -> int {
     const EigenAllocationGuard guard;
     // Include first construction, changing geometry/charts, and error paths.
     TestResidualsAndCanonicalWitnesses();
+    TestBivariateResiduals();
+    TestCompactCramerResiduals();
     TestFoldedEndpointCoefficients();
     TestNormalization();
     TestDegeneratePolynomials();
