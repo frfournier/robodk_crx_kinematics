@@ -43,7 +43,7 @@ package = true
 [tool.uv.build-backend]
 module-root = "python"
 module-name = "crx_kinematics"
-source-include = ["docs/python-wrapper.md"]
+source-include = ["docs/python-wrapper.md", "docs/path-coverage.md", "docs/examples/path-coverage.json"]
 
 [tool.pytest.ini_options]
 log_cli = true
