@@ -388,6 +388,11 @@ endif()
 # Tests and verification utility
 # ------------------------------------------------------------------------------
 if(BUILD_TESTING)
+  add_executable(crx_exceptional_tests tests/test_crx_exceptional.cpp
+    src/crx_catalogue_discovery.cpp ${CRXKIN_CANONICAL_SOURCES} src/crx_math_compat.cpp)
+  target_link_libraries(crx_exceptional_tests PRIVATE crx_phase_catalogue)
+  _crxkin_strict_enclosure_target(crx_exceptional_tests)
+  add_test(NAME crx.exceptional COMMAND crx_exceptional_tests)
   add_executable(crx_command_certificate_tests tests/test_crx_command_certificate.cpp
     src/crx_catalogue_discovery.cpp ${CRXKIN_CANONICAL_SOURCES} src/crx_math_compat.cpp)
   target_link_libraries(crx_command_certificate_tests PRIVATE crx_command_certificate)
@@ -462,10 +467,13 @@ if(BUILD_TESTING)
     target_link_libraries(crx_catalogue_benchmark_commands PUBLIC crx_phase_catalogue)
     _crxkin_strict_enclosure_target(crx_catalogue_benchmark_commands)
     add_executable(crx_catalogue_benchmark EXCLUDE_FROM_ALL
-      scripts/benchmark_catalogues.cpp src/crx_catalogue_discovery.cpp
+      scripts/benchmark_catalogues.cpp
       ${CRXKIN_CANONICAL_SOURCES} src/crx_math_compat.cpp)
+    add_library(crx_exceptional_benchmark_stages STATIC EXCLUDE_FROM_ALL
+      scripts/exceptional_stages.cpp)
+    target_link_libraries(crx_exceptional_benchmark_stages PUBLIC crx_phase_catalogue)
     target_include_directories(crx_catalogue_benchmark PRIVATE include scripts)
-    target_link_libraries(crx_catalogue_benchmark PRIVATE crx_catalogue_benchmark_commands)
+    target_link_libraries(crx_catalogue_benchmark PRIVATE crx_catalogue_benchmark_commands crx_exceptional_benchmark_stages)
     add_executable(crx_local_certificate_benchmark EXCLUDE_FROM_ALL
       scripts/benchmark_local_certificates.cpp)
     target_include_directories(crx_local_certificate_benchmark PRIVATE include)
@@ -531,7 +539,7 @@ if(BUILD_TESTING)
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
     set_tests_properties(crx.python-regression PROPERTIES
-      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>;CRXKIN_INTERVAL_PROBE_PATH=$<TARGET_FILE:crx_interval_tests>;CRXKIN_EXACT_PROBE_PATH=$<TARGET_FILE:crx_exact_tests>;CRXKIN_BALL_PROBE_PATH=$<TARGET_FILE:crx_ball_tests>;CRXKIN_COVER_PROBE_PATH=$<TARGET_FILE:crx_root_certificate_tests>;CRXKIN_CATALOGUE_PROBE_PATH=$<TARGET_FILE:crx_phase_catalogue_tests>;CRXKIN_COMMAND_CERTIFICATE_PROBE_PATH=$<TARGET_FILE:crx_command_certificate_tests>"
+      ENVIRONMENT "CRXKIN_LIBRARY_PATH=$<TARGET_FILE:crx_kinematics>;CRXKIN_ROOT_PROBE_PATH=$<TARGET_FILE:crx_canonical_tests>;CRXKIN_INTERVAL_PROBE_PATH=$<TARGET_FILE:crx_interval_tests>;CRXKIN_EXACT_PROBE_PATH=$<TARGET_FILE:crx_exact_tests>;CRXKIN_BALL_PROBE_PATH=$<TARGET_FILE:crx_ball_tests>;CRXKIN_COVER_PROBE_PATH=$<TARGET_FILE:crx_root_certificate_tests>;CRXKIN_CATALOGUE_PROBE_PATH=$<TARGET_FILE:crx_phase_catalogue_tests>;CRXKIN_COMMAND_CERTIFICATE_PROBE_PATH=$<TARGET_FILE:crx_command_certificate_tests>;CRXKIN_EXCEPTIONAL_PROBE_PATH=$<TARGET_FILE:crx_exceptional_tests>"
     )
     add_test(
       NAME crx.solver-reliability
@@ -547,7 +555,7 @@ if(BUILD_TESTING)
       COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}"
               --output-on-failure
       DEPENDS crx_kinematics crx_canonical_tests crx_command_lift_tests crx_interval_tests crx_exact_tests crx_ball_tests
-              crx_solver_tests crx_root_certificate_tests crx_phase_catalogue_tests crx_command_certificate_tests
+              crx_solver_tests crx_root_certificate_tests crx_phase_catalogue_tests crx_command_certificate_tests crx_exceptional_tests
       COMMENT "Running CMake/CTest regression checks"
       USES_TERMINAL
       VERBATIM

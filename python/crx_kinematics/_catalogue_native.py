@@ -60,7 +60,23 @@ class Leaf(ct.Structure):
            ("residual_bernstein", Interval*9), ("derivative_bernstein", Interval*8), ("determinant_bernstein", Interval*5)])
 
 
+class Strata(ct.Structure):
+    _fields_ = [(name, U) for name in ("struct_size", "version", "reserved", "count",
+        "recovery_budget_exhausted", "source_domains", "candidate_budget_exhausted",
+        "total_ball_attempts", "total_certified_balls", "nomination_count")]
+
+
+class Recovery(ct.Structure):
+    _fields_ = ([(name, U) for name in ("struct_size", "version", "reserved", "index", "source", "near_stratum",
+        "used_singular_representatives", "refinement_attempted", "candidate_count", "attempted_balls", "certified_balls")]
+        + [("numerical_status", I)]
+        + [(name, D) for name in ("phase", "delta_defect", "base_axis_defect", "coincident_defect",
+            "vertical_defect", "shell_defect", "compatibility_defect")]
+        + [("canonical_rad", (D*6)*8), ("position_errors", D*8), ("orientation_errors", D*8)])
+
+
 def bind(library, vector, pose, limits, optional, ball_record):
+    library.catalogue_strata_read = library.catalogue_recovery_read = None
     names = ("catalogue_query", "catalogue_destroy", "catalogue_read", "catalogue_phase",
              "catalogue_command_read", "catalogue_range_read", "catalogue_chart_read", "catalogue_leaf_read", "catalogue_numerical")
     if not all(hasattr(library.lib, "crx_v1_"+name) for name in names):
@@ -74,3 +90,6 @@ def bind(library, vector, pose, limits, optional, ball_record):
         library._function(name, [ct.c_void_p, index, ct.POINTER(record)])
     library._function("catalogue_leaf_read", [ct.c_void_p, U, U, ct.POINTER(Leaf)])
     library._function("catalogue_numerical", [ct.c_void_p, U, ct.POINTER(D)])
+    if all(hasattr(library.lib, "crx_v1_"+name) for name in ("catalogue_strata_read", "catalogue_recovery_read")):
+        library._function("catalogue_strata_read", [ct.c_void_p, ct.POINTER(Strata)])
+        library._function("catalogue_recovery_read", [ct.c_void_p, U, ct.POINTER(Recovery)])
