@@ -17,15 +17,6 @@ namespace crx::canonical {
 // Four analytic circle crossings, with at most two phases per crossing.
 inline constexpr std::size_t kBoundaryPhaseCapacity = 4 * 2;
 
-struct WristBoundaryPhases {
-  std::array<WristPhase, kBoundaryPhaseCapacity> values{};
-  std::size_t count = 0;
-};
-
-// Analytic numerical nominations for a prepared, unchanged wrist circle:
-// u.z=0, x.u=0 and both arm shells. They are not incidence/coverage proofs.
-auto NominateWristBoundaries(const WristCircle &circle) -> WristBoundaryPhases;
-
 struct DiscoveryOptions {
   RootOptions roots{};
   int max_polish_iterations = numerics::kPolishIterations;
@@ -33,9 +24,6 @@ struct DiscoveryOptions {
   // final command limits and FK remain authoritative. Supply both or neither.
   const Vec6 *lower_limits = nullptr;
   const Vec6 *upper_limits = nullptr;
-  // Private validation/benchmark control; the general chart route remains
-  // available for independent comparison and unsupported special cases.
-  bool use_vertical_closed_form = true;
 };
 
 struct JointDiscovery {
@@ -43,7 +31,6 @@ struct JointDiscovery {
   std::size_t count = 0;
   bool used_singular_representatives = false;
   std::size_t pruned_nominations = 0;
-  bool used_vertical_closed_form = false;
   // Bounded storage for roots and analytic boundary crossings after posture
   // deduplication. Capacity exhaustion returns NeedsRefinement, never
   // truncates.

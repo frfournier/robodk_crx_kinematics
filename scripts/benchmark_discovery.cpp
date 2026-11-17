@@ -18,7 +18,6 @@
 #include <iostream>
 #include <numeric>
 #include <random>
-#include <string_view>
 #include <vector>
 
 #define NOMINMAX
@@ -49,8 +48,7 @@ volatile double checksum = 0;
 
 auto main(int argc, char **argv) -> int {
   if (argc != 7) {
-    std::cerr << "DLL|--paired-discovery input timings.csv solutions.csv "
-                 "repeats rounds\n";
+    std::cerr << "DLL input timings.csv solutions.csv repeats rounds\n";
     return 2;
   }
   const int repeats = std::stoi(argv[5]);
@@ -58,20 +56,15 @@ auto main(int argc, char **argv) -> int {
   if (repeats < 1 || rounds < 1) {
     return 2;
   }
-  const bool paired_discovery =
-      std::string_view(argv[1]) == "--paired-discovery";
-  HMODULE library = nullptr;
-  SolveIk solve = nullptr;
-  if (!paired_discovery) {
-    library = LoadLibraryA(argv[1]);
-    if (library == nullptr) {
-      return 2;
-    }
-    solve = reinterpret_cast<SolveIk>(GetProcAddress(library, "SolveIK"));
-    if (solve == nullptr) {
-      FreeLibrary(library);
-      return 2;
-    }
+  HMODULE library = LoadLibraryA(argv[1]);
+  if (library == nullptr) {
+    return 2;
+  }
+  const auto solve =
+      reinterpret_cast<SolveIk>(GetProcAddress(library, "SolveIK"));
+  if (solve == nullptr) {
+    FreeLibrary(library);
+    return 2;
   }
   DWORD_PTR process_mask = 0, system_mask = 0;
   if (GetProcessAffinityMask(GetCurrentProcess(), &process_mask,
@@ -113,8 +106,7 @@ auto main(int argc, char **argv) -> int {
   if (!timings || !solutions) {
     return 2;
   }
-  timings << std::setprecision(17)
-          << "case,path,round,us,status,count,vertical_closed_form\n";
+  timings << std::setprecision(17) << "case,path,round,us,status,count\n";
   solutions << std::setprecision(17) << "case,path,q1,q2,q3,q4,q5,q6\n";
   const crx::canonical::PoseTolerance tolerance{1e-4, 1e-3 * kRadians};
   std::vector<std::size_t> order(case_count);
@@ -128,18 +120,15 @@ auto main(int argc, char **argv) -> int {
       for (int side = 0; side < 2; ++side) {
         const bool discovery =
             (static_cast<int>(index) + round + side) % 2 == 0;
-        const bool component = paired_discovery || discovery;
-        crx::canonical::DiscoveryOptions options;
-        options.use_vertical_closed_form = !paired_discovery || discovery;
         ProductionResult production;
         crx::canonical::JointDiscovery discovered;
         const int iterations = round < 0 ? 3 : repeats;
         double consumed = 0;
         const auto begin = std::chrono::steady_clock::now();
         for (int iteration = 0; iteration < iterations; ++iteration) {
-          if (component) {
+          if (discovery) {
             discovered = crx::canonical::DiscoverJointCandidates(
-                item.lengths, item.canonical, tolerance, options);
+                item.lengths, item.canonical, tolerance);
             consumed += static_cast<double>(discovered.count) +
                         static_cast<double>(discovered.status);
           } else {
@@ -158,25 +147,22 @@ auto main(int argc, char **argv) -> int {
         const double us =
             std::chrono::duration<double, std::micro>(end - begin).count() /
             iterations;
-        const int status = component ? static_cast<int>(discovered.status)
+        const int status = discovery ? static_cast<int>(discovered.status)
                            : production.count > 0  ? 0
                            : production.count == 0 ? 1
                                                    : 3;
         const auto count =
-            component ? discovered.count
+            discovery ? discovered.count
                       : static_cast<std::size_t>(std::max(0, production.count));
-        const char *path = paired_discovery
-                               ? (discovery ? "closed_form" : "general")
-                               : (discovery ? "discovery" : "production");
+        const char *path = discovery ? "discovery" : "production";
         timings << index << ',' << path << ',' << round << ',' << us << ','
-                << status << ',' << count << ','
-                << (component && discovered.used_vertical_closed_form) << '\n';
+                << status << ',' << count << '\n';
         if (round == 0) {
           for (std::size_t i = 0; i < count; ++i) {
             solutions << index << ',' << path;
             for (int joint = 0; joint < 6; ++joint) {
               const double value =
-                  component
+                  discovery
                       ? discovered.candidates[i].joints[joint]
                       : production.joints[12 * i +
                                           static_cast<std::size_t>(joint)] *
@@ -190,9 +176,7 @@ auto main(int argc, char **argv) -> int {
     }
     std::cerr << "Round " << round + 1 << '/' << rounds << " complete\n";
   }
-  if (library != nullptr) {
-    FreeLibrary(library);
-  }
+  FreeLibrary(library);
   std::cerr << "Checksum " << checksum << '\n';
   return timings && solutions ? 0 : 2;
 }
