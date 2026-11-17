@@ -10,8 +10,11 @@ from ._native import (
     NativeError,
 )
 from ._solver import Coverage, CrxSolver, FibreIdentificationResult, IKResult, IKStatus
+from ._certificates import BallCertificate, CertificateFailure
 
 __all__ = [
+    "BallCertificate",
+    "CertificateFailure",
     "ClosedSolverError",
     "ConfigurationError",
     "Coverage",
