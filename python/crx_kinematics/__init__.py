@@ -11,10 +11,23 @@ from ._native import (
 )
 from ._solver import Coverage, CrxSolver, FibreIdentificationResult, IKResult, IKStatus
 from ._certificates import BallCertificate, CertificateFailure
+from ._calibrated import (
+    CalibratedAttempt, CalibratedBallCertificate, CalibratedFrame, CalibratedGeometry,
+    CalibratedIdentity, CalibratedOptions, CalibratedResult, CalibratedSolver, CalibratedStatus,
+)
 
 __all__ = [
     "BallCertificate",
     "CertificateFailure",
+    "CalibratedAttempt",
+    "CalibratedBallCertificate",
+    "CalibratedFrame",
+    "CalibratedGeometry",
+    "CalibratedIdentity",
+    "CalibratedOptions",
+    "CalibratedResult",
+    "CalibratedSolver",
+    "CalibratedStatus",
     "ClosedSolverError",
     "ConfigurationError",
     "Coverage",
