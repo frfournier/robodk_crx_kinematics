@@ -11,8 +11,15 @@ from ._native import (
 )
 from ._solver import Coverage, CrxSolver, FibreIdentificationResult, IKResult, IKStatus
 from ._certificates import BallCertificate, CertificateFailure
+from ._catalogues import (Admission, CatalogueOptions, CatalogueResult, CatalogueSummary,
+    CertifiedCommand, CommandFailure, CommandProfile, CommandRange, PhaseCertificate,
+    PhaseFailure, QueryPreparation, Ranking, RootChart, RootKind, RootLeaf, RootReason, RootStatus)
 
 __all__ = [
+    "Admission", "CatalogueOptions", "CatalogueResult", "CatalogueSummary",
+    "CertifiedCommand", "CommandFailure", "CommandProfile", "CommandRange",
+    "PhaseCertificate", "PhaseFailure", "QueryPreparation", "Ranking",
+    "RootChart", "RootKind", "RootLeaf", "RootReason", "RootStatus",
     "BallCertificate",
     "CertificateFailure",
     "ClosedSolverError",
