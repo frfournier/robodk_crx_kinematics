@@ -186,6 +186,27 @@ at an arm singularity without invalidating a solution. Standalone
 
 ## Verified nominal catalogues and command ranking
 
+Exceptional recovery is available through the optional `query.strata` snapshot.
+It is `None` for older catalogue DLLs without the diagnostic endpoints. On newer
+DLLs it reports bounded recovery work, local-ball attempt totals and any budget
+exhaustion. A complete regular root cover needs no exceptional attempts.
+
+`strata.recoveries` retains full FK-checked numerical configurations in canonical
+radians, their numerical position/orientation errors, nomination sources and
+`NearStratum` flags. Position errors use normalized lengths; multiply by
+`query.summary.length_scale` for the model's physical units. Defects report
+numerical proximity to determinant-zero, base-axis, coincident-sphere,
+vertical-arm and arm-shell conditions. `POLYNOMIAL_ENCLOSES_ZERO` means all
+coefficient intervals contain zero. None of these flags proves an exact stratum
+or continuous family. Unavailable witness-dependent defects are NaN.
+
+Local ball certificates remain in `query.phases`, separately from these numerical
+witnesses. Added witnesses cannot complete an unresolved root cover or establish
+global nearest selection. Exact continuous-family classification and family
+parametrizations are deferred; `ContinuousFibre` is never produced. Snapshot
+arrays are immutable and survive model/query closure. Reading `strata` after
+query closure raises an error, as for other lazy native audit reads.
+
 ```python
 from crx_kinematics import CatalogueOptions, CommandProfile, CrxSolver, Ranking
 
