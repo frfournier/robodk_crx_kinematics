@@ -24,6 +24,9 @@ struct DiscoveryOptions {
   // final command limits and FK remain authoritative. Supply both or neither.
   const Vec6 *lower_limits = nullptr;
   const Vec6 *upper_limits = nullptr;
+  // Private validation/benchmark control; the general chart route remains
+  // available for independent comparison and unsupported special cases.
+  bool use_vertical_closed_form = true;
 };
 
 struct JointDiscovery {
@@ -31,6 +34,7 @@ struct JointDiscovery {
   std::size_t count = 0;
   bool used_singular_representatives = false;
   std::size_t pruned_nominations = 0;
+  bool used_vertical_closed_form = false;
   // Bounded storage for roots and analytic boundary crossings after posture
   // deduplication. Capacity exhaustion returns NeedsRefinement, never
   // truncates.
